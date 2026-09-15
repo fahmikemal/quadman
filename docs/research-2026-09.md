@@ -294,3 +294,38 @@ return m, tea.ExecProcess(exec.Command(editor, u.Path), func(err error) tea.Msg 
 - Tips bubbletea: <https://leg100.github.io/en/posts/building-bubbletea-programs/>, <https://charm.land/blog/commands-in-bubbletea/>
 - bubbletea v2 upgrade guide (module cache v2.0.9), bubbles v2.2.1, lipgloss v2.0.6 (via Context7)
 - Pain points: podman#28002, podman discussions #26709/#19521/#26899, toolbox#1005, Arch wiki Podman, komunitas reddit/fedora/mailing-list (URL lengkap di laporan riset)
+
+---
+
+## Refresh — September 2026 (v2)
+
+Verifikasi ulang referensi per 15 Sep 2026.
+
+- **Podman 6.x line aktif**: terbaru v6.1.1 (2 Sep 2026, security patch
+  CVE-2026-17106). v6.1.0 (12 Agu 2026) menambah key Quadlet `ImageVolume=`
+  (equivalent `--image-volume`; nilai `anonymous` default, `bind` deprecated→
+  alias anonymous, `tmpfs` didukung), memperbaiki race yang bisa membuat unit
+  hasil generator korup, dan membuat error generator tampil di STDERR (bukan
+  hanya /dev/kmsg) — membuat `systemd-analyze verify` dan output `--dryrun`
+  berguna untuk fitur diagnostik quadman. v5.8.6 menambal CVE-2026-19730
+  (`podman quadlet install --replace` tidak mentruncate file lama).
+- **podman-tui v2.0.0 (6 Sep 2026)**: support Podman 6, keyboard shortcuts
+  baru untuk dialog, ARM builds — dan tetap **tanpa manajemen Quadlet**
+  (tidak disebut di changelog mana pun). Niche quadman masih kosong.
+- **podlet v0.3.2 (18 Mei 2026)**: mencakup opsi Quadlet Podman 5.3–5.8
+  termasuk `.artifact` dan `.quadlets`; belum mendukung key Podman 6.x
+  (`ImageVolume=`). Integrasi podlet tetap valid tapi quadman bisa
+  meng-cover gap Podman 6 di sisi parse/read.
+- **Charm stack sudah terbaru** (proxy.golang.org, 15 Sep 2026):
+  bubbletea v2.0.9, bubbles v2.2.1, lipgloss v2.0.6 — sama dengan go.mod,
+  tidak ada upgrade yang perlu.
+- **`.artifact` tidak lagi ditandai eksperimental** di docs terbaru
+  (sebelumnya experimental ~Podman 5.5).
+- **Dokumen quadlet terkini** tidak menambah tipe unit baru; 8 tipe tetap.
+
+Sources:
+<https://github.com/containers/podman/releases>,
+<https://github.com/containers/podman-tui/releases>,
+<https://github.com/containers/podlet/releases>,
+<https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html>,
+<https://proxy.golang.org/charm.land/bubbletea/v2/@latest> (d. v2/lipgloss/bubbles)
