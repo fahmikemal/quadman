@@ -78,9 +78,9 @@ func (m Model) pickEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m Model) pickerLine() string {
 	var parts []string
 	for _, c := range m.editorChoices {
-		parts = append(parts, "["+c.key+"]"+c.bin[1:])
+		parts = append(parts, "["+c.key+"] "+c.bin)
 	}
-	return "Choose an editor: " + strings.Join(parts, " ") + " — saved for next time (esc to cancel)"
+	return "Choose an editor: " + strings.Join(parts, "  ") + " - saved for next time (esc to cancel)"
 }
 
 // editWith opens the file in the given editor via tea.ExecProcess.
