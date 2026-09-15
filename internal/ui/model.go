@@ -14,11 +14,12 @@ import (
 	"charm.land/bubbles/v2/table"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
-	"github.com/quadman-dev/quadman/internal/loginctl"
-	"github.com/quadman-dev/quadman/internal/podman"
-	"github.com/quadman-dev/quadman/internal/quadlet"
-	"github.com/quadman-dev/quadman/internal/systemd"
+	"github.com/kemal-labs/quadman/internal/loginctl"
+	"github.com/kemal-labs/quadman/internal/podman"
+	"github.com/kemal-labs/quadman/internal/quadlet"
+	"github.com/kemal-labs/quadman/internal/systemd"
 )
 
 type mode int
@@ -95,7 +96,7 @@ func listKeys() keyMap {
 		Enable:       key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "enable now")),
 		Disable:      key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "disable boot")),
 		DaemonReload: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "daemon-reload")),
-		Linger:       key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "toggle linger")),
+		Linger:       key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "linger")),
 		Help:         key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		Quit:         key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 	}
@@ -115,7 +116,16 @@ func (k keyMap) isList() bool { return k.Enter.Enabled() }
 
 func (k keyMap) ShortHelp() []key.Binding {
 	if k.isList() {
-		return []key.Binding{k.Enter, k.Logs, k.Start, k.Stop, k.Restart, k.Enable, k.Disable, k.DaemonReload, k.Linger, k.Help, k.Quit}
+		return []key.Binding{
+			k.Enter,
+			k.Logs,
+			key.NewBinding(key.WithKeys("s", "x", "r"), key.WithHelp("s/x/r", "unit")),
+			key.NewBinding(key.WithKeys("e", "d"), key.WithHelp("e/d", "boot")),
+			key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "reload")),
+			k.Linger,
+			k.Help,
+			k.Quit,
+		}
 	}
 	return []key.Binding{k.Back, k.Quit}
 }
@@ -633,6 +643,7 @@ func (m Model) helpBar() string {
 		}
 	}
 	m.help.ShowAll = m.showHelp
+	var bar string
 	if m.showHelp {
 		lines := []string{
 			m.help.View(m.keys()) + "  ·  " + linger,
@@ -641,9 +652,23 @@ func (m Model) helpBar() string {
 			"e enables the unit to start at boot (with --now); d removes it from boot (the container keeps running).",
 			"Quadlet search order: " + strings.Join(quadlet.SearchDirs(), " → "),
 		}
-		return helpStyle.Render(strings.Join(lines, "\n"))
+		bar = strings.Join(lines, "\n")
+	} else {
+		bar = m.help.View(m.keys()) + "  ·  " + linger
 	}
-	return helpStyle.Render(m.help.View(m.keys()) + "  ·  " + linger)
+
+	// bubbles/help only truncates while an ellipsis still fits; past that it
+	// happily overflows the width, so clamp every line ourselves.
+	if w := m.help.Width(); w > 0 {
+		ls := strings.Split(bar, "\n")
+		for i, l := range ls {
+			if ansi.StringWidth(l) > w {
+				ls[i] = ansi.Truncate(l, w, "…")
+			}
+		}
+		bar = strings.Join(ls, "\n")
+	}
+	return helpStyle.Render(bar)
 }
 
 func onOff(v bool) string {
