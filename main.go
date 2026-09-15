@@ -14,9 +14,9 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/quadman-dev/quadman/internal/quadlet"
-	"github.com/quadman-dev/quadman/internal/systemd"
-	"github.com/quadman-dev/quadman/internal/ui"
+	"github.com/kemal-labs/quadman/internal/quadlet"
+	"github.com/kemal-labs/quadman/internal/systemd"
+	"github.com/kemal-labs/quadman/internal/ui"
 )
 
 var version = "dev"

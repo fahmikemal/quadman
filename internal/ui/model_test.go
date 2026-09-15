@@ -6,8 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/quadman-dev/quadman/internal/quadlet"
-	"github.com/quadman-dev/quadman/internal/systemd"
+	"github.com/kemal-labs/quadman/internal/quadlet"
+	"github.com/kemal-labs/quadman/internal/systemd"
 )
 
 func TestHelpBarLingerStates(t *testing.T) {
@@ -167,16 +167,21 @@ func TestStaleReloadBanner(t *testing.T) {
 
 func TestHelpBarContextual(t *testing.T) {
 	m := New()
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 124, Height: 24})
+	m = model.(Model)
 	list := m.helpBar()
-	if !strings.Contains(list, "enable") || !strings.Contains(list, "daemon-reload") {
+	if !strings.Contains(list, "e/d") || !strings.Contains(list, "reload") {
 		t.Errorf("list help bar should mention enable/disable and daemon-reload: %q", list)
+	}
+	if strings.Contains(list, "…") {
+		t.Errorf("compact help bar should fit without truncation at 124 cols: %q", list)
 	}
 	m.mode = modeLogs
 	view := m.helpBar()
 	if !strings.Contains(view, "back") {
 		t.Errorf("logs view help should offer back navigation: %q", view)
 	}
-	if strings.Contains(view, "enable now") {
+	if strings.Contains(view, "boot") {
 		t.Errorf("logs view help must not offer list-only actions: %q", view)
 	}
 }

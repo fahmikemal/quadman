@@ -1,4 +1,4 @@
-module github.com/quadman-dev/quadman
+module github.com/kemal-labs/quadman
 
 go 1.25.0
 

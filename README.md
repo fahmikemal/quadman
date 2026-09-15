@@ -1,6 +1,16 @@
+<div align="center">
+
 # quadman
 
 **A terminal UI manager for rootless Podman [Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) units.**
+
+[![CI](https://github.com/kemal-labs/quadman/actions/workflows/ci.yml/badge.svg)](https://github.com/kemal-labs/quadman/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/kemal-labs/quadman)](https://github.com/kemal-labs/quadman/releases)
+[![Go Reference](https://pkg.go.dev/badge/github.com/kemal-labs/quadman.svg)](https://pkg.go.dev/github.com/kemal-labs/quadman)
+[![Go Report Card](https://goreportcard.com/badge/github.com/kemal-labs/quadman)](https://goreportcard.com/report/github.com/kemal-labs/quadman)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+</div>
 
 Quadlet is the recommended way to run rootless containers as systemd services — but its
 tooling is scattered across `systemctl`, `journalctl`, and `loginctl`. quadman puts the
@@ -34,10 +44,31 @@ quadman is engine-agnostic on purpose: it only drives the `systemctl --user` /
 `journalctl --user` / `loginctl` CLIs, so it works with any Podman rootless setup and
 never needs the Podman socket or API.
 
+## Screenshots
+
+The main list — every Quadlet source, its systemd unit, live state, and image,
+with a `daemon-reload` warning when files changed on disk:
+
+![quadman unit list](docs/screenshot-list.svg)
+
+Selecting a unit streams its last 300 journal lines without leaving the TUI:
+
+![quadman journal view](docs/screenshot-logs.svg)
+
 ## Install
 
+Download a prebuilt binary (Linux amd64/arm64) from the
+[Releases](https://github.com/kemal-labs/quadman/releases) page:
+
 ```sh
-go install github.com/quadman-dev/quadman@latest
+curl -LO https://github.com/kemal-labs/quadman/releases/latest/download/quadman_0.1.1_linux_amd64.tar.gz
+tar -xzf quadman_0.1.1_linux_amd64.tar.gz && sudo install quadman /usr/local/bin/
+```
+
+Or with Go:
+
+```sh
+go install github.com/kemal-labs/quadman@latest
 ```
 
 Or build from a clone:
