@@ -53,6 +53,7 @@ func (m Model) startLogs(u quadlet.Unit) (tea.Model, tea.Cmd) {
 	sess.scan.Buffer(make([]byte, 256*1024), 256*1024) // long journal lines must not kill the stream
 	m.sess = sess
 	m.logLines = nil
+	m.clearSearch()
 	m.following = true
 	m.mode = modeLogs
 	m.viewport.SetContent("")
