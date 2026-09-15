@@ -24,7 +24,7 @@ func TestGenerateScreenshots(t *testing.T) {
 
 	m := demoModel(t)
 
-	listSVG := ansiToSVG(m.View().Content, "quadman — rootless quadlet manager")
+	listSVG := ansiToSVG(m.View().Content, "quadman - rootless quadlet manager")
 	writeScreenshot(t, filepath.Join("..", "..", "docs", "screenshot-list.svg"), listSVG)
 
 	logModel := demoModel(t)
@@ -32,7 +32,7 @@ func TestGenerateScreenshots(t *testing.T) {
 	logModel = model.(Model)
 	model, _ = logModel.Update(logsMsg{unit: "webapp.service", out: sampleJournal})
 	logModel = model.(Model)
-	logsSVG := ansiToSVG(logModel.View().Content, "quadman — journal: webapp.service")
+	logsSVG := ansiToSVG(logModel.View().Content, "quadman - journal: webapp.service")
 	writeScreenshot(t, filepath.Join("..", "..", "docs", "screenshot-logs.svg"), logsSVG)
 }
 
