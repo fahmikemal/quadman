@@ -36,7 +36,7 @@ func Available() bool {
 func QuadletList(ctx context.Context) ([]Entry, error) {
 	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "podman", "quadlet", "list", "--format", "json").Output()
+	out, err := exec.CommandContext(ctx, "podman", "quadlet", "list", "--format", "json").Output() // #nosec G204 -- constant argv, no shell
 	if err != nil {
 		return nil, fmt.Errorf("podman quadlet list: %w", err)
 	}
@@ -109,7 +109,7 @@ func PsHealth(ctx context.Context) (map[string]string, error) {
 func HealthcheckRun(ctx context.Context, container string) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
-	err := exec.CommandContext(ctx, "podman", "healthcheck", "run", "--", container).Run()
+	err := exec.CommandContext(ctx, "podman", "healthcheck", "run", "--", container).Run() // #nosec G204 -- argv slice, no shell; container name is behind a "--" separator
 	if err == nil {
 		return true, nil
 	}
@@ -149,7 +149,7 @@ func AutoUpdateDryRun(ctx context.Context) ([]AutoUpdateEntry, error) {
 func runPodman(ctx context.Context, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "podman", args...).Output()
+	out, err := exec.CommandContext(ctx, "podman", args...).Output() // #nosec G204 -- argv slice, no shell; call sites pass read-only subcommands
 	if err != nil {
 		return nil, fmt.Errorf("podman %s: %w", strings.Join(args, " "), err)
 	}

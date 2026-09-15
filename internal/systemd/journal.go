@@ -27,7 +27,7 @@ func (s *Systemd) Journal(ctx context.Context, unit string, lines int) (string, 
 	}
 	ctx, cancel := s.timeoutCtx(ctx)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, s.journalBin(), args...)
+	cmd := exec.CommandContext(ctx, s.journalBin(), args...) // #nosec G204 -- argv slice, no shell; unit name is passed as a "--unit=" value
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -55,7 +55,7 @@ func (s *Systemd) FollowJournal(ctx context.Context, unit string, lines int) (st
 	if s.User {
 		args = append([]string{"--user"}, args...)
 	}
-	cmd := exec.CommandContext(ctx, s.journalBin(), args...)
+	cmd := exec.CommandContext(ctx, s.journalBin(), args...) // #nosec G204 -- argv slice, no shell; unit name is passed as a "--unit=" value
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, nil, fmt.Errorf("journalctl -f: %w", err)
@@ -90,7 +90,7 @@ func (s *Systemd) IsActive(ctx context.Context, unit string) (string, error) {
 func (s *Systemd) stateQuery(ctx context.Context, verb, unit string) (string, error) {
 	ctx, cancel := s.timeoutCtx(ctx)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, s.bin(), s.args(verb, "--", unit)...).Output()
+	out, err := exec.CommandContext(ctx, s.bin(), s.args(verb, "--", unit)...).Output() // #nosec G204 -- argv slice, no shell; unit name is behind a "--" separator
 	if err != nil {
 		// is-enabled/is-active exit non-zero for "not in that state"; the
 		// one-word answer printed to stdout is still the payload we want.
