@@ -61,8 +61,8 @@ Download a prebuilt binary (Linux amd64/arm64) from the
 [Releases](https://github.com/kemal-labs/quadman/releases) page:
 
 ```sh
-curl -LO https://github.com/kemal-labs/quadman/releases/latest/download/quadman_0.1.1_linux_amd64.tar.gz
-tar -xzf quadman_0.1.1_linux_amd64.tar.gz && sudo install quadman /usr/local/bin/
+curl -LO https://github.com/kemal-labs/quadman/releases/latest/download/quadman_0.1.2_linux_amd64.tar.gz
+tar -xzf quadman_0.1.2_linux_amd64.tar.gz && sudo install quadman /usr/local/bin/
 ```
 
 Or with Go:
