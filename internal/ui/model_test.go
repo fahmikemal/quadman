@@ -171,19 +171,19 @@ func TestHelpBarContextual(t *testing.T) {
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 124, Height: 24})
 	m = model.(Model)
 	list := m.helpBar()
-	if !strings.Contains(list, "e/d") || !strings.Contains(list, "reload") {
-		t.Errorf("list help bar should mention enable/disable and daemon-reload: %q", list)
+	if !strings.Contains(list, "enable") || !strings.Contains(list, "reload") || !strings.Contains(list, "filter") {
+		t.Errorf("list legend should spell out actions in full words: %q", list)
 	}
 	if strings.Contains(list, "…") {
-		t.Errorf("compact help bar should fit without truncation at 124 cols: %q", list)
+		t.Errorf("two-line legend should fit without truncation at 124 cols: %q", list)
 	}
 	m.mode = modeLogs
 	view := m.helpBar()
-	if !strings.Contains(view, "back") {
-		t.Errorf("logs view help should offer back navigation: %q", view)
+	if !strings.Contains(view, "back") || !strings.Contains(view, "pause") {
+		t.Errorf("logs view legend should offer pause/back navigation: %q", view)
 	}
-	if strings.Contains(view, "boot") {
-		t.Errorf("logs view help must not offer list-only actions: %q", view)
+	if strings.Contains(view, "boot") || strings.Contains(view, "filter") {
+		t.Errorf("logs view legend must not offer list-only actions: %q", view)
 	}
 }
 
