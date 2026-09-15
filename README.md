@@ -104,7 +104,7 @@ quadman -version
 | `↑/↓` `j/k` | move in the list                       |
 | `enter` | view the Quadlet source file               |
 | `/`   | fuzzy-filter the list (type to narrow, `esc` clears) |
-| `l`   | live journal tail for the unit (`f` pauses follow) |
+| `l`   | live journal tail for the unit (`f` pauses follow, `/` searches with highlight, `n`/`N` jumps between matches) |
 | `s` / `x` / `r` | start / stop (confirms) / restart the unit |
 | `e`   | enable at boot (appends `[Install]` to the file, asks first) |
 | `d`   | disable from boot (removes `[Install]`, asks first) |

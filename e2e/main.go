@@ -130,6 +130,18 @@ func main() {
 	time.Sleep(1500 * time.Millisecond)
 	send(f, "f")
 	check("logs pause f", waitFor("paused", 3*time.Second), "follow di-pause")
+
+	// 5b. Search in logs: '/', query, matches counted, 'n' navigates, esc clears.
+	send(f, "/")
+	time.Sleep(300 * time.Millisecond)
+	send(f, "demo-web")
+	ok = waitFor("matches", 5*time.Second)
+	check("logs search /", ok, "hasil pencarian ter-highlight dan terhitung")
+	send(f, "n")
+	time.Sleep(300 * time.Millisecond)
+	send(f, "\x1b") // esc clears search
+	time.Sleep(300 * time.Millisecond)
+
 	send(f, "q")
 	time.Sleep(400 * time.Millisecond)
 	check("logs back", waitFor("QUADLET", 3*time.Second), "kembali ke daftar")

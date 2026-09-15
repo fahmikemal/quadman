@@ -15,6 +15,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/kemal-labs/quadman/internal/config"
@@ -116,6 +117,13 @@ type Model struct {
 	filtering bool
 	filterStr string
 
+	// logs search
+	searchIn      textinput.Model
+	searching     bool
+	searchStr     string
+	searchMatches int
+	matchPos      int
+
 	// follow logs
 	sess      *logSession
 	logLines  []string
@@ -163,8 +171,18 @@ func New() Model {
 		table.WithHeight(10),
 	)
 	vp := viewport.New(viewport.WithWidth(80), viewport.WithHeight(20))
+	vp.HighlightStyle = lipgloss.NewStyle().Background(lipgloss.Color("220")).Foreground(lipgloss.Color("0"))
+	vp.SelectedHighlightStyle = lipgloss.NewStyle().Background(lipgloss.Color("214")).Foreground(lipgloss.Color("0")).Bold(true)
+	vp.LeftGutterFunc = func(ctx viewport.GutterContext) string {
+		if ctx.Soft {
+			return "     "
+		}
+		return fmt.Sprintf("%4d ", ctx.Index+1)
+	}
 	fi := textinput.New()
 	fi.Placeholder = "filter units…"
+	si := textinput.New()
+	si.Placeholder = "search logs (regex ok)…"
 	cfg, _ := config.Load()
 	return Model{
 		sys:      systemd.New(),
@@ -174,6 +192,7 @@ func New() Model {
 		help:     help.New(),
 		spinner:  spinner.New(spinner.WithSpinner(spinner.Dot)),
 		filterIn: fi,
+		searchIn: si,
 		cfg:      cfg,
 		status:   map[string]systemd.Status{},
 		images:   map[string]string{},
@@ -444,6 +463,26 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.runPending(p)
 	}
 
+	// While the log search input is focused, keys edit the search query.
+	if m.searching {
+		switch msg.String() {
+		case "enter":
+			m.searching = false
+			m.searchIn.Blur()
+			return m, nil
+		case "esc":
+			m.clearSearch()
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.searchIn, cmd = m.searchIn.Update(msg)
+		if v := m.searchIn.Value(); v != m.searchStr {
+			m.searchStr = v
+			m.applySearch()
+		}
+		return m, cmd
+	}
+
 	// While the filter input is focused, keys edit the filter.
 	if m.filtering {
 		switch msg.String() {
@@ -499,6 +538,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "esc", "q":
 			m.stopLogs()
+			m.clearSearch()
 			m.mode = modeList
 			m.resize()
 			return m, nil
@@ -508,6 +548,25 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				if m.following {
 					m.viewport.GotoBottom()
 				}
+			}
+			return m, nil
+		case "/":
+			if m.mode == modeLogs {
+				m.searching = true
+				m.searchIn.Focus()
+				return m, textinput.Blink
+			}
+			var cmd tea.Cmd
+			m.viewport, cmd = m.viewport.Update(msg)
+			return m, cmd
+		case "n":
+			if m.mode == modeLogs {
+				m.nextMatch()
+			}
+			return m, nil
+		case "N":
+			if m.mode == modeLogs {
+				m.prevMatch()
 			}
 			return m, nil
 		case "E":
@@ -841,6 +900,9 @@ func (m *Model) resize() {
 	if m.mode == modeList && (m.filtering || m.filterStr != "") {
 		chrome++ // filter line
 	}
+	if m.mode == modeLogs && (m.searching || m.searchStr != "") {
+		chrome++ // search line
+	}
 	if m.pickingEditor {
 		chrome++ // editor picker prompt
 	}
@@ -914,6 +976,17 @@ func (m Model) View() tea.View {
 		}
 		b.WriteString(headerStyle.Render(" LOGS " + unit + "  (" + state + ", q to go back)"))
 		b.WriteString("\n")
+		if m.searching || m.searchStr != "" {
+			info := ""
+			if m.searchStr != "" {
+				info = fmt.Sprintf("  (%d/%d matches)", m.matchPos, m.searchMatches)
+				if m.searchMatches == 0 {
+					info = "  (no matches)"
+				}
+			}
+			b.WriteString(filterStyle.Render("/ " + m.searchIn.View() + info))
+			b.WriteString("\n")
+		}
 		b.WriteString(m.viewport.View())
 	case modeUpdates:
 		b.WriteString(headerStyle.Render(" AUTO-UPDATE "))
@@ -997,7 +1070,7 @@ func (m Model) legend() []string {
 	case modeFile:
 		return []string{"E edit · ↑/↓ scroll · esc/q back"}
 	case modeLogs:
-		return []string{"f pause/resume · ↑/↓ scroll · esc/q back"}
+		return []string{"f pause/resume · / search · n/N match · ↑/↓ scroll · esc/q back"}
 	case modeUpdates:
 		return []string{"U toggle timer · r refresh · esc/q back"}
 	}
