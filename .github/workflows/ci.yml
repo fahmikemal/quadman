@@ -31,3 +31,15 @@ jobs:
         run: |
           podman info --storage-driver=vfs
           ./quadman list
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Dependency vulnerability scan (govulncheck)
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      - name: Static security analysis (gosec)
+        run: go run github.com/securego/gosec/v2/cmd/gosec@latest -quiet ./...

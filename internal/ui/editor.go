@@ -90,7 +90,7 @@ func (m Model) editWith(editor string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	before := fileMtime(u.Path)
-	cmd := exec.Command(editor, u.Path)
+	cmd := exec.Command(editor, u.Path) // #nosec G702 G204 -- the editor binary is the user's own $EDITOR or their saved picker choice; argv slice, no shell
 	return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
 		return editorFinishedMsg{changed: fileMtime(u.Path) != before, err: err}
 	})

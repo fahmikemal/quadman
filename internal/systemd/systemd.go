@@ -105,7 +105,7 @@ func (s *Systemd) Show(ctx context.Context, units []string) (map[string]Status, 
 	}, units...)...)
 	ctx, cancel := s.timeoutCtx(ctx)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, s.bin(), args...)
+	cmd := exec.CommandContext(ctx, s.bin(), args...) // #nosec G204 -- argv slice, no shell; unit names are behind a "--" separator; driving systemctl is this tool's purpose
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -182,7 +182,7 @@ func (s *Systemd) Disable(ctx context.Context, unit string, now bool) (string, e
 func (s *Systemd) unitCmd(ctx context.Context, verb, unit string, args ...string) (string, error) {
 	ctx, cancel := s.timeoutCtx(ctx)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, s.bin(), s.args(append(args, "--", unit)...)...)
+	cmd := exec.CommandContext(ctx, s.bin(), s.args(append(args, "--", unit)...)...) // #nosec G204 -- argv slice, no shell; unit name is behind a "--" separator
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -210,7 +210,7 @@ func UserGeneratorDir() string {
 func (s *Systemd) DaemonReload(ctx context.Context) (string, error) {
 	ctx, cancel := s.timeoutCtx(ctx)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, s.bin(), s.args("daemon-reload")...)
+	cmd := exec.CommandContext(ctx, s.bin(), s.args("daemon-reload")...) // #nosec G204 -- argv slice, no shell, constant verb
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

@@ -62,7 +62,7 @@ func (l *Loginctl) Enabled(ctx context.Context, userName string) (bool, error) {
 	}
 	ctx, cancel := l.timeoutCtx(ctx)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, l.bin(),
+	out, err := exec.CommandContext(ctx, l.bin(), // #nosec G204 -- argv slice, no shell; user name is behind a "--" separator
 		"show-user", "--property=Linger", "--value", "--", userName).Output()
 	if err != nil {
 		return false, fmt.Errorf("loginctl show-user %s: %w", userName, err)
@@ -82,7 +82,7 @@ func (l *Loginctl) Set(ctx context.Context, userName string, on bool) error {
 	}
 	ctx, cancel := l.timeoutCtx(ctx)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, l.bin(), verb, "--", userName).CombinedOutput()
+	out, err := exec.CommandContext(ctx, l.bin(), verb, "--", userName).CombinedOutput() // #nosec G204 -- argv slice, no shell; user name is behind a "--" separator
 	if err != nil {
 		return fmt.Errorf("loginctl %s: %w: %s", verb, err, strings.TrimSpace(string(out)))
 	}

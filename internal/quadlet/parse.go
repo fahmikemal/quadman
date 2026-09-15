@@ -56,7 +56,7 @@ func (f *File) Image() string {
 // well-formed generators. A trailing backslash continues the value on the
 // next line, as in systemd's config syntax.
 func Parse(path string) (*File, error) {
-	fh, err := os.Open(path)
+	fh, err := os.Open(path) // #nosec G304 -- reading quadlet source files is this package's purpose
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +112,7 @@ func EnsureBootTarget(path, target string) (bool, error) {
 	if f.BootTarget() != "" {
 		return false, nil // user already controls boot behavior; don't touch
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- editing the quadlet file the user pointed at is the feature
 	if err != nil {
 		return false, err
 	}
@@ -123,7 +123,7 @@ func EnsureBootTarget(path, target string) (bool, error) {
 // RemoveBootTarget deletes the [Install] section from the file, disabling
 // boot start. It reports whether the file changed.
 func RemoveBootTarget(path string) (bool, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- editing the quadlet file the user pointed at is the feature
 	if err != nil {
 		return false, err
 	}
@@ -162,7 +162,7 @@ func writeAtomic(path string, data []byte) error {
 		mode = fi.Mode()
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, mode); err != nil {
+	if err := os.WriteFile(tmp, data, mode); err != nil { // #nosec G703 -- path is the quadlet file the user asked quadman to edit; the temp file sits next to it
 		return err
 	}
 	return os.Rename(tmp, path)
