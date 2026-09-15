@@ -106,8 +106,8 @@ quadman -version
 | `/`   | fuzzy-filter the list (type to narrow, `esc` clears) |
 | `l`   | live journal tail for the unit (`f` pauses follow) |
 | `s` / `x` / `r` | start / stop (confirms) / restart the unit |
-| `e`   | enable the unit at boot and start it now      |
-| `d`   | disable the unit from starting at boot        |
+| `e`   | enable at boot (appends `[Install]` to the file, asks first) |
+| `d`   | disable from boot (removes `[Install]`, asks first) |
 | `E`   | edit the Quadlet file in `$EDITOR`            |
 | `u`   | auto-update screen (`U` toggles the timer)    |
 | `h`   | run `podman healthcheck` on the unit          |

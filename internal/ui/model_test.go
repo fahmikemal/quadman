@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -250,7 +252,7 @@ func TestStopConfirmationFlow(t *testing.T) {
 
 	model, _ := m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	m = model.(Model)
-	if !m.confirmStop {
+	if m.pending == nil || m.pending.verb != "stop" {
 		t.Fatal("x should arm the stop confirmation")
 	}
 	if !strings.Contains(m.statusLine, "y/N") {
@@ -259,7 +261,7 @@ func TestStopConfirmationFlow(t *testing.T) {
 
 	model, _ = m.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
 	m = model.(Model)
-	if m.confirmStop {
+	if m.pending != nil {
 		t.Error("any key other than y must cancel the confirmation")
 	}
 }
@@ -272,11 +274,68 @@ func TestStopConfirmedSetsBusy(t *testing.T) {
 	m = model.(Model)
 	model, _ = m.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
 	mm := model.(Model)
-	if mm.confirmStop {
+	if mm.pending != nil {
 		t.Error("y must consume the confirmation")
 	}
 	if !mm.busy {
 		t.Error("confirmed stop should start the busy spinner")
+	}
+}
+
+func TestEnableBootFlow(t *testing.T) {
+	m := withUnits(New(), "webapp")
+	m.table.SetCursor(0)
+
+	// No [Install] in the file → 'e' arms a confirmation mentioning it.
+	model, _ := m.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
+	m = model.(Model)
+	if m.pending == nil || m.pending.verb != "enable" {
+		t.Fatal("e without [Install] should arm the enable confirmation")
+	}
+	if !strings.Contains(m.statusLine, "[Install]") {
+		t.Errorf("prompt should explain the [Install] edit: %q", m.statusLine)
+	}
+
+	model, _ = m.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	mm := model.(Model)
+	if mm.pending != nil || !mm.busy {
+		t.Error("confirmed enable should start the busy action")
+	}
+}
+
+func TestEnableAlreadyEnabled(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "webapp.container")
+	if err := os.WriteFile(path, []byte("[Container]\nImage=nginx\n\n[Install]\nWantedBy=default.target\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := New()
+	units := []quadlet.Unit{{Name: "webapp", Kind: quadlet.KindContainer, Path: path, UnitName: "webapp.service"}}
+	model, _ := m.Update(refreshMsg{units: units, images: []string{"nginx"}, lingerOK: true})
+	m = model.(Model)
+	m.table.SetCursor(0)
+
+	model, _ = m.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
+	mm := model.(Model)
+	if mm.pending != nil {
+		t.Error("already boot-enabled unit must skip the confirmation")
+	}
+	if !mm.busy {
+		t.Error("already boot-enabled unit should just be started")
+	}
+}
+
+func TestDisableNotEnabled(t *testing.T) {
+	m := withUnits(New(), "webapp")
+	m.table.SetCursor(0)
+
+	model, _ := m.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
+	mm := model.(Model)
+	if mm.pending != nil {
+		t.Error("disable on a non-enabled unit must not arm a confirmation")
+	}
+	if !strings.Contains(mm.statusLine, "not enabled") {
+		t.Errorf("disable on non-enabled unit should say so: %q", mm.statusLine)
 	}
 }
 

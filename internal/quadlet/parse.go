@@ -94,6 +94,80 @@ func Parse(path string) (*File, error) {
 	return f, sc.Err()
 }
 
+// BootTarget returns the [Install] WantedBy= target declared in the file,
+// which is how quadlet units start at boot (the generator turns it into a
+// wants symlink on the next daemon-reload). "" when not enabled for boot.
+func (f *File) BootTarget() string {
+	return f.Section("Install").Get("WantedBy")
+}
+
+// EnsureBootTarget appends an [Install] section with WantedBy=<target> when
+// the file does not declare one. It reports whether the file changed.
+// Writing is atomic (temp file + rename) so a crash cannot corrupt the file.
+func EnsureBootTarget(path, target string) (bool, error) {
+	f, err := Parse(path)
+	if err != nil {
+		return false, err
+	}
+	if f.BootTarget() != "" {
+		return false, nil // user already controls boot behavior; don't touch
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	body := strings.TrimRight(string(data), "\n") + "\n\n[Install]\nWantedBy=" + target + "\n"
+	return true, writeAtomic(path, []byte(body))
+}
+
+// RemoveBootTarget deletes the [Install] section from the file, disabling
+// boot start. It reports whether the file changed.
+func RemoveBootTarget(path string) (bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	lines := strings.Split(string(data), "\n")
+	var out []string
+	inInstall := false
+	removed := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		isHeader := strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]")
+		if isHeader {
+			inInstall = strings.EqualFold(strings.Trim(trimmed, "[]"), "Install")
+			if inInstall {
+				removed = true
+				continue
+			}
+		}
+		if inInstall {
+			continue // drop [Install] section lines
+		}
+		out = append(out, line)
+	}
+	if !removed {
+		return false, nil
+	}
+	// Collapse trailing blank lines left by the removal.
+	body := strings.TrimRight(strings.Join(out, "\n"), "\n") + "\n"
+	return true, writeAtomic(path, []byte(body))
+}
+
+// writeAtomic writes data to a temp file next to path, then renames it over
+// path, preserving the original file mode.
+func writeAtomic(path string, data []byte) error {
+	var mode os.FileMode = 0o644
+	if fi, err := os.Stat(path); err == nil {
+		mode = fi.Mode()
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, mode); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
 // Info is what quadman reads from one Quadlet source file.
 type Info struct {
 	// UnitName is the systemd unit the generator produces for the file,
