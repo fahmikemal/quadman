@@ -329,3 +329,95 @@ Sources:
 <https://github.com/containers/podlet/releases>,
 <https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html>,
 <https://proxy.golang.org/charm.land/bubbletea/v2/@latest> (d. v2/lipgloss/bubbles)
+
+---
+
+## Refresh #2 — 15 September 2026 (post-v0.2.0 gap analysis)
+
+Riset ulang setelah Tier 0+1 rilis. Tiga sumber: ekosistem Podman/Quadlet,
+inovasi TUI (k9s/lazygit/yazi/systemctl-tui), stack Charm via Context7.
+
+### Temuan kunci baru
+
+1. **systemctl-tui v0.6–v0.8 (Juli 2026)** — komparator langsung paling aktif:
+   SSH remote (`--host`), **full mouse** (klik baris, klik-field-untuk-copy),
+   filter status per-bucket, **command palette (ctrl+p)**,
+   **context-sensitive actions** (hanya aksi valid untuk state unit),
+   dukungan timer, "explain unit". Sumber pola UX paling relevan untuk kita.
+   <https://github.com/rgwood/systemctl-tui/releases>
+2. **Niche mulai disentuh tapi belum diambil**: cockpit-podman r123 (Mar 2026)
+   menambah lifecycle quadlet di web UI (tanpa editing); Podman Desktop
+   extension-podman-quadlet v0.12.1 (editing + template, desktop-only);
+   vscode-systemd (Agu 2026) = tooling bahasa quadlet di editor.
+   podman-tui v2.0.0 tetap tanpa quadlet. Ruang "TUI terminal-native"
+   masih milik quadman.
+3. **Tidak ada validator quadlet standalone di mana pun** — peluang
+   diferensiasi: manfaatkan perbaikan Podman 6.1 (error generator kini ke
+   STDERR) via `systemd-analyze --generators verify` / generator `--dryrun`,
+   lalu anotasikan error per unit di TUI.
+4. **wish/v2 v2.0.4 (10 Sep 2026)** — stack SSH-native Charm untuk menyajikan
+   aplikasi bubbletea v2 lewat SSH. Menjadikan roadmap "SSH remote mode"
+   jauh lebih murah: sajikan model yang sama via middleware wish, bukan
+   shell-out ssh.
+   <https://github.com/charmbracelet/wish/releases/tag/v2.0.0>
+5. **Sudah ter-pin, belum dipakai (gratis, tanpa dep baru)**:
+   bubbles **tree** (v2.2.0 — dependency graph), textarea v2.2 (selection/
+   copy/cut, dynamic height → mini-editor embedded), viewport v2 (regex
+   highlight + navigasi match, LeftGutterFunc line numbers, SoftWrap),
+   `tea.SetClipboard` OSC52 (clipboard via SSH, pengganti atotto/clipboard),
+   `tea.View.ProgressBar` (OSC 9;4), `ReportFocus`, kitty keyboard.
+6. **podlet v0.3.2 masih di Podman ≤5.8** — coverage key Podman 6.x
+   (`ImageVolume=`, volume `UID=/GID=/Options=`) terbuka untuk didahului.
+7. **Perubahan upstream yang perlu diawasi**: podman main (pasca-6.1.1)
+   menghapus default `RemainAfterExit=yes` untuk unit volume (PR #29375) —
+   akan memengaruhi tampilan state unit volume di rilis Podman berikutnya.
+8. **AI di TUI**: k9s menolak PR AI; tren yang menang adalah *export*
+   Agent Skill (harlequin `hsql --skill`) atau plugin command, bukan
+   chatbot tertanam. Rekomendasi: embedded AI out-of-scope; plugin/skill
+   export = diferensiator murah.
+9. **quadletman v0.5.5-beta (senyap sejak April)** — ide pinjaman: validasi
+   image-ref/path, VersionSpan gating (sembunyikan key yang tak didukung
+   versi podman terpasang), secrets via keyring, timer sebagai entitas.
+10. **Harmonica BUKAN palette** (lib animasi, stale 2022) — koreksi asumsi
+    riset sebelumnya. Palette tetap manual via lipgloss Complete/LightDark.
+
+### Kandidat fitur berikutnya (sintesis, berurut nilai/usaha)
+
+**v0.3.0 (Tier 2 revisi):**
+- Validasi quadlet di TUI (generator STDERR/dryrun → anotasi per unit)
+- Drop-in directories: baca+merge `foo.container.d/*.conf` (+ cascading)
+- Dependency tree view (bubbles/tree; dep implisit Image=/Network=/Volume=)
+- Mouse penuh: klik seleksi unit, wheel di logs, klik-untuk-copy field
+- OSC52 clipboard (`y` = copy nama unit/image; `tea.SetClipboard`)
+- Log view upgrade: regex highlight + line numbers (viewport v2)
+- Instansiasi template `foo@bar.container` dari template `foo@.container`
+- podman quadlet install/rm flows (termasuk `.quadlets` multi-doc)
+- Key Podman 6.x lengkap di parse/validasi (ImageVolume= dkk.)
+- Version gating: tandai key yang tak didukung podman terpasang
+
+**v0.4.0 (Tier 3 revisi):**
+- SSH remote mode via **wish/v2** (bukan shell ssh)
+- Command palette (ctrl+p) untuk aksi jarang/berbahaya
+- Context-sensitive actions (tampilkan aksi sesuai state unit)
+- Status bucket filters (activation/enablement) + toggle cepat
+- Plugin/custom commands ala k9s (`$UNIT`, `$COL-*`, confirm default)
+- Tema auto dark/light (background query) + YAML config
+- teatest/golden (x/exp) menggantikan/melengkapi harness PTY
+- Secrets management (`podman secret` CRUD + Secret= wiring)
+- Timer management umum (bukan hanya auto-update.timer)
+- Agent Skill export (quadman --skill) alih-alih AI tertanam
+
+### Sumber
+- <https://github.com/containers/podman/releases> (v6.1.1 tetap terbaru)
+- <https://github.com/rgwood/systemctl-tui/releases> (v0.6–v0.8)
+- <https://github.com/derailed/k9s/releases/tag/v0.51.0>
+- <https://github.com/jesseduffield/lazygit/releases> (v0.63–v0.65)
+- <https://github.com/sxyazi/yazi/blob/main/CHANGELOG.md>
+- <https://github.com/cockpit-project/cockpit-podman/releases> (r123)
+- <https://github.com/podman-desktop/extension-podman-quadlet>
+- <https://github.com/willibrandon/vscode-systemd>
+- <https://github.com/containers/podlet/releases> (v0.3.2)
+- <https://github.com/mikkovihonen/quadletman> (v0.5.5-beta)
+- <https://github.com/charmbracelet/wish/releases> (v2.0.4)
+- <https://github.com/charmbracelet/bubbles/releases> (tree v2.2.0)
+- proxy.golang.org @latest (semua Charm libs sudah terbaru)
