@@ -831,10 +831,10 @@ func (m *Model) resize() {
 		h = 30
 	}
 	m.help.SetWidth(w)
-	chrome := 3 + len(m.legend()) // title + blank + legend lines + status
-	if m.showHelp {
-		chrome += 6
-	}
+	// Reserve the real rendered height of the help bar — the expanded help
+	// block is much taller than the compact legend, and undercounting clips
+	// its last lines in short terminals.
+	chrome := 3 + strings.Count(m.helpBar(), "\n") + 1 // title + blank + help bar + status
 	if m.mode == modeList && len(m.stale) > 0 {
 		chrome++ // reload banner
 	}
