@@ -272,7 +272,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		status := strings.TrimSpace(msg.desc + " ok " + msg.out)
 		if msg.hint != "" {
-			status += " — " + msg.hint
+			status += " - " + msg.hint
 		}
 		m.setStatus(status, false)
 		return m, refreshCmd(m.sys, m.lc, false)
@@ -356,7 +356,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.changed {
-			m.setStatus("file changed — press R to regenerate", false)
+			m.setStatus("file changed - press R to regenerate", false)
 		} else {
 			m.setStatus("no changes", false)
 		}
@@ -805,7 +805,7 @@ func (m *Model) resize() {
 
 func (m Model) View() tea.View {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render(" quadman — rootless quadlet manager "))
+	b.WriteString(titleStyle.Render(" quadman - rootless quadlet manager "))
 	b.WriteString("\n")
 
 	switch m.mode {
@@ -825,7 +825,7 @@ func (m Model) View() tea.View {
 		if len(m.stale) > 0 && !m.loading {
 			b.WriteString("\n")
 			b.WriteString(warnStyle.Render(fmt.Sprintf(
-				"⚠ %d quadlet file(s) changed since last daemon-reload — press R (e.g. %s)",
+				"⚠ %d quadlet file(s) changed since last daemon-reload - press R (e.g. %s)",
 				len(m.stale), m.stale[0].Name)))
 		}
 	case modeFile:
@@ -849,7 +849,7 @@ func (m Model) View() tea.View {
 		if ok {
 			unit = u.UnitName
 			if d := m.status[unit].Description; d != "" {
-				unit += " — " + d
+				unit += " - " + d
 			}
 		}
 		state := "live"
@@ -911,7 +911,7 @@ func (m Model) helpBar() string {
 		m.help.ShowAll = true
 		lines := []string{
 			m.help.View(m.keys()) + "  ·  " + linger,
-			"Linger keeps rootless containers running after logout — enable it once on every quadlet host (loginctl enable-linger).",
+			"Linger keeps rootless containers running after logout - enable it once on every quadlet host (loginctl enable-linger).",
 			"R re-runs systemd's generator after you edit quadlet files, then the list refreshes.",
 			"e enables the unit to start at boot (with --now); d removes it from boot (the container keeps running).",
 			"x stops the unit; quadlet runs containers with --rm, so stopping removes the container (state lives in volumes).",
