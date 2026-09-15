@@ -349,3 +349,24 @@ func TestEditorFinishedHint(t *testing.T) {
 		t.Errorf("unchanged file should say so: %q", got)
 	}
 }
+
+func TestLegendWrapsByWidth(t *testing.T) {
+	// Narrow terminal: two lines.
+	m := New()
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 124, Height: 24})
+	narrow := model.(Model).helpBar()
+	if !strings.Contains(narrow, "\n") {
+		t.Errorf("legend should wrap to two lines at 124 cols: %q", narrow)
+	}
+
+	// Wide terminal: one line.
+	m2 := New()
+	model, _ = m2.Update(tea.WindowSizeMsg{Width: 200, Height: 24})
+	wide := model.(Model).helpBar()
+	if strings.Contains(wide, "\n") {
+		t.Errorf("legend should fit on one line at 200 cols: %q", wide)
+	}
+	if !strings.Contains(wide, "enter file") || !strings.Contains(wide, "s start") {
+		t.Errorf("one-line legend must contain both groups: %q", wide)
+	}
+}

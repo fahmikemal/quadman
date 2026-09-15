@@ -780,10 +780,7 @@ func (m *Model) resize() {
 		h = 30
 	}
 	m.help.SetWidth(w)
-	chrome := 4 // title + blank + legend + status
-	if m.mode == modeList {
-		chrome++ // the list legend is two lines (views + actions)
-	}
+	chrome := 3 + len(m.legend()) // title + blank + legend lines + status
 	if m.showHelp {
 		chrome += 6
 	}
@@ -923,21 +920,36 @@ func (m Model) helpBar() string {
 		return helpStyle.Render(clampLines(strings.Join(lines, "\n"), m.help.Width()))
 	}
 
-	// Compact legend: full words, one line for views + one line for actions.
-	var bar string
+	// Compact legend: full words; one line when it fits, two when narrow.
+	bar := strings.Join(m.legend(), "\n")
+	ls := strings.Split(bar, "\n")
+	ls[len(ls)-1] += "  ·  " + linger
+	return helpStyle.Render(clampLines(strings.Join(ls, "\n"), m.help.Width()))
+}
+
+// legendChipReserve reserves room for the " · linger: on/off" chip when
+// deciding whether the full legend fits on one line.
+const legendChipReserve = 16
+
+// legend returns the compact key hints for the current mode. In list mode it
+// prefers a single line, wrapping to two lines (views, then unit actions)
+// only when the terminal is too narrow for the full legend.
+func (m Model) legend() []string {
 	switch m.mode {
 	case modeFile:
-		bar = "E edit · ↑/↓ scroll · esc/q back"
+		return []string{"E edit · ↑/↓ scroll · esc/q back"}
 	case modeLogs:
-		bar = "f pause/resume · ↑/↓ scroll · esc/q back"
+		return []string{"f pause/resume · ↑/↓ scroll · esc/q back"}
 	case modeUpdates:
-		bar = "U toggle timer · r refresh · esc/q back"
-	default:
-		bar = "enter file · l logs · / filter · E edit · u updates · ? all keys\n" +
-			"s start · x stop · r restart · e enable · d disable · R reload · L linger · q quit"
+		return []string{"U toggle timer · r refresh · esc/q back"}
 	}
-	bar += "  ·  " + linger
-	return helpStyle.Render(clampLines(bar, m.help.Width()))
+	views := "enter file · l logs · / filter · E edit · u updates · ? all keys"
+	actions := "s start · x stop · r restart · e enable · d disable · R reload · L linger · q quit"
+	full := views + " · " + actions
+	if w := m.help.Width(); w <= 0 || ansi.StringWidth(full)+legendChipReserve <= w {
+		return []string{full}
+	}
+	return []string{views, actions}
 }
 
 // clampLines truncates every line to w columns; bubbles/help only truncates
