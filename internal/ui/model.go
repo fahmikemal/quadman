@@ -780,7 +780,10 @@ func (m *Model) resize() {
 		h = 30
 	}
 	m.help.SetWidth(w)
-	chrome := 4 // title + blank + help + status
+	chrome := 4 // title + blank + legend + status
+	if m.mode == modeList {
+		chrome++ // the list legend is two lines (views + actions)
+	}
 	if m.showHelp {
 		chrome += 6
 	}
@@ -907,9 +910,8 @@ func (m Model) helpBar() string {
 			linger = lingerOffStyle.Render("linger: off")
 		}
 	}
-	m.help.ShowAll = m.showHelp
-	var bar string
 	if m.showHelp {
+		m.help.ShowAll = true
 		lines := []string{
 			m.help.View(m.keys()) + "  ·  " + linger,
 			"Linger keeps rootless containers running after logout — enable it once on every quadlet host (loginctl enable-linger).",
@@ -918,23 +920,39 @@ func (m Model) helpBar() string {
 			"x stops the unit; quadlet runs containers with --rm, so stopping removes the container (state lives in volumes).",
 			"Quadlet search order: " + strings.Join(quadlet.SearchDirs(), " → "),
 		}
-		bar = strings.Join(lines, "\n")
-	} else {
-		bar = m.help.View(m.keys()) + "  ·  " + linger
+		return helpStyle.Render(clampLines(strings.Join(lines, "\n"), m.help.Width()))
 	}
 
-	// bubbles/help only truncates while an ellipsis still fits; past that it
-	// happily overflows the width, so clamp every line ourselves.
-	if w := m.help.Width(); w > 0 {
-		ls := strings.Split(bar, "\n")
-		for i, l := range ls {
-			if ansi.StringWidth(l) > w {
-				ls[i] = ansi.Truncate(l, w, "…")
-			}
-		}
-		bar = strings.Join(ls, "\n")
+	// Compact legend: full words, one line for views + one line for actions.
+	var bar string
+	switch m.mode {
+	case modeFile:
+		bar = "E edit · ↑/↓ scroll · esc/q back"
+	case modeLogs:
+		bar = "f pause/resume · ↑/↓ scroll · esc/q back"
+	case modeUpdates:
+		bar = "U toggle timer · r refresh · esc/q back"
+	default:
+		bar = "enter file · l logs · / filter · E edit · u updates · ? all keys\n" +
+			"s start · x stop · r restart · e enable · d disable · R reload · L linger · q quit"
 	}
-	return helpStyle.Render(bar)
+	bar += "  ·  " + linger
+	return helpStyle.Render(clampLines(bar, m.help.Width()))
+}
+
+// clampLines truncates every line to w columns; bubbles/help only truncates
+// while an ellipsis still fits and then happily overflows, so we clamp here.
+func clampLines(s string, w int) string {
+	if w <= 0 {
+		return s
+	}
+	ls := strings.Split(s, "\n")
+	for i, l := range ls {
+		if ansi.StringWidth(l) > w {
+			ls[i] = ansi.Truncate(l, w, "…")
+		}
+	}
+	return strings.Join(ls, "\n")
 }
 
 func onOff(v bool) string {
