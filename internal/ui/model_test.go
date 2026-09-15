@@ -492,6 +492,29 @@ func TestEditorEnvVarWins(t *testing.T) {
 	}
 }
 
+func TestExpandedHelpHeightReservation(t *testing.T) {
+	// resize() reserves one screen row per rendered helpBar line; the
+	// expanded block must be fully reserved or short terminals clip its
+	// last lines (found by the PTY e2e).
+	m := New()
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 124, Height: 30})
+	m = model.(Model)
+	model, _ = m.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
+	m = model.(Model)
+	if !m.showHelp {
+		t.Fatal("? should expand the help")
+	}
+	lines := strings.Count(m.helpBar(), "\n") + 1
+	if lines < 8 {
+		t.Errorf("expanded help block should have many lines (key table + explanations), got %d", lines)
+	}
+	// And the compact legend must never be taller than the expanded block.
+	m.showHelp = false
+	if compact := strings.Count(m.helpBar(), "\n") + 1; compact > lines {
+		t.Errorf("compact legend (%d lines) taller than expanded help (%d lines)", compact, lines)
+	}
+}
+
 func TestLegendWrapsByWidth(t *testing.T) {
 	// Narrow terminal: two lines.
 	m := New()

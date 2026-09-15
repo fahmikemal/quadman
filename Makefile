@@ -20,3 +20,9 @@ install:
 
 clean:
 	rm -f $(BINARY)
+
+e2e:
+	cd e2e && go build -o /tmp/qe2e .
+	$(MAKE) build
+	cp $(BINARY) /tmp/quadman-under-test
+	@echo "run /tmp/qe2e from a directory containing the quadman binary"
