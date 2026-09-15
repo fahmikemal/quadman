@@ -167,9 +167,14 @@ func (s *Systemd) Enable(ctx context.Context, unit string, now bool) (string, er
 	return s.unitCmd(ctx, verb, unit, args...)
 }
 
-// Disable stops a unit from starting at boot (it keeps running if started).
-func (s *Systemd) Disable(ctx context.Context, unit string) (string, error) {
-	return s.unitCmd(ctx, "disable", unit, "disable")
+// Disable stops a unit from starting at boot; with now it is also stopped.
+func (s *Systemd) Disable(ctx context.Context, unit string, now bool) (string, error) {
+	verb := "disable"
+	args := []string{verb}
+	if now {
+		args = append(args, "--now")
+	}
+	return s.unitCmd(ctx, verb, unit, args...)
 }
 
 // unitCmd runs systemctl with the given sub-arguments; verb and unit are used

@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/kemal-labs/quadman/internal/podman"
 	"github.com/kemal-labs/quadman/internal/quadlet"
 	"github.com/kemal-labs/quadman/internal/systemd"
 )
@@ -183,5 +184,168 @@ func TestHelpBarContextual(t *testing.T) {
 	}
 	if strings.Contains(view, "boot") {
 		t.Errorf("logs view help must not offer list-only actions: %q", view)
+	}
+}
+
+func withUnits(m Model, names ...string) Model {
+	units := make([]quadlet.Unit, len(names))
+	images := make([]string, len(names))
+	for i, n := range names {
+		units[i] = quadlet.Unit{Name: n, Kind: quadlet.KindContainer, UnitName: n + ".service"}
+	}
+	model, _ := m.Update(refreshMsg{units: units, images: images, lingerOK: true})
+	return model.(Model)
+}
+
+func TestFilterUnits(t *testing.T) {
+	m := withUnits(New(), "webapp", "db", "cache", "metrics")
+
+	m.filterStr = "web"
+	m.refilter()
+	if len(m.filtered) != 1 || m.filtered[0].Name != "webapp" {
+		t.Errorf("filter 'web' = %+v, want [webapp]", m.filtered)
+	}
+
+	m.filterStr = "mtc" // subsequence of "metrics"
+	m.refilter()
+	if len(m.filtered) != 1 || m.filtered[0].Name != "metrics" {
+		t.Errorf("subsequence filter 'mtc' = %+v, want [metrics]", m.filtered)
+	}
+
+	m.filterStr = "zzz"
+	m.refilter()
+	if len(m.filtered) != 0 {
+		t.Errorf("filter 'zzz' should match nothing, got %+v", m.filtered)
+	}
+	if _, ok := m.selected(); ok {
+		t.Error("selected() must fail when the filter matches nothing")
+	}
+}
+
+func TestFilterKeyFlow(t *testing.T) {
+	m := withUnits(New(), "webapp", "db")
+
+	model, _ := m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = model.(Model)
+	if !m.filtering {
+		t.Fatal("/ should focus the filter input")
+	}
+
+	model, _ = m.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	m = model.(Model)
+	if m.filterStr != "w" || len(m.filtered) != 1 {
+		t.Errorf("typing should filter live: str=%q filtered=%v", m.filterStr, m.filtered)
+	}
+
+	model, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = model.(Model)
+	if m.filtering || m.filterStr != "" || len(m.filtered) != 2 {
+		t.Errorf("esc must clear the filter: filtering=%v str=%q filtered=%v", m.filtering, m.filterStr, m.filtered)
+	}
+}
+
+func TestStopConfirmationFlow(t *testing.T) {
+	m := withUnits(New(), "webapp")
+	m.table.SetCursor(0)
+
+	model, _ := m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	m = model.(Model)
+	if !m.confirmStop {
+		t.Fatal("x should arm the stop confirmation")
+	}
+	if !strings.Contains(m.statusLine, "y/N") {
+		t.Errorf("confirmation prompt missing: %q", m.statusLine)
+	}
+
+	model, _ = m.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
+	m = model.(Model)
+	if m.confirmStop {
+		t.Error("any key other than y must cancel the confirmation")
+	}
+}
+
+func TestStopConfirmedSetsBusy(t *testing.T) {
+	m := withUnits(New(), "webapp")
+	m.table.SetCursor(0)
+
+	model, _ := m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	m = model.(Model)
+	model, _ = m.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	mm := model.(Model)
+	if mm.confirmStop {
+		t.Error("y must consume the confirmation")
+	}
+	if !mm.busy {
+		t.Error("confirmed stop should start the busy spinner")
+	}
+}
+
+func TestFollowLogLines(t *testing.T) {
+	m := withUnits(New(), "webapp")
+	m.mode = modeLogs
+	m.following = true
+	sess := &logSession{unit: "webapp.service"}
+	m.sess = sess
+
+	model, _ := m.Update(logLineMsg{sess: sess, line: "first"})
+	m = model.(Model)
+	model, _ = m.Update(logLineMsg{sess: sess, line: "second"})
+	m = model.(Model)
+	if got := strings.Join(m.logLines, "\n"); got != "first\nsecond" {
+		t.Errorf("logLines = %q", got)
+	}
+
+	// a superseded session must be ignored
+	other := &logSession{unit: "webapp.service"}
+	model, _ = m.Update(logLineMsg{sess: other, line: "stale"})
+	m = model.(Model)
+	if len(m.logLines) != 2 {
+		t.Errorf("stale session line must be dropped: %v", m.logLines)
+	}
+}
+
+func TestHealthShownInRows(t *testing.T) {
+	m := New()
+	units := []quadlet.Unit{{Name: "webapp", Kind: quadlet.KindContainer, UnitName: "webapp.service"}}
+	msg := refreshMsg{
+		units:    units,
+		images:   []string{"nginx"},
+		statuses: map[string]systemd.Status{"webapp.service": {Id: "webapp.service", LoadState: "loaded", ActiveState: "active", SubState: "running"}},
+		health:   map[string]string{"systemd-webapp": "unhealthy"},
+		lingerOK: true,
+	}
+	model, _ := m.Update(msg)
+	rows := model.(Model).table.Rows()
+	if rows[0][3] != "unhealthy" || rows[0][4] != "health" {
+		t.Errorf("row state = %q/%q, want unhealthy/health", rows[0][3], rows[0][4])
+	}
+}
+
+func TestUpdatesScreen(t *testing.T) {
+	m := New()
+	msg := updatesMsg{
+		entries:      []podman.AutoUpdateEntry{{Unit: "webapp.service", Policy: "registry", Updated: "pending", Image: "nginx"}},
+		timerEnabled: "enabled",
+		timerActive:  "active",
+	}
+	model, _ := m.Update(msg)
+	mm := model.(Model)
+	if mm.mode != modeUpdates {
+		t.Fatal("updatesMsg should switch to the updates screen")
+	}
+	if !strings.Contains(mm.updatesView(), "webapp.service") || !strings.Contains(mm.updatesView(), "pending") {
+		t.Errorf("updates view missing entry: %q", mm.updatesView())
+	}
+}
+
+func TestEditorFinishedHint(t *testing.T) {
+	m := New()
+	model, _ := m.Update(editorFinishedMsg{changed: true})
+	if got := model.(Model).statusLine; !strings.Contains(got, "press R") {
+		t.Errorf("changed file should hint daemon-reload: %q", got)
+	}
+	model, _ = m.Update(editorFinishedMsg{changed: false})
+	if got := model.(Model).statusLine; !strings.Contains(got, "no changes") {
+		t.Errorf("unchanged file should say so: %q", got)
 	}
 }

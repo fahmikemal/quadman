@@ -108,7 +108,7 @@ func TestInspect(t *testing.T) {
 		{
 			desc: "container ServiceName override",
 			unit: Unit{Name: "webapp", Kind: KindContainer, Path: write("override.container",
-				"[Container]\nImage=quay.io/foo\nServiceName=web-custom\n")},
+				"[Container]\nImage=quay.io/foo\nServiceName=web-custom\nAutoUpdate=registry\nImageVolume=tmpfs\n")},
 			wantName: "web-custom.service",
 			wantImg:  "quay.io/foo",
 		},
@@ -157,5 +157,20 @@ func TestInspect(t *testing.T) {
 				t.Errorf("Image = %q, want %q", got.Image, tc.wantImg)
 			}
 		})
+	}
+}
+
+func TestInspectAutoUpdateAndImageVolume(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "webapp.container")
+	if err := os.WriteFile(path, []byte("[Container]\nImage=nginx\nAutoUpdate=registry\nImageVolume=tmpfs\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := Inspect(Unit{Name: "webapp", Kind: KindContainer, Path: path})
+	if got.AutoUpdate != "registry" {
+		t.Errorf("AutoUpdate = %q, want registry", got.AutoUpdate)
+	}
+	if got.ImageVolume != "tmpfs" {
+		t.Errorf("ImageVolume = %q, want tmpfs", got.ImageVolume)
 	}
 }
