@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -17,6 +16,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/kemal-labs/quadman/internal/config"
 	"github.com/kemal-labs/quadman/internal/loginctl"
 	"github.com/kemal-labs/quadman/internal/podman"
 	"github.com/kemal-labs/quadman/internal/quadlet"
@@ -121,6 +121,11 @@ type Model struct {
 	// stop confirmation
 	confirmStop bool
 
+	// first-use editor picker
+	cfg           config.Config
+	pickingEditor bool
+	editorChoices []editorChoice
+
 	busy     bool
 	busyText string
 
@@ -148,6 +153,7 @@ func New() Model {
 	vp := viewport.New(viewport.WithWidth(80), viewport.WithHeight(20))
 	fi := textinput.New()
 	fi.Placeholder = "filter units…"
+	cfg, _ := config.Load()
 	return Model{
 		sys:      systemd.New(),
 		lc:       loginctl.New(),
@@ -156,6 +162,7 @@ func New() Model {
 		help:     help.New(),
 		spinner:  spinner.New(spinner.WithSpinner(spinner.Dot)),
 		filterIn: fi,
+		cfg:      cfg,
 		status:   map[string]systemd.Status{},
 		images:   map[string]string{},
 		health:   map[string]string{},
@@ -409,6 +416,11 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
+	// The first-use editor picker owns all keys until answered or cancelled.
+	if m.pickingEditor {
+		return m.pickEditor(msg)
+	}
+
 	// Pending stop confirmation swallows the next key.
 	if m.confirmStop {
 		m.confirmStop = false
@@ -633,24 +645,6 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.table, cmd = m.table.Update(msg)
 	return m, cmd
 }
-
-// editSelected opens the unit file in $EDITOR via tea.ExecProcess.
-func (m Model) editSelected() (tea.Model, tea.Cmd) {
-	u, ok := m.selected()
-	if !ok {
-		return m, nil
-	}
-	editor := os.Getenv("EDITOR")
-	if editor == "" {
-		editor = "vi"
-	}
-	before := fileMtime(u.Path)
-	cmd := exec.Command(editor, u.Path)
-	return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
-		return editorFinishedMsg{changed: fileMtime(u.Path) != before, err: err}
-	})
-}
-
 func fileMtime(path string) time.Time {
 	if fi, err := os.Stat(path); err == nil {
 		return fi.ModTime()
@@ -790,6 +784,9 @@ func (m *Model) resize() {
 	if m.mode == modeList && (m.filtering || m.filterStr != "") {
 		chrome++ // filter line
 	}
+	if m.pickingEditor {
+		chrome++ // editor picker prompt
+	}
 	body := h - chrome
 	if body < 3 {
 		body = 3
@@ -870,7 +867,10 @@ func (m Model) View() tea.View {
 	b.WriteString("\n")
 	b.WriteString(m.helpBar())
 
-	if m.busy {
+	if m.pickingEditor {
+		b.WriteString("\n")
+		b.WriteString(warnStyle.Render(m.pickerLine()))
+	} else if m.busy {
 		b.WriteString("\n")
 		b.WriteString(helpStyle.Render(m.spinner.View() + " " + m.busyText))
 	} else if m.statusLine != "" {
@@ -915,6 +915,7 @@ func (m Model) helpBar() string {
 			"R re-runs systemd's generator after you edit quadlet files, then the list refreshes.",
 			"e enables the unit to start at boot (with --now); d removes it from boot (the container keeps running).",
 			"x stops the unit; quadlet runs containers with --rm, so stopping removes the container (state lives in volumes).",
+			"E edits in your editor; the first use asks once and saves the choice to ~/.config/quadman/config.json (delete that file to re-pick).",
 			"Quadlet search order: " + strings.Join(quadlet.SearchDirs(), " → "),
 		}
 		return helpStyle.Render(clampLines(strings.Join(lines, "\n"), m.help.Width()))

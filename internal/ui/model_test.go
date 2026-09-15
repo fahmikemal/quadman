@@ -350,6 +350,89 @@ func TestEditorFinishedHint(t *testing.T) {
 	}
 }
 
+func TestEditorPickerFirstUse(t *testing.T) {
+	t.Setenv("EDITOR", "")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := withUnits(New(), "webapp")
+	m.table.SetCursor(0)
+
+	choices := availableEditors()
+	if len(choices) == 0 {
+		t.Skip("no editor binaries on PATH in this environment")
+	}
+
+	model, _ := m.Update(tea.KeyPressMsg{Code: 'E', Text: "E"})
+	m = model.(Model)
+	if !m.pickingEditor {
+		t.Fatal("first E with no $EDITOR and no saved choice must open the picker")
+	}
+	if len(m.editorChoices) != len(choices) {
+		t.Errorf("picker choices = %v, want %v", m.editorChoices, choices)
+	}
+
+	// Pick the first choice: it must be saved and the picker closed.
+	model, _ = m.Update(tea.KeyPressMsg{Code: rune(choices[0].key[0]), Text: choices[0].key})
+	m = model.(Model)
+	if m.pickingEditor {
+		t.Error("a valid pick must close the picker")
+	}
+	if m.cfg.Editor != choices[0].bin {
+		t.Errorf("saved editor = %q, want %q", m.cfg.Editor, choices[0].bin)
+	}
+	// The choice must persist for a fresh model.
+	fresh := New()
+	if fresh.cfg.Editor != choices[0].bin {
+		t.Errorf("fresh model should load the saved editor %q, got %q", choices[0].bin, fresh.cfg.Editor)
+	}
+}
+
+func TestEditorPickerCancel(t *testing.T) {
+	t.Setenv("EDITOR", "")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := withUnits(New(), "webapp")
+	m.table.SetCursor(0)
+	if len(availableEditors()) == 0 {
+		t.Skip("no editor binaries on PATH")
+	}
+
+	model, _ := m.Update(tea.KeyPressMsg{Code: 'E', Text: "E"})
+	m = model.(Model)
+	model, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = model.(Model)
+	if m.pickingEditor {
+		t.Error("esc must cancel the picker")
+	}
+	if m.cfg.Editor != "" {
+		t.Errorf("cancel must not save an editor, got %q", m.cfg.Editor)
+	}
+}
+
+func TestEditorSavedChoiceSkipsPicker(t *testing.T) {
+	t.Setenv("EDITOR", "")
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	m := withUnits(New(), "webapp")
+	m.table.SetCursor(0)
+	m.cfg.Editor = "nano"
+
+	model, _ := m.Update(tea.KeyPressMsg{Code: 'E', Text: "E"})
+	if model.(Model).pickingEditor {
+		t.Error("a saved editor choice must skip the picker")
+	}
+}
+
+func TestEditorEnvVarWins(t *testing.T) {
+	t.Setenv("EDITOR", "nano")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := withUnits(New(), "webapp")
+	m.table.SetCursor(0)
+
+	model, _ := m.Update(tea.KeyPressMsg{Code: 'E', Text: "E"})
+	if model.(Model).pickingEditor {
+		t.Error("$EDITOR must skip the picker")
+	}
+}
+
 func TestLegendWrapsByWidth(t *testing.T) {
 	// Narrow terminal: two lines.
 	m := New()
