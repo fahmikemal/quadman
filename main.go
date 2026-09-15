@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime/debug"
 	"strings"
 	"text/tabwriter"
 
@@ -26,7 +27,7 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Println("quadman", version)
+		fmt.Println("quadman", moduleVersion())
 		return
 	}
 
@@ -36,7 +37,7 @@ func main() {
 		case "list":
 			list()
 		case "version":
-			fmt.Println("quadman", version)
+			fmt.Println("quadman", moduleVersion())
 		default:
 			fmt.Fprintf(os.Stderr, "unknown command %q (available: list, version)\n", args[0])
 			os.Exit(2)
@@ -48,6 +49,19 @@ func main() {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+// moduleVersion reports the release version. Builds injected via ldflags
+// (make, goreleaser) take precedence; `go install module@version` builds
+// fall back to the module version Go recorded at install time.
+func moduleVersion() string {
+	if version != "dev" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return version
 }
 
 // list prints a non-interactive overview of quadlet units and their state.
