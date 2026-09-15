@@ -10,6 +10,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"runtime/debug"
 	"strings"
@@ -66,17 +67,25 @@ func moduleVersion() string {
 
 // list prints a non-interactive overview of quadlet units and their state.
 func list() {
-	units, err := quadlet.Discover()
-	if err != nil {
+	if err := runList(os.Stdout, systemd.New()); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+// runList renders the overview into w. It is separated from list() so tests
+// can drive it with a fake systemctl and capture the output.
+func runList(w io.Writer, sys *systemd.Systemd) error {
+	units, err := quadlet.Discover()
+	if err != nil {
+		return err
+	}
 	if len(units) == 0 {
-		fmt.Println("no quadlet units found in:")
+		fmt.Fprintln(w, "no quadlet units found in:")
 		for _, d := range quadlet.SearchDirs() {
-			fmt.Println("  " + d)
+			fmt.Fprintln(w, "  "+d)
 		}
-		return
+		return nil
 	}
 
 	images := make([]string, len(units))
@@ -98,24 +107,21 @@ func list() {
 		}
 	}
 
-	statuses, serr := systemd.New().Show(context.Background(), unitNames(units))
+	statuses, serr := sys.Show(context.Background(), unitNames(units))
 	if serr != nil {
 		fmt.Fprintln(os.Stderr, "warning:", serr)
 	}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "QUADLET\tKIND\tSYSTEMD UNIT\tSTATE\tSUB\tIMAGE")
+	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(tw, "QUADLET\tKIND\tSYSTEMD UNIT\tSTATE\tSUB\tIMAGE")
 	for i, u := range units {
 		state, sub := "-", "-"
 		if serr == nil {
 			state, sub = statuses[u.UnitName].Display()
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", u.Name, u.Kind, u.UnitName, state, sub, images[i])
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", u.Name, u.Kind, u.UnitName, state, sub, images[i])
 	}
-	if err := w.Flush(); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
+	return tw.Flush()
 }
 
 func unitNames(units []quadlet.Unit) []string {

@@ -5,13 +5,14 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/help"
-	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/table"
+	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -28,6 +29,7 @@ const (
 	modeList mode = iota
 	modeFile
 	modeLogs
+	modeUpdates
 )
 
 // pollInterval is how often the unit list refreshes itself. The cursor stays
@@ -44,12 +46,14 @@ type refreshMsg struct {
 	lingerOK    bool
 	podman      map[string]podman.Entry
 	podmanTried bool
+	health      map[string]string
 	stale       []quadlet.Unit
 	err         error
 }
 
 type actionMsg struct {
 	desc string
+	hint string
 	out  string
 	err  error
 }
@@ -66,79 +70,15 @@ type lingerSetMsg struct {
 	err   error
 }
 
-// keyMap groups the keybindings of one mode; help renders it contextually.
-type keyMap struct {
-	Up           key.Binding
-	Down         key.Binding
-	Enter        key.Binding
-	Logs         key.Binding
-	Start        key.Binding
-	Stop         key.Binding
-	Restart      key.Binding
-	Enable       key.Binding
-	Disable      key.Binding
-	DaemonReload key.Binding
-	Linger       key.Binding
-	Help         key.Binding
-	Quit         key.Binding
-	Back         key.Binding
+type editorFinishedMsg struct {
+	changed bool
+	err     error
 }
 
-func listKeys() keyMap {
-	return keyMap{
-		Up:           key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "up")),
-		Down:         key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down")),
-		Enter:        key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "view file")),
-		Logs:         key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "logs")),
-		Start:        key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "start")),
-		Stop:         key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "stop")),
-		Restart:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "restart")),
-		Enable:       key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "enable now")),
-		Disable:      key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "disable boot")),
-		DaemonReload: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "daemon-reload")),
-		Linger:       key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "linger")),
-		Help:         key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
-		Quit:         key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
-	}
-}
-
-func viewKeys() keyMap {
-	k := keyMap{
-		Up:   key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "scroll")),
-		Down: key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "scroll")),
-		Back: key.NewBinding(key.WithKeys("esc", "q"), key.WithHelp("esc/q", "back")),
-		Quit: key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit")),
-	}
-	return k
-}
-
-func (k keyMap) isList() bool { return k.Enter.Enabled() }
-
-func (k keyMap) ShortHelp() []key.Binding {
-	if k.isList() {
-		return []key.Binding{
-			k.Enter,
-			k.Logs,
-			key.NewBinding(key.WithKeys("s", "x", "r"), key.WithHelp("s/x/r", "unit")),
-			key.NewBinding(key.WithKeys("e", "d"), key.WithHelp("e/d", "boot")),
-			key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "reload")),
-			k.Linger,
-			k.Help,
-			k.Quit,
-		}
-	}
-	return []key.Binding{k.Back, k.Quit}
-}
-
-func (k keyMap) FullHelp() [][]key.Binding {
-	if k.isList() {
-		return [][]key.Binding{
-			{k.Up, k.Down, k.Enter, k.Logs},
-			{k.Start, k.Stop, k.Restart, k.Enable, k.Disable},
-			{k.DaemonReload, k.Linger, k.Help, k.Quit},
-		}
-	}
-	return [][]key.Binding{{k.Up, k.Down, k.Back, k.Quit}}
+type healthMsg struct {
+	container string
+	ok        bool
+	err       error
 }
 
 // Model is the quadman Bubble Tea model.
@@ -150,15 +90,36 @@ type Model struct {
 	viewport viewport.Model
 	help     help.Model
 	spinner  spinner.Model
+	filterIn textinput.Model
 
 	units       []quadlet.Unit
+	filtered    []quadlet.Unit
+	images      map[string]string
 	status      map[string]systemd.Status
+	health      map[string]string
 	linger      bool
 	lingerKnown bool
 	loading     bool
 	podmanInfo  map[string]podman.Entry
 	podmanTried bool
 	stale       []quadlet.Unit
+
+	// filter
+	filtering bool
+	filterStr string
+
+	// follow logs
+	sess      *logSession
+	logLines  []string
+	following bool
+
+	// updates screen
+	updateEntries []podman.AutoUpdateEntry
+	timerEnabled  string
+	timerActive   string
+
+	// stop confirmation
+	confirmStop bool
 
 	busy     bool
 	busyText string
@@ -185,6 +146,8 @@ func New() Model {
 		table.WithHeight(10),
 	)
 	vp := viewport.New(viewport.WithWidth(80), viewport.WithHeight(20))
+	fi := textinput.New()
+	fi.Placeholder = "filter units…"
 	return Model{
 		sys:      systemd.New(),
 		lc:       loginctl.New(),
@@ -192,7 +155,10 @@ func New() Model {
 		viewport: vp,
 		help:     help.New(),
 		spinner:  spinner.New(spinner.WithSpinner(spinner.Dot)),
+		filterIn: fi,
 		status:   map[string]systemd.Status{},
+		images:   map[string]string{},
+		health:   map[string]string{},
 		loading:  true,
 	}
 }
@@ -230,11 +196,15 @@ func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, withPodman bool) te
 		}
 		linger, lerr := lc.Enabled(ctx, "")
 
-		// Optional enrichment via podman quadlet list (app/pod grouping).
+		// Optional enrichment via podman (app/pod grouping + container health).
 		var pinfo map[string]podman.Entry
+		var health map[string]string
 		if withPodman && podman.Available() {
 			if entries, perr := podman.QuadletList(ctx); perr == nil {
 				pinfo = podman.ByUnit(entries)
+			}
+			if hm, herr := podman.PsHealth(ctx); herr == nil {
+				health = hm
 			}
 		}
 
@@ -247,22 +217,20 @@ func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, withPodman bool) te
 			lingerOK:    lerr == nil,
 			podman:      pinfo,
 			podmanTried: withPodman,
+			health:      health,
 			stale:       stale,
 		}
 	}
 }
 
 func actionCmd(desc string, run func(context.Context) (string, error)) tea.Cmd {
-	return func() tea.Msg {
-		out, err := run(context.Background())
-		return actionMsg{desc: desc, out: out, err: err}
-	}
+	return actionCmdHint(desc, "", run)
 }
 
-func logsCmd(sys *systemd.Systemd, unit string) tea.Cmd {
+func actionCmdHint(desc, hint string, run func(context.Context) (string, error)) tea.Cmd {
 	return func() tea.Msg {
-		out, err := sys.Journal(context.Background(), unit, 300)
-		return logsMsg{unit: unit, out: out, err: err}
+		out, err := run(context.Background())
+		return actionMsg{desc: desc, hint: hint, out: out, err: err}
 	}
 }
 
@@ -282,8 +250,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		// Poll: refresh the list; only try podman enrichment again if it
-		// never ran (a failed run is not retried every tick).
+		// Poll: refresh the list; only retry podman enrichment if it never ran.
 		return m, tea.Batch(refreshCmd(m.sys, m.lc, !m.podmanTried), pollCmd())
 
 	case spinner.TickMsg:
@@ -303,7 +270,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setStatus(msg.desc+": "+msg.err.Error(), true)
 			return m, nil
 		}
-		m.setStatus(strings.TrimSpace(msg.desc+" ok "+msg.out), false)
+		status := strings.TrimSpace(msg.desc + " ok " + msg.out)
+		if msg.hint != "" {
+			status += " — " + msg.hint
+		}
+		m.setStatus(status, false)
 		return m, refreshCmd(m.sys, m.lc, false)
 
 	case logsMsg:
@@ -317,8 +288,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.viewport.GotoBottom()
 		m.mode = modeLogs
+		m.following = false
 		m.resize()
 		m.clearStatus()
+		return m, nil
+
+	case logLineMsg:
+		if msg.sess != m.sess { // a superseded session must not touch the view
+			return m, nil
+		}
+		wasAtBottom := m.viewport.AtBottom()
+		m.logLines = append(m.logLines, msg.line)
+		if len(m.logLines) > logBufferCap {
+			m.logLines = m.logLines[len(m.logLines)-logBufferCap:]
+		}
+		m.viewport.SetContent(strings.Join(m.logLines, "\n"))
+		if m.following && wasAtBottom {
+			m.viewport.GotoBottom()
+		}
+		return m, followLine(m.sess)
+
+	case logsEndMsg:
+		if msg.sess == m.sess && msg.err != nil {
+			m.setStatus("journal stream ended: "+msg.err.Error(), true)
+		}
 		return m, nil
 
 	case lingerSetMsg:
@@ -330,6 +323,63 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.linger = msg.on
 		m.lingerKnown = true
 		m.setStatus("linger "+onOff(msg.on), false)
+		return m, nil
+
+	case updatesMsg:
+		m.busy = false
+		if msg.err != nil {
+			m.setStatus("auto-update: "+msg.err.Error(), true)
+			return m, nil
+		}
+		m.updateEntries = msg.entries
+		m.timerEnabled = msg.timerEnabled
+		m.timerActive = msg.timerActive
+		m.mode = modeUpdates
+		m.viewport.SetContent(m.updatesView())
+		m.viewport.GotoTop()
+		m.resize()
+		m.clearStatus()
+		return m, nil
+
+	case timerToggledMsg:
+		m.busy = false
+		if msg.err != nil {
+			m.setStatus("timer: "+msg.err.Error(), true)
+			return m, nil
+		}
+		m.setStatus("timer toggled", false)
+		return m, updatesCmd(m.sys)
+
+	case editorFinishedMsg:
+		if msg.err != nil {
+			m.setStatus("editor: "+msg.err.Error(), true)
+			return m, nil
+		}
+		if msg.changed {
+			m.setStatus("file changed — press R to regenerate", false)
+		} else {
+			m.setStatus("no changes", false)
+		}
+		if m.mode == modeFile {
+			if u, ok := m.selected(); ok {
+				if content, rerr := os.ReadFile(u.Path); rerr == nil {
+					m.viewport.SetContent(string(content))
+				}
+			}
+		}
+		return m, refreshCmd(m.sys, m.lc, false)
+
+	case healthMsg:
+		m.busy = false
+		if msg.err != nil {
+			m.setStatus("healthcheck: "+msg.err.Error(), true)
+			return m, nil
+		}
+		if msg.ok {
+			m.setStatus("healthcheck "+msg.container+": healthy", false)
+		} else {
+			m.setStatus("healthcheck "+msg.container+": UNHEALTHY", true)
+		}
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -354,25 +404,101 @@ func (m *Model) setBusy(text string) tea.Cmd {
 }
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "ctrl+c":
+	if msg.String() == "ctrl+c" {
+		m.stopLogs()
 		return m, tea.Quit
-
-	case "esc":
-		if m.mode != modeList {
-			m.mode = modeList
-			m.resize()
-			return m, nil
-		}
-		return m, nil
 	}
 
-	if m.mode != modeList {
-		// In file/log views only navigation is live; q returns to the list.
-		if msg.String() == "q" {
+	// Pending stop confirmation swallows the next key.
+	if m.confirmStop {
+		m.confirmStop = false
+		if msg.String() != "y" {
+			m.setStatus("stop cancelled", false)
+			return m, nil
+		}
+		u, ok := m.selected()
+		if !ok {
+			return m, nil
+		}
+		hint := ""
+		if u.Kind == quadlet.KindContainer {
+			hint = "container removed; state lives in volumes"
+		}
+		sys := m.sys
+		return m, tea.Batch(m.setBusy("stop "+u.UnitName),
+			actionCmdHint("stop "+u.UnitName, hint, func(ctx context.Context) (string, error) {
+				return sys.UnitAction(ctx, "stop", u.UnitName)
+			}))
+	}
+
+	// While the filter input is focused, keys edit the filter.
+	if m.filtering {
+		switch msg.String() {
+		case "enter":
+			m.filtering = false
+			m.filterIn.Blur()
+			return m, nil
+		case "esc":
+			m.filtering = false
+			m.filterStr = ""
+			m.filterIn.SetValue("")
+			m.filterIn.Blur()
+			m.refilter()
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.filterIn, cmd = m.filterIn.Update(msg)
+		if v := m.filterIn.Value(); v != m.filterStr {
+			m.filterStr = v
+			m.refilter()
+		}
+		return m, cmd
+	}
+
+	switch m.mode {
+	case modeUpdates:
+		switch msg.String() {
+		case "esc", "q":
 			m.mode = modeList
 			m.resize()
 			return m, nil
+		case "U":
+			target := m.timerEnabled != "enabled"
+			sys := m.sys
+			return m, tea.Batch(m.setBusy("toggle "+autoUpdateTimer), func() tea.Msg {
+				ctx := context.Background()
+				var err error
+				if target {
+					_, err = sys.Enable(ctx, autoUpdateTimer, true)
+				} else {
+					_, err = sys.Disable(ctx, autoUpdateTimer, true)
+				}
+				return timerToggledMsg{err: err}
+			})
+		case "r":
+			return m, tea.Batch(m.setBusy("checking auto-updates"), updatesCmd(m.sys))
+		}
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
+
+	case modeFile, modeLogs:
+		switch msg.String() {
+		case "esc", "q":
+			m.stopLogs()
+			m.mode = modeList
+			m.resize()
+			return m, nil
+		case "f":
+			if m.mode == modeLogs && m.sess != nil {
+				m.following = !m.following
+				if m.following {
+					m.viewport.GotoBottom()
+				}
+			}
+			return m, nil
+		case "E":
+			return m.editSelected()
 		}
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
@@ -383,39 +509,87 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "q":
 		return m, tea.Quit
 
+	case "esc":
+		if m.filterStr != "" {
+			m.filterStr = ""
+			m.filterIn.SetValue("")
+			m.refilter()
+		}
+		return m, nil
+
 	case "?":
 		m.showHelp = !m.showHelp
 		m.resize()
 		return m, nil
 
-	case "s", "x", "r":
+	case "/":
+		m.filtering = true
+		m.filterIn.Focus()
+		return m, textinput.Blink
+
+	case "s", "r":
 		u, ok := m.selected()
 		if !ok {
 			return m, nil
 		}
-		verb := map[string]string{"s": "start", "x": "stop", "r": "restart"}[msg.String()]
+		verb := map[string]string{"s": "start", "r": "restart"}[msg.String()]
 		sys := m.sys
 		return m, tea.Batch(m.setBusy(verb+" "+u.UnitName),
 			actionCmd(verb+" "+u.UnitName, func(ctx context.Context) (string, error) {
 				return sys.UnitAction(ctx, verb, u.UnitName)
 			}))
 
-	case "e", "d":
+	case "x":
+		u, ok := m.selected()
+		if !ok {
+			return m, nil
+		}
+		m.confirmStop = true
+		m.setStatus("stop "+u.UnitName+"? container will be removed (quadlet runs --rm) [y/N]", false)
+		return m, nil
+
+	case "e":
 		u, ok := m.selected()
 		if !ok {
 			return m, nil
 		}
 		sys := m.sys
-		if msg.String() == "e" {
-			return m, tea.Batch(m.setBusy("enable --now "+u.UnitName),
-				actionCmd("enable --now "+u.UnitName, func(ctx context.Context) (string, error) {
-					return sys.Enable(ctx, u.UnitName, true)
-				}))
+		return m, tea.Batch(m.setBusy("enable --now "+u.UnitName),
+			actionCmd("enable --now "+u.UnitName, func(ctx context.Context) (string, error) {
+				return sys.Enable(ctx, u.UnitName, true)
+			}))
+
+	case "d":
+		u, ok := m.selected()
+		if !ok {
+			return m, nil
 		}
+		sys := m.sys
 		return m, tea.Batch(m.setBusy("disable "+u.UnitName),
 			actionCmd("disable "+u.UnitName, func(ctx context.Context) (string, error) {
-				return sys.Disable(ctx, u.UnitName)
+				return sys.Disable(ctx, u.UnitName, false)
 			}))
+
+	case "E":
+		return m.editSelected()
+
+	case "u":
+		return m, tea.Batch(m.setBusy("checking auto-updates"), updatesCmd(m.sys))
+
+	case "h":
+		u, ok := m.selected()
+		if !ok {
+			return m, nil
+		}
+		if u.Kind != quadlet.KindContainer {
+			m.setStatus("healthchecks apply to container units", false)
+			return m, nil
+		}
+		container := "systemd-" + u.Name
+		return m, tea.Batch(m.setBusy("healthcheck "+container), func() tea.Msg {
+			ok, err := podman.HealthcheckRun(context.Background(), container)
+			return healthMsg{container: container, ok: ok, err: err}
+		})
 
 	case "R":
 		m.podmanTried = false // re-enrich app/pod grouping after regeneration
@@ -436,7 +610,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		return m, tea.Batch(m.setBusy("loading logs "+u.UnitName), logsCmd(m.sys, u.UnitName))
+		return m.startLogs(u)
 
 	case "enter":
 		u, ok := m.selected()
@@ -460,6 +634,30 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// editSelected opens the unit file in $EDITOR via tea.ExecProcess.
+func (m Model) editSelected() (tea.Model, tea.Cmd) {
+	u, ok := m.selected()
+	if !ok {
+		return m, nil
+	}
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vi"
+	}
+	before := fileMtime(u.Path)
+	cmd := exec.Command(editor, u.Path)
+	return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return editorFinishedMsg{changed: fileMtime(u.Path) != before, err: err}
+	})
+}
+
+func fileMtime(path string) time.Time {
+	if fi, err := os.Stat(path); err == nil {
+		return fi.ModTime()
+	}
+	return time.Time{}
+}
+
 func (m Model) applyRefresh(msg refreshMsg) (tea.Model, tea.Cmd) {
 	if m.loading {
 		m.clearStatus()
@@ -473,8 +671,8 @@ func (m Model) applyRefresh(msg refreshMsg) (tea.Model, tea.Cmd) {
 
 	// Pin the cursor on the same unit across refreshes.
 	pin := ""
-	if c := m.table.Cursor(); c >= 0 && c < len(m.units) {
-		pin = m.units[c].UnitName
+	if c := m.table.Cursor(); c >= 0 && c < len(m.filtered) {
+		pin = m.filtered[c].UnitName
 	}
 
 	m.units = msg.units
@@ -488,18 +686,18 @@ func (m Model) applyRefresh(msg refreshMsg) (tea.Model, tea.Cmd) {
 	if msg.podman != nil {
 		m.podmanInfo = msg.podman
 	}
-
-	rows := make([]table.Row, 0, len(msg.units))
-	for i, u := range msg.units {
-		state, sub := "-", "-"
-		if msg.err == nil {
-			state, sub = msg.statuses[u.UnitName].Display()
-		}
-		rows = append(rows, table.Row{u.Name, string(u.Kind), u.UnitName, state, sub, msg.images[i]})
+	if msg.health != nil {
+		m.health = msg.health
 	}
-	m.table.SetRows(rows)
+	m.images = make(map[string]string, len(msg.units))
+	for i, u := range msg.units {
+		m.images[u.UnitName] = msg.images[i]
+	}
+
+	m.filtered = filterUnits(m.units, m.filterStr)
+	m.buildRows()
 	if pin != "" {
-		for i, u := range m.units {
+		for i, u := range m.filtered {
 			if u.UnitName == pin {
 				m.table.SetCursor(i)
 				break
@@ -510,12 +708,57 @@ func (m Model) applyRefresh(msg refreshMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// refilter recomputes the visible unit list after the filter changed,
+// keeping the cursor pinned on the same unit when it survives the filter.
+func (m *Model) refilter() {
+	pin := ""
+	if c := m.table.Cursor(); c >= 0 && c < len(m.filtered) {
+		pin = m.filtered[c].UnitName
+	}
+	m.filtered = filterUnits(m.units, m.filterStr)
+	m.buildRows()
+	for i, u := range m.filtered {
+		if u.UnitName == pin {
+			m.table.SetCursor(i)
+			break
+		}
+	}
+}
+
+func filterUnits(units []quadlet.Unit, pattern string) []quadlet.Unit {
+	if pattern == "" {
+		return units
+	}
+	var out []quadlet.Unit
+	for _, u := range units {
+		if fuzzyMatch(u.Name+" "+u.UnitName+" "+string(u.Kind), pattern) {
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
+// buildRows renders the filtered unit list into the table. A unit whose
+// container podman reports as unhealthy surfaces that in the STATE column.
+func (m *Model) buildRows() {
+	rows := make([]table.Row, 0, len(m.filtered))
+	for _, u := range m.filtered {
+		state, sub := m.status[u.UnitName].Display()
+		if m.health["systemd-"+u.Name] == "unhealthy" {
+			state = "unhealthy"
+			sub = "health"
+		}
+		rows = append(rows, table.Row{u.Name, string(u.Kind), u.UnitName, state, sub, m.images[u.UnitName]})
+	}
+	m.table.SetRows(rows)
+}
+
 func (m Model) selected() (quadlet.Unit, bool) {
 	c := m.table.Cursor()
-	if c < 0 || c >= len(m.units) {
+	if c < 0 || c >= len(m.filtered) {
 		return quadlet.Unit{}, false
 	}
-	return m.units[c], true
+	return m.filtered[c], true
 }
 
 func (m *Model) setStatus(text string, isErr bool) {
@@ -541,8 +784,11 @@ func (m *Model) resize() {
 	if m.showHelp {
 		chrome += 6
 	}
-	if len(m.stale) > 0 {
+	if m.mode == modeList && len(m.stale) > 0 {
 		chrome++ // reload banner
+	}
+	if m.mode == modeList && (m.filtering || m.filterStr != "") {
+		chrome++ // filter line
 	}
 	body := h - chrome
 	if body < 3 {
@@ -564,6 +810,10 @@ func (m Model) View() tea.View {
 
 	switch m.mode {
 	case modeList:
+		if m.filtering || m.filterStr != "" {
+			b.WriteString(filterStyle.Render("/ " + m.filterIn.View()))
+			b.WriteString("\n")
+		}
 		b.WriteString(m.table.View())
 		if len(m.units) == 0 && !m.loading {
 			b.WriteString("\n")
@@ -602,7 +852,17 @@ func (m Model) View() tea.View {
 				unit += " — " + d
 			}
 		}
-		b.WriteString(headerStyle.Render(" LOGS " + unit + "  (last 300 lines, q to go back)"))
+		state := "live"
+		if m.sess == nil {
+			state = "snapshot"
+		} else if !m.following {
+			state = "paused"
+		}
+		b.WriteString(headerStyle.Render(" LOGS " + unit + "  (" + state + ", q to go back)"))
+		b.WriteString("\n")
+		b.WriteString(m.viewport.View())
+	case modeUpdates:
+		b.WriteString(headerStyle.Render(" AUTO-UPDATE "))
 		b.WriteString("\n")
 		b.WriteString(m.viewport.View())
 	}
@@ -627,10 +887,15 @@ func (m Model) View() tea.View {
 }
 
 func (m Model) keys() keyMap {
-	if m.mode == modeList {
-		return listKeys()
+	switch m.mode {
+	case modeLogs:
+		return logsKeys()
+	case modeFile:
+		return viewKeys()
+	case modeUpdates:
+		return updatesKeys()
 	}
-	return viewKeys()
+	return listKeys()
 }
 
 func (m Model) helpBar() string {
@@ -650,6 +915,7 @@ func (m Model) helpBar() string {
 			"Linger keeps rootless containers running after logout — enable it once on every quadlet host (loginctl enable-linger).",
 			"R re-runs systemd's generator after you edit quadlet files, then the list refreshes.",
 			"e enables the unit to start at boot (with --now); d removes it from boot (the container keeps running).",
+			"x stops the unit; quadlet runs containers with --rm, so stopping removes the container (state lives in volumes).",
 			"Quadlet search order: " + strings.Join(quadlet.SearchDirs(), " → "),
 		}
 		bar = strings.Join(lines, "\n")

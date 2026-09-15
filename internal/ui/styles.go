@@ -20,6 +20,7 @@ var (
 	errStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
 	dimErrStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("174"))
 	warnStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	filterStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 
 	lingerOnStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true)
 	lingerOffStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true)

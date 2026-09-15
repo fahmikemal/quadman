@@ -1,6 +1,7 @@
 package systemd
 
 import (
+	"bufio"
 	"context"
 	"os"
 	"path/filepath"
@@ -172,8 +173,13 @@ func TestEnableDisable(t *testing.T) {
 		},
 		{
 			desc: "disable",
-			run:  func(s *Systemd, ctx context.Context, unit string) (string, error) { return s.Disable(ctx, unit) },
+			run:  func(s *Systemd, ctx context.Context, unit string) (string, error) { return s.Disable(ctx, unit, false) },
 			want: "--user disable -- webapp.service",
+		},
+		{
+			desc: "disable now",
+			run:  func(s *Systemd, ctx context.Context, unit string) (string, error) { return s.Disable(ctx, unit, true) },
+			want: "--user disable --now -- webapp.service",
 		},
 	}
 	for _, tc := range cases {
@@ -265,6 +271,64 @@ func TestJournalDefaultLines(t *testing.T) {
 	}
 	if args := readArgs(t, argsFile); !contains(args, "--lines=200") {
 		t.Errorf("lines<=0 should default to 200: %v", args)
+	}
+}
+
+func TestJournalFollow(t *testing.T) {
+	argsFile := filepath.Join(t.TempDir(), "args")
+	bin := fakeBin(t, "journalctl", argsFile, `echo "line one"
+echo "line two"
+sleep 5
+`)
+	s := &Systemd{User: true, JournalBin: bin}
+
+	stop, stream, err := s.FollowJournal(context.Background(), "webapp.service", 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+
+	sc := bufio.NewScanner(stream)
+	var got []string
+	for sc.Scan() {
+		got = append(got, sc.Text())
+		if len(got) == 2 {
+			break
+		}
+	}
+	if len(got) != 2 || got[0] != "line one" || got[1] != "line two" {
+		t.Errorf("streamed = %v", got)
+	}
+	args := readArgs(t, argsFile)
+	if !contains(args, "--follow") || !contains(args, "--unit=webapp.service") {
+		t.Errorf("follow args = %v", args)
+	}
+}
+
+func TestIsEnabledIsActive(t *testing.T) {
+	cases := []struct {
+		script string
+		want   string
+	}{
+		{"echo enabled; exit 0\n", "enabled"},
+		{"echo disabled; exit 1\n", "disabled"}, // is-enabled exits 1 when disabled
+		{"echo static; exit 0\n", "static"},
+	}
+	for _, tc := range cases {
+		argsFile := filepath.Join(t.TempDir(), "args")
+		bin := fakeBin(t, "systemctl", argsFile, tc.script)
+		s := &Systemd{User: true, Bin: bin}
+		got, err := s.IsEnabled(context.Background(), "podman-auto-update.timer")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != tc.want {
+			t.Errorf("IsEnabled = %q, want %q (script %q)", got, tc.want, tc.script)
+		}
+		args := readArgs(t, argsFile)
+		if !contains(args, "--") || !contains(args, "podman-auto-update.timer") {
+			t.Errorf("args = %v, want -- separator + unit", args)
+		}
 	}
 }
 

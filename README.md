@@ -29,11 +29,20 @@ whole lifecycle in one TUI:
 - Shows live state (active/inactive/failed, `not-found` when you forgot
   `daemon-reload`) and the configured image, right in the list — refreshed
   automatically every few seconds with the cursor pinned on your selection.
-- `start` / `stop` / `restart` / `enable` / `disable` / `daemon-reload` with
-  one keypress, each with a spinner while it runs.
+- `start` / `stop` (with confirmation — Quadlet runs containers `--rm`) /
+  `restart` / `enable` / `disable` / `daemon-reload` with one keypress, each
+  with a spinner while it runs.
 - Warns when quadlet files changed after the last `daemon-reload`, so you
   never wonder why your edits do nothing.
-- Snapshot of the last 300 journal lines per unit.
+- **Follow-mode journals** — live `journalctl -f` tail per unit with
+  stick-to-tail scrolling and pause (`f`).
+- `/` fuzzy-filter the unit list as you type.
+- Edit quadlet files in `$EDITOR` from the TUI; get nudged to regenerate
+  when the file changed.
+- **Auto-update screen** (`u`) — `podman auto-update --dry-run` preview and
+  the `podman-auto-update.timer` state, toggleable with `U`.
+- Container health: unhealthy containers surface in the STATE column, `h`
+  runs `podman healthcheck run` on the selected unit.
 - Optional enrichment via `podman quadlet list` (application/pod grouping)
   when podman is installed; fully functional without it.
 - **Linger indicator and toggle** — `loginctl enable-linger` is the one setting every
@@ -94,10 +103,14 @@ quadman -version
 | ----- | --------------------------------------------- |
 | `↑/↓` `j/k` | move in the list                       |
 | `enter` | view the Quadlet source file               |
-| `l`   | last 300 journal lines for the unit           |
-| `s` / `x` / `r` | start / stop / restart the unit    |
+| `/`   | fuzzy-filter the list (type to narrow, `esc` clears) |
+| `l`   | live journal tail for the unit (`f` pauses follow) |
+| `s` / `x` / `r` | start / stop (confirms) / restart the unit |
 | `e`   | enable the unit at boot and start it now      |
 | `d`   | disable the unit from starting at boot        |
+| `E`   | edit the Quadlet file in `$EDITOR`            |
+| `u`   | auto-update screen (`U` toggles the timer)    |
+| `h`   | run `podman healthcheck` on the unit          |
 | `R`   | `systemctl --user daemon-reload` (regenerate after editing Quadlet files) |
 | `L`   | toggle user linger (`loginctl enable-linger`) |
 | `?`   | expand help                                   |
@@ -114,17 +127,17 @@ bubbletea v2.0.9, bubbles v2.2.1, lipgloss v2.0.6 (all latest as of Sep 2026).
 Ships in batches (see [CONTRIBUTING.md](CONTRIBUTING.md)); minor bumps for
 feature tiers, patch bumps for accumulated fixes.
 
-### v0.2.0 — Tier 1: differentiators
+### v0.2.0 — Tier 1: differentiators (✅ shipped)
 
-- [ ] Follow mode for journals (`journalctl -f` streaming, stick-to-tail)
-- [ ] `/` fuzzy filter over the unit list
-- [ ] Edit Quadlet files in `$EDITOR` (`tea.ExecProcess`) → offer `daemon-reload` on exit
-- [ ] Auto-update screen: per-unit `AutoUpdate=` state, `podman auto-update --dry-run`
+- [x] Follow mode for journals (`journalctl -f` streaming, stick-to-tail)
+- [x] `/` fuzzy filter over the unit list
+- [x] Edit Quadlet files in `$EDITOR` (`tea.ExecProcess`) → offer `daemon-reload` on exit
+- [x] Auto-update screen: per-unit `AutoUpdate=` state, `podman auto-update --dry-run`
       preview, user `podman-auto-update.timer` status/toggle
-- [ ] Health column + `h` runs `podman healthcheck run`
-- [ ] Stop confirmation/hint — Quadlet runs containers `--rm`, stop deletes them
-- [ ] Surface new Podman 6.1 keys (e.g. `ImageVolume=`) in the file view/parse
-- [ ] Tests for the non-interactive `list` command
+- [x] Health column + `h` runs `podman healthcheck run`
+- [x] Stop confirmation — Quadlet runs containers `--rm`, stop deletes them
+- [x] Surface new Podman 6.1 keys (e.g. `ImageVolume=`) in parsing
+- [x] Tests for the non-interactive `list` command
 
 ### v0.3.0 — Tier 2: operational depth
 

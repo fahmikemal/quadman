@@ -103,6 +103,10 @@ type Info struct {
 	// Image is the reference shown in the list: Image= for container and
 	// image files, ImageTag= for build files.
 	Image string
+	// AutoUpdate is the AutoUpdate= policy (registry/local), "" when unset.
+	AutoUpdate string
+	// ImageVolume is the ImageVolume= policy (Podman 6.1+), "" when unset.
+	ImageVolume string
 }
 
 // Inspect parses u's source file once and returns the effective unit name
@@ -122,5 +126,7 @@ func Inspect(u Unit) Info {
 	} else {
 		info.Image = sec.Get("Image")
 	}
+	info.AutoUpdate = sec.Get("AutoUpdate")
+	info.ImageVolume = sec.Get("ImageVolume")
 	return info
 }

@@ -76,6 +76,74 @@ func TestQuadletListBadJSON(t *testing.T) {
 	}
 }
 
+func TestPsHealth(t *testing.T) {
+	fakePodman(t, `cat <<'EOF'
+[
+  {"Names": ["systemd-webapp"], "Status": "Up 2 minutes (healthy)"},
+  {"Names": ["systemd-db"], "Status": "Up 5 minutes (unhealthy)"},
+  {"Names": ["plain"], "Status": "Up 1 hour"}
+]
+EOF
+`)
+	m, err := PsHealth(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m["systemd-webapp"] != "healthy" {
+		t.Errorf("webapp health = %q", m["systemd-webapp"])
+	}
+	if m["systemd-db"] != "unhealthy" {
+		t.Errorf("db health = %q", m["systemd-db"])
+	}
+	if _, ok := m["plain"]; ok {
+		t.Error("container without healthcheck must be absent")
+	}
+}
+
+func TestHealthcheckRun(t *testing.T) {
+	fakePodman(t, "exit 0\n")
+	ok, err := HealthcheckRun(context.Background(), "systemd-webapp")
+	if err != nil || !ok {
+		t.Errorf("exit 0 = passed: ok=%v err=%v", ok, err)
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "podman")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nif [ \"$1\" = healthcheck ]; then exit 1; fi\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	ok, err = HealthcheckRun(context.Background(), "systemd-webapp")
+	if err != nil || ok {
+		t.Errorf("exit 1 = failed healthcheck: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestAutoUpdateDryRun(t *testing.T) {
+	fakePodman(t, `cat <<'EOF'
+[{"Container":"abc123","Image":"quay.io/x:latest","Policy":"registry","Unit":"webapp.service","Updated":"pending"}]
+EOF
+`)
+	entries, err := AutoUpdateDryRun(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Unit != "webapp.service" || entries[0].Updated != "pending" {
+		t.Errorf("entries = %+v", entries)
+	}
+}
+
+func TestAutoUpdateDryRunEmpty(t *testing.T) {
+	fakePodman(t, "exit 0\n") // podman prints nothing when no labeled containers
+	entries, err := AutoUpdateDryRun(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("entries = %+v, want empty", entries)
+	}
+}
+
 func TestAvailable(t *testing.T) {
 	fakePodman(t, "true\n")
 	if !Available() {
