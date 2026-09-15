@@ -75,6 +75,21 @@ func TestApplyRefreshErrorWithoutUnitsKeepsLoading(t *testing.T) {
 	}
 }
 
+func TestApplyRefreshEmptyDiscoveryShowsEmptyState(t *testing.T) {
+	// Discover returns nil units when nothing is found; that must still
+	// finish loading so the empty-state hint renders (first-run bug found
+	// by the e2e).
+	m := New()
+	model, _ := m.Update(refreshMsg{units: nil, lingerOK: true})
+	mm := model.(Model)
+	if mm.loading {
+		t.Fatal("an empty but successful discovery must finish loading")
+	}
+	if view := mm.View().Content; !strings.Contains(view, "No quadlet units found") {
+		t.Error("the empty-state hint must render when no units exist")
+	}
+}
+
 type errString string
 
 func (e errString) Error() string { return string(e) }

@@ -128,6 +128,7 @@ type Model struct {
 	sess      *logSession
 	logLines  []string
 	following bool
+	pollCount int
 
 	// updates screen
 	updateEntries []podman.AutoUpdateEntry
@@ -208,14 +209,27 @@ func Run() error {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(refreshCmd(m.sys, m.lc, true), pollCmd())
+	return tea.Batch(refreshCmd(m.sys, m.lc, enrichFull), pollCmd())
 }
 
 func pollCmd() tea.Cmd {
 	return tea.Tick(pollInterval, func(time.Time) tea.Msg { return tickMsg{} })
 }
 
-func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, withPodman bool) tea.Cmd {
+// enrichLevel controls which podman-powered data a refresh gathers.
+type enrichLevel int
+
+const (
+	enrichNone   enrichLevel = iota
+	enrichHealth             // container health only (periodic poll)
+	enrichFull               // quadlet list grouping + health (startup, daemon-reload)
+)
+
+// healthPollEvery is how many polls pass between health refreshes — podman
+// ps is too heavy to run on every 2.5s tick.
+const healthPollEvery = 4
+
+func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, level enrichLevel) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 		units, err := quadlet.Discover()
@@ -237,12 +251,14 @@ func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, withPodman bool) te
 		// Optional enrichment via podman (app/pod grouping + container health).
 		var pinfo map[string]podman.Entry
 		var health map[string]string
-		if withPodman && podman.Available() {
-			if entries, perr := podman.QuadletList(ctx); perr == nil {
-				pinfo = podman.ByUnit(entries)
-			}
+		if level >= enrichHealth && podman.Available() {
 			if hm, herr := podman.PsHealth(ctx); herr == nil {
 				health = hm
+			}
+		}
+		if level == enrichFull && podman.Available() {
+			if entries, perr := podman.QuadletList(ctx); perr == nil {
+				pinfo = podman.ByUnit(entries)
 			}
 		}
 
@@ -254,7 +270,7 @@ func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, withPodman bool) te
 			linger:      linger,
 			lingerOK:    lerr == nil,
 			podman:      pinfo,
-			podmanTried: withPodman,
+			podmanTried: level == enrichFull,
 			health:      health,
 			stale:       stale,
 		}
@@ -288,8 +304,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		// Poll: refresh the list; only retry podman enrichment if it never ran.
-		return m, tea.Batch(refreshCmd(m.sys, m.lc, !m.podmanTried), pollCmd())
+		// Poll: refresh the list. Full podman enrichment runs once (or after
+		// daemon-reload); health refreshes on a slower cadence.
+		m.pollCount++
+		level := enrichNone
+		if !m.podmanTried {
+			level = enrichFull
+		} else if m.pollCount%healthPollEvery == 0 {
+			level = enrichHealth
+		}
+		return m, tea.Batch(refreshCmd(m.sys, m.lc, level), pollCmd())
 
 	case spinner.TickMsg:
 		if !m.busy {
@@ -313,7 +337,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			status += " - " + msg.hint
 		}
 		m.setStatus(status, false)
-		return m, refreshCmd(m.sys, m.lc, false)
+		return m, refreshCmd(m.sys, m.lc, enrichHealth)
 
 	case logsMsg:
 		m.busy = false
@@ -405,7 +429,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		return m, refreshCmd(m.sys, m.lc, false)
+		return m, refreshCmd(m.sys, m.lc, enrichNone)
 
 	case healthMsg:
 		m.busy = false
@@ -776,7 +800,12 @@ func (m Model) applyRefresh(msg refreshMsg) (tea.Model, tea.Cmd) {
 		m.setStatus(msg.err.Error(), true)
 	}
 	if msg.units == nil {
-		return m, nil
+		if msg.err != nil {
+			return m, nil // keep the previous list when a refresh fails
+		}
+		// A successful discovery of zero units is a valid loaded state,
+		// not "keep loading" — the empty-state hint depends on this.
+		msg.units = []quadlet.Unit{}
 	}
 
 	// Pin the cursor on the same unit across refreshes.
