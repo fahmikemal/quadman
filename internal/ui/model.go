@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -81,6 +82,13 @@ type healthMsg struct {
 	err       error
 }
 
+// pendingAction is an armed destructive/config-changing action waiting for
+// a y/N confirmation.
+type pendingAction struct {
+	verb string // "stop", "enable", "disable"
+	unit quadlet.Unit
+}
+
 // Model is the quadman Bubble Tea model.
 type Model struct {
 	sys      *systemd.Systemd
@@ -120,6 +128,10 @@ type Model struct {
 
 	// stop confirmation
 	confirmStop bool
+
+	// pending is an armed confirmation (stop / enable / disable) waiting
+	// for a y/N answer.
+	pending *pendingAction
 
 	// first-use editor picker
 	cfg           config.Config
@@ -421,26 +433,15 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.pickEditor(msg)
 	}
 
-	// Pending stop confirmation swallows the next key.
-	if m.confirmStop {
-		m.confirmStop = false
+	// An armed confirmation (stop/enable/disable) swallows the next key.
+	if m.pending != nil {
+		p := m.pending
+		m.pending = nil
 		if msg.String() != "y" {
-			m.setStatus("stop cancelled", false)
+			m.setStatus(p.verb+" cancelled", false)
 			return m, nil
 		}
-		u, ok := m.selected()
-		if !ok {
-			return m, nil
-		}
-		hint := ""
-		if u.Kind == quadlet.KindContainer {
-			hint = "container removed; state lives in volumes"
-		}
-		sys := m.sys
-		return m, tea.Batch(m.setBusy("stop "+u.UnitName),
-			actionCmdHint("stop "+u.UnitName, hint, func(ctx context.Context) (string, error) {
-				return sys.UnitAction(ctx, "stop", u.UnitName)
-			}))
+		return m.runPending(p)
 	}
 
 	// While the filter input is focused, keys edit the filter.
@@ -556,7 +557,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		m.confirmStop = true
+		m.pending = &pendingAction{verb: "stop", unit: u}
 		m.setStatus("stop "+u.UnitName+"? container will be removed (quadlet runs --rm) [y/N]", false)
 		return m, nil
 
@@ -565,22 +566,33 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		sys := m.sys
-		return m, tea.Batch(m.setBusy("enable --now "+u.UnitName),
-			actionCmd("enable --now "+u.UnitName, func(ctx context.Context) (string, error) {
-				return sys.Enable(ctx, u.UnitName, true)
-			}))
+		// Boot start is declarative in quadlet: [Install] WantedBy= in the
+		// file, and the generator wires it up on daemon-reload. Newer
+		// systemd refuses `systemctl enable` for generated units.
+		if f, err := quadlet.Parse(u.Path); err == nil && f.BootTarget() != "" {
+			sys := m.sys
+			return m, tea.Batch(m.setBusy("start "+u.UnitName),
+				actionCmd("start "+u.UnitName, func(ctx context.Context) (string, error) {
+					return sys.UnitAction(ctx, "start", u.UnitName)
+				}))
+		}
+		m.pending = &pendingAction{verb: "enable", unit: u}
+		m.setStatus("enable at boot: append [Install] WantedBy=default.target to "+filepath.Base(u.Path)+"? [y/N]", false)
+		return m, nil
 
 	case "d":
 		u, ok := m.selected()
 		if !ok {
 			return m, nil
 		}
-		sys := m.sys
-		return m, tea.Batch(m.setBusy("disable "+u.UnitName),
-			actionCmd("disable "+u.UnitName, func(ctx context.Context) (string, error) {
-				return sys.Disable(ctx, u.UnitName, false)
-			}))
+		f, err := quadlet.Parse(u.Path)
+		if err != nil || f.BootTarget() == "" {
+			m.setStatus(u.Name+" is not enabled at boot", false)
+			return m, nil
+		}
+		m.pending = &pendingAction{verb: "disable", unit: u}
+		m.setStatus("disable at boot: remove [Install] from "+filepath.Base(u.Path)+"? [y/N]", false)
+		return m, nil
 
 	case "E":
 		return m.editSelected()
@@ -645,6 +657,51 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.table, cmd = m.table.Update(msg)
 	return m, cmd
 }
+
+// runPending executes an armed y/N-confirmed action.
+func (m Model) runPending(p *pendingAction) (tea.Model, tea.Cmd) {
+	sys := m.sys
+	switch p.verb {
+	case "enable":
+		return m, tea.Batch(m.setBusy("enable at boot "+p.unit.UnitName),
+			actionCmdHint("enable at boot "+p.unit.UnitName, "starts on login from now on", func(ctx context.Context) (string, error) {
+				changed, err := quadlet.EnsureBootTarget(p.unit.Path, "default.target")
+				if err != nil {
+					return "", err
+				}
+				if changed {
+					if _, err := sys.DaemonReload(ctx); err != nil {
+						return "", err
+					}
+				}
+				return sys.UnitAction(ctx, "start", p.unit.UnitName)
+			}))
+	case "disable":
+		return m, tea.Batch(m.setBusy("disable at boot "+p.unit.UnitName),
+			actionCmdHint("disable at boot "+p.unit.UnitName, "still running now", func(ctx context.Context) (string, error) {
+				changed, err := quadlet.RemoveBootTarget(p.unit.Path)
+				if err != nil {
+					return "", err
+				}
+				if changed {
+					if _, err := sys.DaemonReload(ctx); err != nil {
+						return "", err
+					}
+				}
+				return "", nil
+			}))
+	default: // "stop"
+		hint := ""
+		if p.unit.Kind == quadlet.KindContainer {
+			hint = "container removed; state lives in volumes"
+		}
+		return m, tea.Batch(m.setBusy("stop "+p.unit.UnitName),
+			actionCmdHint("stop "+p.unit.UnitName, hint, func(ctx context.Context) (string, error) {
+				return sys.UnitAction(ctx, "stop", p.unit.UnitName)
+			}))
+	}
+}
+
 func fileMtime(path string) time.Time {
 	if fi, err := os.Stat(path); err == nil {
 		return fi.ModTime()
@@ -913,7 +970,7 @@ func (m Model) helpBar() string {
 			m.help.View(m.keys()) + "  ·  " + linger,
 			"Linger keeps rootless containers running after logout - enable it once on every quadlet host (loginctl enable-linger).",
 			"R re-runs systemd's generator after you edit quadlet files, then the list refreshes.",
-			"e enables the unit to start at boot (with --now); d removes it from boot (the container keeps running).",
+			"e adds [Install] WantedBy=default.target to the quadlet file so the unit starts at boot; d removes it (newer systemd refuses 'systemctl enable' on generated units).",
 			"x stops the unit; quadlet runs containers with --rm, so stopping removes the container (state lives in volumes).",
 			"E edits in your editor; the first use asks once and saves the choice to ~/.config/quadman/config.json (delete that file to re-pick).",
 			"Quadlet search order: " + strings.Join(quadlet.SearchDirs(), " → "),
