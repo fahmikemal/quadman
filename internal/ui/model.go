@@ -200,8 +200,13 @@ type Model struct {
 	width, height int
 	statusLine    string
 	statusErr     bool
+	statusAt      time.Time
 	showHelp      bool
 }
+
+// statusTTL is how long a success notification stays before it fades.
+// Errors stay until something else replaces them.
+const statusTTL = 5 * time.Second
 
 // New returns the initial quadman model.
 func New() Model {
@@ -373,6 +378,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
+		// Fade stale success notifications; errors stay put.
+		if m.statusLine != "" && !m.statusErr && time.Since(m.statusAt) > statusTTL {
+			m.clearStatus()
+		}
 		// Poll: refresh the list. Full podman enrichment runs once (or after
 		// daemon-reload); health refreshes on a slower cadence.
 		m.pollCount++
@@ -1291,6 +1300,7 @@ func (m Model) selected() (quadlet.Unit, bool) {
 func (m *Model) setStatus(text string, isErr bool) {
 	m.statusLine = text
 	m.statusErr = isErr
+	m.statusAt = time.Now()
 }
 
 func (m *Model) clearStatus() {

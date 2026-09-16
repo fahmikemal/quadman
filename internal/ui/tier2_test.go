@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -292,5 +293,33 @@ func TestBuildRowsAdaptiveWidths(t *testing.T) {
 	cols := model.(Model).table.Columns()
 	if cols[0].Width > 12 {
 		t.Errorf("one short name must shrink QUADLET, got %d", cols[0].Width)
+	}
+}
+
+func TestStatusAutoExpire(t *testing.T) {
+	m := New()
+	m.setStatus("linger off", false)
+
+	// Fresh success status must survive a tick.
+	model, _ := m.Update(tickMsg{})
+	if model.(Model).statusLine == "" {
+		t.Error("a fresh success status must not fade yet")
+	}
+
+	// Older than TTL: must fade on the next tick.
+	m2 := model.(Model)
+	m2.statusAt = m2.statusAt.Add(-10 * time.Second)
+	model, _ = m2.Update(tickMsg{})
+	if model.(Model).statusLine != "" {
+		t.Error("a success status older than the TTL must fade")
+	}
+
+	// Errors never auto-fade.
+	m3 := New()
+	m3.setStatus("boom failed", true)
+	m3.statusAt = m3.statusAt.Add(-10 * time.Second)
+	model, _ = m3.Update(tickMsg{})
+	if model.(Model).statusLine == "" {
+		t.Error("an error status must not auto-fade")
 	}
 }
