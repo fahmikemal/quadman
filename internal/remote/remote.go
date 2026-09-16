@@ -71,7 +71,7 @@ func (r Runner) argv(name string, args []string) []string {
 // context timeout; SSH dialing is separately bounded by ConnectTimeout.
 func (r Runner) Command(ctx context.Context, name string, args ...string) *exec.Cmd {
 	if !r.IsRemote() {
-		return exec.CommandContext(ctx, name, args...)
+		return exec.CommandContext(ctx, name, args...) // #nosec G204 -- argv slice, no shell; callers pass fixed CLI binaries and "--"-separated args
 	}
 	return exec.CommandContext(ctx, r.sshBin(), r.argv(name, args)...) // #nosec G204 -- argv slice, no shell; remote argv behind "--"
 }
