@@ -53,6 +53,19 @@ whole lifecycle in one TUI:
   units and `[Unit]` dependencies, rendered with the bubbles tree.
 - Mouse: click a row to select it, wheel-scroll logs; `y`/`Y` copy names
   and images via OSC52 (works over SSH).
+- **Tabbed detail pane** (`[`/`]`) — source, `systemctl status`, live journal,
+  and `podman inspect` of the selected unit in one view.
+- **Storage & events** — `g` for `podman system df --verbose`, `w` for a
+  live `podman events` stream (pause with `f`).
+- **Smart hints** — `timed-out` starts suggest `TimeoutStartSec=`/`Pull=`;
+  crash-loops and `AutoUpdate=`-without-timer also get called out in the
+  problems view.
+- **Generate from anything** (`n`) — paste a `docker run` command or a
+  compose file path; [podlet](https://github.com/containers/podlet) converts
+  it, you preview the result, `y` writes it and reloads the generator.
+- **Templates & bundles** — instantiate `web@.container` as
+  `web@prod.service` (`i`), and preview/install multi-document `.quadlets`
+  bundles (`I`).
 - Optional enrichment via `podman quadlet list` (application/pod grouping)
   when podman is installed; fully functional without it.
 - **Linger indicator and toggle** — `loginctl enable-linger` is the one setting every
@@ -70,7 +83,8 @@ with a `daemon-reload` warning when files changed on disk:
 
 ![quadman unit list](docs/screenshot-list.svg)
 
-Selecting a unit streams its last 300 journal lines without leaving the TUI:
+Selecting a unit streams its journal live (`journalctl -f`) without leaving
+the TUI — pause with `f`, search with `/`:
 
 ![quadman journal view](docs/screenshot-logs.svg)
 
@@ -80,8 +94,8 @@ Download a prebuilt binary (Linux amd64/arm64) from the
 [Releases](https://github.com/kemal-labs/quadman/releases) page:
 
 ```sh
-curl -LO https://github.com/kemal-labs/quadman/releases/latest/download/quadman_0.1.2_linux_amd64.tar.gz
-tar -xzf quadman_0.1.2_linux_amd64.tar.gz && sudo install quadman /usr/local/bin/
+curl -LO https://github.com/kemal-labs/quadman/releases/latest/download/quadman_0.3.2_linux_amd64.tar.gz
+tar -xzf quadman_0.3.2_linux_amd64.tar.gz && sudo install quadman /usr/local/bin/
 ```
 
 Or with Go:
@@ -159,7 +173,7 @@ feature tiers, patch bumps for accumulated fixes.
 - [x] Surface new Podman 6.1 keys (e.g. `ImageVolume=`) in parsing
 - [x] Tests for the non-interactive `list` command
 
-### v0.3.0 — Tier 2: operational depth (✅ shipped)
+### v0.3.x — Tier 2: operational depth (✅ shipped)
 
 - [x] Built-in Quadlet validation (generator dry-run, ✗/⚠ markers, problems view, version gating)
 - [x] Manage drop-in directories (`*.container.d/*.conf`, cascading `foo-.container.d/`)
@@ -172,11 +186,6 @@ feature tiers, patch bumps for accumulated fixes.
 - [x] Storage & events screens (`g` = `podman system df --verbose`, `w` = streaming `podman events`)
 - [x] Smart hints: `timed-out` → `TimeoutStartSec=`/`Pull=`, start-limit crash-loop, `AutoUpdate=` without the timer enabled
 - [x] Generate Quadlet files via podlet (`n`): `docker run` / compose → preview → `y` write → reload
-- [ ] Storage & events screens (`podman system df`, streaming `podman events`)
-- [ ] Smart hints: `activating (timed-out)` → suggest `TimeoutStartSec=`/`Pull=`;
-      Quadlet-diagnostics via generator `--dryrun` output (clean STDERR since Podman 6.1)
-- [ ] Generate Quadlet files via [podlet](https://github.com/containers/podlet)
-      (`docker run` / compose → preview → install → reload)
 
 ### v0.4.0+ — Tier 3: scale
 
