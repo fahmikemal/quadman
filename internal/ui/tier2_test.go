@@ -249,3 +249,48 @@ func TestTabBar(t *testing.T) {
 		t.Errorf("tabBar = %q", bar)
 	}
 }
+
+func TestAdaptiveColumns(t *testing.T) {
+	// Short values: QUADLET must not stay at the old fixed 22.
+	cols := adaptiveColumns(124, 9, 9, 18, 8, 7)
+	if cols[0].Width > 12 {
+		t.Errorf("short names should shrink QUADLET, got %d", cols[0].Width)
+	}
+	if cols[1].Width > 11 {
+		t.Errorf("KIND should be compact, got %d", cols[1].Width)
+	}
+	// IMAGE absorbs the leftover width.
+	total := 0
+	for _, c := range cols {
+		total += c.Width
+	}
+	if total > 124 {
+		t.Errorf("columns overflow the table: total %d > 124", total)
+	}
+
+	// Long values: caps stop one huge name from eating the table.
+	cols = adaptiveColumns(124, 60, 9, 80, 8, 7)
+	if cols[0].Width != 34 {
+		t.Errorf("QUADLET cap = %d, want 34", cols[0].Width)
+	}
+	if cols[2].Width != 44 {
+		t.Errorf("SYSTEMD UNIT cap = %d, want 44", cols[2].Width)
+	}
+
+	// Narrow table: IMAGE never collapses below its floor.
+	cols = adaptiveColumns(60, 30, 9, 44, 12, 11)
+	if cols[5].Width < 16 {
+		t.Errorf("IMAGE floor violated: %d", cols[5].Width)
+	}
+}
+
+func TestBuildRowsAdaptiveWidths(t *testing.T) {
+	m := withUnits(New(), "db")
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 124, Height: 24})
+	m = model.(Model)
+	_ = m
+	cols := model.(Model).table.Columns()
+	if cols[0].Width > 12 {
+		t.Errorf("one short name must shrink QUADLET, got %d", cols[0].Width)
+	}
+}
