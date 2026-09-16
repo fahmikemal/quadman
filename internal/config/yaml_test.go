@@ -121,3 +121,16 @@ func TestLoadCustomCommands(t *testing.T) {
 		t.Errorf("command = %+v", cc)
 	}
 }
+
+func TestLoadQuadletDirs(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	writeYAML(t, dir, "quadlet_dirs:\n  - /home/u/quadlets\n  - /opt/quadlets\n")
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Settings.QuadletDirs) != 2 || c.Settings.QuadletDirs[0] != "/home/u/quadlets" {
+		t.Errorf("quadlet_dirs = %+v", c.Settings.QuadletDirs)
+	}
+}

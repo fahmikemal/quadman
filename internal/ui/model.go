@@ -271,6 +271,7 @@ func New() Model {
 	}
 	m.pollInterval = cfg.RefreshInterval()
 	m.mouse = cfg.Settings.Mouse
+	applyExtraDirs(cfg.Settings.QuadletDirs)
 	applyTheme(resolveTheme(cfg.Settings.Theme))
 	if cfg.LogBuffer() != config.DefaultLogBuffer {
 		logBufferCap = cfg.LogBuffer()
@@ -286,10 +287,11 @@ func New() Model {
 
 // Options are the CLI-level overrides applied on top of config.yaml.
 type Options struct {
-	Readonly bool
-	SSH      string
-	Mouse    bool
-	Theme    string
+	Readonly    bool
+	SSH         string
+	Mouse       bool
+	Theme       string
+	QuadletDirs []string
 }
 
 // Run starts the quadman TUI.
@@ -318,8 +320,29 @@ func RunWithOptions(o Options) error {
 	if o.Theme != "" {
 		applyTheme(resolveTheme(o.Theme))
 	}
+	if len(o.QuadletDirs) > 0 {
+		applyExtraDirs(o.QuadletDirs)
+	}
 	_, err := tea.NewProgram(m).Run()
 	return err
+}
+
+// applyExtraDirs appends user-configured Quadlet source directories to the
+// discovery search path (config.yaml quadlet_dirs plus --quadlet-dir
+// flags). Empty and duplicate entries are ignored, so calling it twice
+// (once from main, once from New) is safe.
+func applyExtraDirs(dirs []string) {
+	seen := map[string]bool{}
+	for _, d := range quadlet.ExtraDirs {
+		seen[d] = true
+	}
+	for _, d := range dirs {
+		if d == "" || seen[d] {
+			continue
+		}
+		seen[d] = true
+		quadlet.ExtraDirs = append(quadlet.ExtraDirs, d)
+	}
 }
 
 // RunWithSSH starts the quadman TUI against a remote host: every CLI call

@@ -39,6 +39,7 @@ type Settings struct {
 	Readonly        bool            `yaml:"readonly,omitempty"`
 	Theme           string          `yaml:"theme,omitempty"`
 	Mouse           bool            `yaml:"mouse,omitempty"`
+	QuadletDirs     []string        `yaml:"quadlet_dirs,omitempty"`
 	CustomCommands  []CustomCommand `yaml:"custom_commands,omitempty"`
 }
 

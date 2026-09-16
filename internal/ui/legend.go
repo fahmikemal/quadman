@@ -38,6 +38,7 @@ func (m Model) helpBar() string {
 			"e adds [Install] WantedBy=default.target to the quadlet file so the unit starts at boot; d removes it (newer systemd refuses 'systemctl enable' on generated units).",
 			"x stops the unit; quadlet runs containers with --rm, so stopping removes the container (state lives in volumes).",
 			"E edits in your editor; the first use asks once and saves the choice to ~/.config/quadman/config.json (delete that file to re-pick).",
+			"A ~ after a name means the file lives in a quadlet_dirs extra dir the generator cannot see.",
 			"Quadlet search order: " + strings.Join(quadlet.SearchDirs(), " → "),
 		}
 		return helpStyle.Render(clampLines(strings.Join(lines, "\n"), m.help.Width()))

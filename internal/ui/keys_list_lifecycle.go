@@ -25,6 +25,10 @@ func (m Model) startRestartKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) 
 	if !ok {
 		return m, nil, true
 	}
+	if isExternalUnit(u.Path) {
+		m.setStatus(u.Name+" lives in an extra dir - "+externalHint(), true)
+		return m, nil, true
+	}
 	sys := m.sys
 	return m, tea.Batch(m.setBusy(verb+" "+u.UnitName),
 		actionCmd(verb+" "+u.UnitName, func(ctx context.Context) (string, error) {

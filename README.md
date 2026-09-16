@@ -122,6 +122,7 @@ quadman --readonly               # TUI with all state-changing actions disabled
 quadman --ssh user@host          # manage a remote rootless host over SSH
 quadman --theme colorblind       # auto, dark, light, or colorblind
 quadman --mouse                  # opt-in click-to-select
+quadman --quadlet-dir ~/quadlets # extra Quadlet source dir (repeatable)
 quadman list                     # non-interactive overview for scripts and pipes
 quadman -version
 ```
@@ -170,6 +171,8 @@ log_buffer: 1000       # follow-view line cap
 readonly: false        # same as quadman --readonly
 theme: auto            # auto, dark, light, or colorblind
 mouse: false           # same as quadman --mouse (off keeps text selection working)
+quadlet_dirs:          # extra Quadlet source dirs (same as --quadlet-dir)
+  - ~/quadlets
 
 custom_commands:
   - name: status
@@ -204,6 +207,21 @@ that edit files on the host (edit, enable/disable at boot, instantiate,
 generate-write, install, delete) are refused with an explanation — manage
 files by running quadman on that host directly. Drop-ins are not enumerated
 remotely; the file view says so.
+
+## Quadlet locations
+
+quadman scans the generator's rootless search path
+(`$XDG_RUNTIME_DIR/containers/systemd` → `~/.config/containers/systemd` →
+`/etc/containers/systemd/users[/UID]` → `/usr/share/containers/systemd/users[/UID]`),
+plus your own directories from `quadlet_dirs` in config.yaml or repeatable
+`--quadlet-dir` flags (e.g. a git checkout of your stack). Extra dirs are
+listed after the standard path, so same-name files in the standard path keep
+shadowing them — generator semantics stay intact.
+
+Units that exist only in an extra dir carry a `~` marker: the generator
+cannot see them, so starting one is refused with an explanation until the
+file is copied or symlinked into a search-path directory and reloaded (`R`).
+Applies to the TUI and `quadman list` alike.
 
 ## Compatibility
 
