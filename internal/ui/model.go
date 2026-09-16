@@ -1539,7 +1539,6 @@ func legendKeys() []string {
 		"/ filter", "? all keys",
 		"d disable", "D delete",
 		"e enable", "E edit",
-		"enter file",
 		"g storage", "h healthcheck",
 		"i instantiate", "I install",
 		"l logs", "L linger",
@@ -1553,6 +1552,7 @@ func legendKeys() []string {
 		"w events",
 		"x stop",
 		"y/Y copy",
+		"enter file",
 	}
 }
 
@@ -1563,7 +1563,6 @@ func legendKeysCompact() []string {
 		"/ filter", "? all keys",
 		"d disable",
 		"e enable", "E edit",
-		"enter file",
 		"l logs", "L linger",
 		"q quit",
 		"r restart", "R reload",
@@ -1572,6 +1571,7 @@ func legendKeysCompact() []string {
 		"u updates",
 		"v problems",
 		"x stop",
+		"enter file",
 	}
 }
 
