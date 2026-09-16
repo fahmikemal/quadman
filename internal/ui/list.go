@@ -49,6 +49,9 @@ func (m *Model) buildRows() {
 			sub = "health"
 		}
 		name := u.Name + m.issues.marker(u.Name)
+		if isExternalUnit(u.Path) {
+			name = externalSuffix(name)
+		}
 		if m.marks[u.UnitName] {
 			name = "* " + name
 		}

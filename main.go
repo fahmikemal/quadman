@@ -16,6 +16,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/kemal-labs/quadman/internal/config"
 	"github.com/kemal-labs/quadman/internal/quadlet"
 	"github.com/kemal-labs/quadman/internal/systemd"
 	"github.com/kemal-labs/quadman/internal/ui"
@@ -23,12 +24,24 @@ import (
 
 var version = "dev"
 
+// quadletDirList is a repeatable --quadlet-dir flag.
+type quadletDirList []string
+
+func (q *quadletDirList) String() string { return strings.Join(*q, ",") }
+
+func (q *quadletDirList) Set(v string) error {
+	*q = append(*q, v)
+	return nil
+}
+
 func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	readonly := flag.Bool("readonly", false, "disable all state-changing actions (view, logs, and screens only)")
 	sshTarget := flag.String("ssh", "", "run against a remote host over SSH (e.g. user@host); file edits are disabled in this mode")
 	mouse := flag.Bool("mouse", false, "enable click-to-select (off by default so text selection keeps working)")
 	theme := flag.String("theme", "", "color scheme: auto, dark, light, or colorblind (default from config.yaml)")
+	var quadletDirs quadletDirList
+	flag.Var(&quadletDirs, "quadlet-dir", "extra Quadlet source directory (repeatable; listed after the generator search path)")
 	flag.Parse()
 
 	if *showVersion {
@@ -37,6 +50,12 @@ func main() {
 	}
 
 	args := flag.Args()
+
+	// Extra Quadlet source directories apply to every mode, including the
+	// non-interactive list: config.yaml quadlet_dirs first, then
+	// --quadlet-dir flags.
+	applyQuadletDirs(quadletDirs)
+
 	if len(args) > 0 {
 		switch args[0] {
 		case "list":
@@ -51,21 +70,46 @@ func main() {
 	}
 
 	if *sshTarget != "" {
-		if err := ui.RunWithOptions(ui.Options{SSH: *sshTarget, Readonly: *readonly, Mouse: *mouse, Theme: *theme}); err != nil {
+		if err := ui.RunWithOptions(ui.Options{SSH: *sshTarget, Readonly: *readonly, Mouse: *mouse, Theme: *theme, QuadletDirs: quadletDirs}); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
 		return
 	}
 
-	if err := ui.RunWithOptions(ui.Options{Readonly: *readonly, Mouse: *mouse, Theme: *theme}); err != nil {
+	if err := ui.RunWithOptions(ui.Options{Readonly: *readonly, Mouse: *mouse, Theme: *theme, QuadletDirs: quadletDirs}); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 }
 
+// applyQuadletDirs appends user-configured Quadlet source directories to
+// the discovery search path: quadlet_dirs from config.yaml first, then
+// --quadlet-dir flags. A corrupt YAML file is reported; discovery still
+// proceeds with flags only.
+func applyQuadletDirs(flags []string) {
+	seen := map[string]bool{}
+	for _, d := range quadlet.ExtraDirs {
+		seen[d] = true
+	}
+	add := func(dirs []string) {
+		for _, d := range dirs {
+			if d == "" || seen[d] {
+				continue
+			}
+			seen[d] = true
+			quadlet.ExtraDirs = append(quadlet.ExtraDirs, d)
+		}
+	}
+	if cfg, err := config.Load(); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: config:", err)
+	} else {
+		add(cfg.Settings.QuadletDirs)
+	}
+	add(flags)
+}
+
 // moduleVersion reports the release version. Builds injected via ldflags
-// (make, goreleaser) take precedence; `go install module@version` builds
 // fall back to the module version Go recorded at install time.
 func moduleVersion() string {
 	if version != "dev" {

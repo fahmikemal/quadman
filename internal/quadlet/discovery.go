@@ -38,6 +38,18 @@ type Unit struct {
 	UnitName string
 }
 
+// ExtraDirs holds user-configured Quadlet source directories (from
+// quadlet_dirs in config.yaml or --quadlet-dir flags). They are appended
+// after the generator's own search path, so generator semantics (first
+// match wins) stay intact: same-name files in the standard path keep
+// shadowing the extra ones.
+//
+// NOTE: systemd's generator does not read these directories, so units that
+// exist only here cannot be started until their files are also visible to
+// the generator (copy them or symlink them into a search-path directory).
+// quadman lists, previews, and validates them anyway, and marks them.
+var ExtraDirs []string
+
 // SearchDirs returns the Quadlet source directories for the current user, in
 // generator lookup order. It mirrors podman's rootless search path: the
 // runtime dir, the user config dir, then the admin/distro users directories.
@@ -55,7 +67,7 @@ func SearchDirs() []string {
 	for _, base := range []string{"/etc/containers/systemd", "/usr/share/containers/systemd"} {
 		dirs = append(dirs, userDirs(base, uid)...)
 	}
-	return dirs
+	return append(dirs, ExtraDirs...)
 }
 
 // userDirs lists the per-user directories below one generator base dir, in
