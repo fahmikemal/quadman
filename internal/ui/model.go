@@ -1516,8 +1516,8 @@ func (m Model) legend() []string {
 	case modeUpdates:
 		return []string{"U toggle timer · r refresh · esc/q back"}
 	}
-	views := "enter file · l logs · / filter · E edit · u updates · v problems · t tree · ? all keys"
-	actions := "s start · x stop · r restart · e enable · d disable · R reload · L linger · q quit"
+	views := "enter file · l logs · / filter · E edit · u updates · v problems · t tree"
+	actions := "s start · x stop · r restart · e enable · d disable · R reload · L linger · q quit · ? all keys"
 	full := views + " · " + actions
 	if w := m.help.Width(); w <= 0 || ansi.StringWidth(full)+legendChipReserve <= w {
 		return []string{full}
