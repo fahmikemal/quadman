@@ -38,6 +38,16 @@ func (s *Systemd) Journal(ctx context.Context, unit string, lines int) (string, 
 	return msg, nil
 }
 
+// StatusText returns `systemctl status` output for a unit. The command
+// exits non-zero for inactive units, which is not an error here — the
+// output itself is the payload.
+func (s *Systemd) StatusText(ctx context.Context, unit string) (string, error) {
+	ctx, cancel := s.timeoutCtx(ctx)
+	defer cancel()
+	out, _ := exec.CommandContext(ctx, s.bin(), s.args("status", "--no-pager", "--", unit)...).CombinedOutput() // #nosec G204 -- argv slice, no shell; unit behind "--"
+	return strings.TrimSpace(string(out)), nil
+}
+
 // FollowJournal starts `journalctl -f` for a unit and returns the running
 // process together with its stdout stream. The caller must call stop to kill
 // the process and reap it; ctx cancelation stops it too.

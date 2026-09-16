@@ -37,3 +37,17 @@ func baseName(p string) string {
 	}
 	return p
 }
+
+// withQuadletDocs renders a .quadlets bundle with one separator header per
+// document.
+func withQuadletDocs(content []byte) string {
+	var b strings.Builder
+	for _, line := range strings.Split(string(content), "\n") {
+		if strings.TrimSpace(line) == "---" {
+			b.WriteString("\n# " + strings.Repeat("─", 40) + "\n")
+			continue
+		}
+		b.WriteString(line + "\n")
+	}
+	return b.String()
+}

@@ -71,7 +71,8 @@ func TestSearchRangesCapped(t *testing.T) {
 
 func TestLogSearchFlow(t *testing.T) {
 	m := New()
-	m.mode = modeLogs
+	m.mode = modeDetail
+	m.tab = tabJournal
 	m.logLines = []string{"boot ok", "disk full", "all good", "disk again"}
 	m.searchStr = "disk"
 	m.applySearch()

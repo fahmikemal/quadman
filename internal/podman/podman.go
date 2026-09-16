@@ -169,6 +169,27 @@ func QuadletRm(ctx context.Context, path string) error {
 	return nil
 }
 
+// QuadletInstall installs a quadlet file or a multi-document .quadlets
+// bundle via `podman quadlet install` (which also reloads systemd by default).
+func QuadletInstall(ctx context.Context, path string) error {
+	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "podman", "quadlet", "install", "--", path).CombinedOutput() // #nosec G204 -- argv slice, no shell; path behind "--"
+	if err != nil {
+		return fmt.Errorf("podman quadlet install: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// Inspect returns pretty-printed `podman inspect` output for a container.
+func Inspect(ctx context.Context, container string) (string, error) {
+	out, err := runPodman(ctx, "inspect", container)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
 // Version returns the installed podman client version, e.g. "6.1.1".
 func Version(ctx context.Context) (string, error) {
 	out, err := runPodman(ctx, "version", "--format", "json")

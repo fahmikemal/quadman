@@ -23,6 +23,9 @@ const (
 	KindImage     Kind = "image"
 	KindBuild     Kind = "build"
 	KindArtifact  Kind = "artifact"
+	// KindQuadlets is a multi-document install bundle (*.quadlets); it maps
+	// to no single unit until installed via `podman quadlet install`.
+	KindQuadlets Kind = "quadlets"
 )
 
 // Unit describes one Quadlet source file and the systemd unit it generates.
@@ -94,6 +97,7 @@ var kindByExt = map[string]Kind{
 	".image":     KindImage,
 	".build":     KindBuild,
 	".artifact":  KindArtifact,
+	".quadlets":  KindQuadlets,
 }
 
 // kindSuffix is the name suffix the generator appends for each kind:
@@ -188,11 +192,15 @@ func DiscoverDirs(dirs []string) ([]Unit, error) {
 				continue
 			}
 			seen[key] = true
+			unitName := UnitFileName(name, kind)
+			if kind == KindQuadlets {
+				unitName = "" // install bundles map to N units, not one
+			}
 			units = append(units, Unit{
 				Name:     name,
 				Kind:     kind,
 				Path:     filepath.Join(dir, e.Name()),
-				UnitName: UnitFileName(name, kind),
+				UnitName: unitName,
 			})
 		}
 	}
