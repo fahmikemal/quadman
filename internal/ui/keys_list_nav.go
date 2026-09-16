@@ -1,8 +1,6 @@
 package ui
 
 import (
-	"os"
-
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 )
@@ -25,6 +23,12 @@ func (m Model) escKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		m.filterStr = ""
 		m.filterIn.SetValue("")
 		m.refilter()
+		return m, nil, true
+	}
+	if len(m.marks) > 0 {
+		m.clearMarks()
+		m.setStatus("marks cleared", false)
+		m.buildRows()
 	}
 	return m, nil, true
 
@@ -71,12 +75,12 @@ func (m Model) openFileKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if !ok {
 		return m, nil, true
 	}
-	content, err := os.ReadFile(u.Path)
+	content, err := m.readUnitFile(u)
 	if err != nil {
 		m.setStatus(err.Error(), true)
 		return m, nil, true
 	}
-	m.viewport.SetContent(withDropins(u, content))
+	m.viewport.SetContent(m.fileContent(u, content))
 	m.viewport.GotoTop()
 	m.mode = modeDetail
 	m.tab = tabSource

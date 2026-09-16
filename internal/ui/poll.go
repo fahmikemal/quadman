@@ -9,6 +9,7 @@ import (
 	"github.com/kemal-labs/quadman/internal/loginctl"
 	"github.com/kemal-labs/quadman/internal/podman"
 	"github.com/kemal-labs/quadman/internal/quadlet"
+	"github.com/kemal-labs/quadman/internal/remote"
 	"github.com/kemal-labs/quadman/internal/systemd"
 )
 
@@ -61,7 +62,7 @@ func (m Model) refresh(level enrichLevel) tea.Cmd {
 	if cache == nil {
 		cache = &quadlet.InspectCache{}
 	}
-	return refreshCmd(m.sys, m.lc, cache, level)
+	return refreshCmd(m.sys, m.lc, cache, m.ssh, level)
 }
 
 // pollTick schedules the next poll using the model's configured interval
@@ -70,18 +71,37 @@ func (m Model) pollTick() tea.Cmd {
 	return pollCmd(m.pollInterval)
 }
 
-func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, cache *quadlet.InspectCache, level enrichLevel) tea.Cmd {
+func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, cache *quadlet.InspectCache, runner remote.Runner, level enrichLevel) tea.Cmd {
 	if cache == nil {
 		cache = &quadlet.InspectCache{}
 	}
 	return func() tea.Msg {
 		ctx := context.Background()
-		units, err := quadlet.Discover()
-		if err != nil {
-			return refreshMsg{err: err}
+		var units []quadlet.Unit
+		var images []string
+		if runner.IsRemote() {
+			var err error
+			units, err = quadlet.DiscoverRemote(ctx, runner)
+			if err != nil {
+				return refreshMsg{err: err}
+			}
+			// Remote files have no cheap mtime: read and parse each unit
+			// once per refresh through the SSH runner.
+			images = make([]string, len(units))
+			for i := range units {
+				info := inspectRemote(ctx, runner, units[i])
+				units[i].UnitName = info.UnitName
+				images[i] = info.Image
+			}
+		} else {
+			var err error
+			units, err = quadlet.Discover()
+			if err != nil {
+				return refreshMsg{err: err}
+			}
+			// Info is memoized by file mtime: only changed files are re-parsed.
+			_, images = cache.InspectAll(units)
 		}
-		// Info is memoized by file mtime: only changed files are re-parsed.
-		_, images := cache.InspectAll(units)
 		statuses, err := sys.Show(ctx, unitNames(units))
 		if err != nil {
 			return refreshMsg{units: units, images: images, err: err}
@@ -93,24 +113,29 @@ func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, cache *quadlet.Insp
 		var health map[string]string
 		var issues []quadlet.Issue
 		var version string
-		if level >= enrichHealth && podman.Available() {
+		if level >= enrichHealth && podmanAvailable(ctx, runner) {
 			if hm, herr := podman.PsHealth(ctx); herr == nil {
 				health = hm
 			}
 		}
 		if level == enrichFull {
-			if podman.Available() {
+			if podmanAvailable(ctx, runner) {
 				if entries, perr := podman.QuadletList(ctx); perr == nil {
 					pinfo = podman.ByUnit(entries)
 				}
 			}
-			issues, _ = quadlet.Validate(ctx, quadlet.SearchDirs())
+			if !runner.IsRemote() {
+				issues, _ = quadlet.Validate(ctx, quadlet.SearchDirs())
+			}
 			if ver, verr := podman.Version(ctx); verr == nil {
 				version = ver
 			}
 		}
 
-		stale := quadlet.StaleUnits(units, systemd.UserGeneratorDir())
+		var stale []quadlet.Unit
+		if !runner.IsRemote() {
+			stale = quadlet.StaleUnits(units, systemd.UserGeneratorDir())
+		}
 		return refreshMsg{
 			units:       units,
 			images:      images,
@@ -146,6 +171,46 @@ func unitNames(units []quadlet.Unit) []string {
 		}
 	}
 	return names
+}
+
+// podmanAvailable reports whether podman answers, locally via PATH or
+// remotely through the runner.
+func podmanAvailable(ctx context.Context, runner remote.Runner) bool {
+	if !runner.IsRemote() {
+		return podman.Available()
+	}
+	ctx, cancel := context.WithTimeout(ctx, remote.DialTimeout)
+	defer cancel()
+	_, err := runner.Output(ctx, "podman", "--version")
+	return err == nil
+}
+
+// inspectRemote resolves one remote unit's Info by catting its source file
+// through the SSH runner. Failures keep the default generated name,
+// matching the uncached local fallback.
+func inspectRemote(ctx context.Context, runner remote.Runner, u quadlet.Unit) quadlet.Info {
+	info := quadlet.Info{UnitName: quadlet.UnitFileName(u.Name, u.Kind)}
+	if u.Path == "" {
+		return info
+	}
+	data, err := runner.Cat(ctx, u.Path)
+	if err != nil {
+		return info
+	}
+	f, err := quadlet.ParseBytes(u.Path, data)
+	if err != nil {
+		return info
+	}
+	sec := f.Section(string(u.Kind))
+	if sn := sec.Get("ServiceName"); sn != "" {
+		info.UnitName = sn + ".service"
+	}
+	if u.Kind == quadlet.KindBuild {
+		info.Image = sec.Get("ImageTag")
+	} else {
+		info.Image = sec.Get("Image")
+	}
+	return info
 }
 
 // applyRefresh merges a finished refresh into the model, keeping the cursor

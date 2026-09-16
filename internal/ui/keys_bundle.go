@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"os"
 	"path/filepath"
 
 	tea "charm.land/bubbletea/v2"
@@ -14,7 +13,7 @@ func (m Model) bundleKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if u, ok := m.selected(); ok && u.Kind == quadlet.KindQuadlets {
 		switch msg.String() {
 		case "enter":
-			content, err := os.ReadFile(u.Path)
+			content, err := m.readUnitFile(u)
 			if err != nil {
 				m.setStatus(err.Error(), true)
 				return m, nil, true

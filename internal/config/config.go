@@ -37,6 +37,8 @@ type Settings struct {
 	LogTail         int             `yaml:"log_tail,omitempty"`
 	LogBuffer       int             `yaml:"log_buffer,omitempty"`
 	Readonly        bool            `yaml:"readonly,omitempty"`
+	Theme           string          `yaml:"theme,omitempty"`
+	Mouse           bool            `yaml:"mouse,omitempty"`
 	CustomCommands  []CustomCommand `yaml:"custom_commands,omitempty"`
 }
 

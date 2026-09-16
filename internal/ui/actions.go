@@ -60,6 +60,9 @@ func quadletRemove(ctx context.Context, path string) error {
 
 // installBundle installs a .quadlets bundle via podman quadlet install.
 func (m Model) installBundle(u quadlet.Unit) (tea.Model, tea.Cmd) {
+	if m.refuseRemoteWrite() {
+		return m, nil
+	}
 	return m, tea.Batch(m.setBusy("install "+u.Name),
 		actionCmdHint("install "+u.Name, "installed units appear after the refresh", func(ctx context.Context) (string, error) {
 			if !podman.Available() {
@@ -76,6 +79,14 @@ func (m Model) installBundle(u quadlet.Unit) (tea.Model, tea.Cmd) {
 // runPending executes an armed y/N-confirmed action.
 func (m Model) runPending(p *pendingAction) (tea.Model, tea.Cmd) {
 	sys := m.sys
+	if verb, ok := strings.CutPrefix(p.verb, "bulk-"); ok {
+		marked := m.markedUnits()
+		if len(marked) == 0 {
+			m.setStatus("no marked units", false)
+			return m, nil
+		}
+		return m, tea.Batch(m.setBusy("bulk "+verb+" "+bulkNoun(marked)), m.bulkCmd(verb, marked))
+	}
 	switch p.verb {
 	case "enable":
 		return m, tea.Batch(m.setBusy("enable at boot "+p.unit.UnitName),

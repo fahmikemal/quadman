@@ -175,7 +175,7 @@ func (m Model) smartHints() []string {
 				u.UnitName))
 		}
 		if u.Kind == quadlet.KindContainer && m.timerEnabled != "enabled" {
-			if f, err := quadlet.Parse(u.Path); err == nil {
+			if f, err := m.parseUnitFile(u); err == nil {
 				if f.Section("Container").Get("AutoUpdate") == "registry" {
 					hints = append(hints, fmt.Sprintf(
 						"%s: AutoUpdate=registry is set but podman-auto-update.timer is disabled — enable it from the updates screen (u, then U).",

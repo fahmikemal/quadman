@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/kemal-labs/quadman/internal/remote"
 )
 
 // DefaultTimeout bounds each systemctl/journalctl call so a hung binary
@@ -26,6 +28,9 @@ type Systemd struct {
 	JournalBin string
 	// Timeout bounds each call; 0 means DefaultTimeout.
 	Timeout time.Duration
+	// Remote runs the CLI over SSH when set (--ssh user@host). The zero
+	// value runs everything locally.
+	Remote remote.Runner
 }
 
 // New returns a Systemd targeting the current user's session.
@@ -60,6 +65,12 @@ func (s *Systemd) args(extra ...string) []string {
 		return append([]string{"--user"}, extra...)
 	}
 	return extra
+}
+
+// run executes the systemctl CLI (locally or over SSH) like
+// exec.CommandContext.
+func (s *Systemd) run(ctx context.Context, name string, args ...string) *exec.Cmd {
+	return s.Remote.Command(ctx, name, args...)
 }
 
 // Status is a snapshot of one unit's runtime state.
@@ -105,7 +116,7 @@ func (s *Systemd) Show(ctx context.Context, units []string) (map[string]Status, 
 	}, units...)...)
 	ctx, cancel := s.timeoutCtx(ctx)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, s.bin(), args...) // #nosec G204 -- argv slice, no shell; unit names are behind a "--" separator; driving systemctl is this tool's purpose
+	cmd := s.run(ctx, s.bin(), args...) // #nosec G204 -- argv slice, no shell; unit names are behind a "--" separator; driving systemctl is this tool's purpose
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -182,7 +193,7 @@ func (s *Systemd) Disable(ctx context.Context, unit string, now bool) (string, e
 func (s *Systemd) unitCmd(ctx context.Context, verb, unit string, args ...string) (string, error) {
 	ctx, cancel := s.timeoutCtx(ctx)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, s.bin(), s.args(append(args, "--", unit)...)...) // #nosec G204 -- argv slice, no shell; unit name is behind a "--" separator
+	cmd := s.run(ctx, s.bin(), s.args(append(args, "--", unit)...)...) // #nosec G204 -- argv slice, no shell; unit name is behind a "--" separator
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -210,7 +221,7 @@ func UserGeneratorDir() string {
 func (s *Systemd) DaemonReload(ctx context.Context) (string, error) {
 	ctx, cancel := s.timeoutCtx(ctx)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, s.bin(), s.args("daemon-reload")...) // #nosec G204 -- argv slice, no shell, constant verb
+	cmd := s.run(ctx, s.bin(), s.args("daemon-reload")...) // #nosec G204 -- argv slice, no shell, constant verb
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

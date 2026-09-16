@@ -49,6 +49,9 @@ func (m *Model) buildRows() {
 			sub = "health"
 		}
 		name := u.Name + m.issues.marker(u.Name)
+		if m.marks[u.UnitName] {
+			name = "* " + name
+		}
 		rows = append(rows, table.Row{name, string(u.Kind), u.UnitName, state, sub, m.images[u.UnitName]})
 		nameW = max(nameW, ansi.StringWidth(name))
 		kindW = max(kindW, len(u.Kind))

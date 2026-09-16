@@ -427,6 +427,8 @@ func runExtraScenarios() {
 	scenarioCustomCommand(quadletDir)
 	scenarioYAMLConfig()
 	scenarioGenerateStrict(quadletDir)
+	scenarioBulk(quadletDir)
+	scenarioThemeMouse()
 }
 
 // scenarioStorage: g opens the storage screen with podman system df output.
@@ -957,6 +959,64 @@ func last() string {
 }
 
 var pumpErrs int
+
+// scenarioBulk: space marks rows, s acts on all marked with one confirm,
+// and the result count lands in the status and the A log.
+func scenarioBulk(quadletDir string) {
+	_ = quadletDir
+	drain()
+	cmd, f := launch(120, 42)
+	defer quit(cmd, f)
+	if !waitFor("QUADLET", 12*time.Second) {
+		check("bulk mark", false, "daftar tidak muncul")
+		return
+	}
+	send(f, " ")
+	ok := waitFor("marked", 5*time.Second)
+	check("bulk mark", ok, "space menandai baris")
+	send(f, "j")
+	time.Sleep(300 * time.Millisecond)
+	send(f, " ")
+	time.Sleep(500 * time.Millisecond)
+	ok = strings.Contains(last(), "2 marked")
+	check("bulk two marks", ok, "dua baris tertandai")
+	drain()
+	send(f, "s")
+	ok = waitFor("2 units", 3*time.Second)
+	check("bulk confirm", ok, "konfirmasi menyebut jumlah unit")
+	send(f, "y")
+	ok = waitFor("bulk start", 20*time.Second)
+	check("bulk start", ok, "aksi massal jalan dan dilaporkan")
+	drain()
+	send(f, "A")
+	ok = waitFor("bulk start", 5*time.Second)
+	check("bulk logged", ok, "hasil massal tercatat di ACTIONS")
+	send(f, "q")
+	time.Sleep(300 * time.Millisecond)
+	// cleanup: stop what bulk started
+	run0("systemctl", "--user", "stop", "demo-data-volume.service")
+	run0("systemctl", "--user", "stop", "demo-net-network.service")
+}
+
+// scenarioThemeMouse: --theme colorblind renders and --mouse is accepted;
+// mouse stays off by default (no MouseMode escape in the stream).
+func scenarioThemeMouse() {
+	drain()
+	cmd, f := launchArgs(120, 42, []string{"--theme", "colorblind"})
+	ok := waitFor("QUADLET", 12*time.Second)
+	check("theme flag", ok, "tema colorblind merender daftar")
+	quit(cmd, f)
+
+	drain()
+	cmd, f = launch(120, 42)
+	waitFor("QUADLET", 12*time.Second)
+	drain()
+	time.Sleep(1500 * time.Millisecond)
+	// Without --mouse the TUI must not request mouse reporting.
+	raw := last()
+	check("mouse off default", !strings.Contains(raw, "\x1b[?1003h") && !strings.Contains(raw, "\x1b[?1000h"), "tanpa --mouse tidak ada mouse reporting")
+	quit(cmd, f)
+}
 
 func logPumpErr(err error) {
 	mu.Lock()

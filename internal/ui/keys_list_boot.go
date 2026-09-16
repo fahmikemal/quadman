@@ -16,6 +16,9 @@ func (m Model) enableKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if msg.String() != "e" {
 		return m, nil, false
 	}
+	if m.refuseRemoteWrite() {
+		return m, nil, true
+	}
 	if m.refuseReadonly() {
 		return m, nil, true
 	}
@@ -26,7 +29,7 @@ func (m Model) enableKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	// Boot start is declarative in quadlet: [Install] WantedBy= in the
 	// file, and the generator wires it up on daemon-reload. Newer
 	// systemd refuses `systemctl enable` for generated units.
-	if f, err := quadlet.Parse(u.Path); err == nil && f.BootTarget() != "" {
+	if f, err := m.parseUnitFile(u); err == nil && f.BootTarget() != "" {
 		sys := m.sys
 		return m, tea.Batch(m.setBusy("start "+u.UnitName),
 			actionCmd("start "+u.UnitName, func(ctx context.Context) (string, error) {
@@ -43,6 +46,9 @@ func (m Model) disableKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if msg.String() != "d" {
 		return m, nil, false
 	}
+	if m.refuseRemoteWrite() {
+		return m, nil, true
+	}
 	if m.refuseReadonly() {
 		return m, nil, true
 	}
@@ -50,7 +56,7 @@ func (m Model) disableKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if !ok {
 		return m, nil, true
 	}
-	f, err := quadlet.Parse(u.Path)
+	f, err := m.parseUnitFile(u)
 	if err != nil || f.BootTarget() == "" {
 		m.setStatus(u.Name+" is not enabled at boot", false)
 		return m, nil, true
@@ -64,6 +70,9 @@ func (m Model) disableKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 func (m Model) editKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if msg.String() != "E" {
 		return m, nil, false
+	}
+	if m.refuseRemoteWrite() {
+		return m, nil, true
 	}
 	if m.refuseReadonly() {
 		return m, nil, true

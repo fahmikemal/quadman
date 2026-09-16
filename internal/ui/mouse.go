@@ -9,7 +9,7 @@ import (
 // handleMouse processes mouse events. Clicks in the list move the cursor;
 // clicks in views scroll. Wheel events are left to the widgets.
 func (m Model) handleMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	if m.mode != modeList || m.filtering || m.searching || m.pickingEditor || m.pending != nil {
+	if !m.mouse || m.mode != modeList || m.filtering || m.searching || m.pickingEditor || m.pending != nil {
 		return m, nil
 	}
 	// Row geometry: 1 title line, an optional filter line, 1 table header.

@@ -26,6 +26,9 @@ var version = "dev"
 func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	readonly := flag.Bool("readonly", false, "disable all state-changing actions (view, logs, and screens only)")
+	sshTarget := flag.String("ssh", "", "run against a remote host over SSH (e.g. user@host); file edits are disabled in this mode")
+	mouse := flag.Bool("mouse", false, "enable click-to-select (off by default so text selection keeps working)")
+	theme := flag.String("theme", "", "color scheme: auto, dark, light, or colorblind (default from config.yaml)")
 	flag.Parse()
 
 	if *showVersion {
@@ -47,7 +50,15 @@ func main() {
 		return
 	}
 
-	if err := ui.RunWith(*readonly); err != nil {
+	if *sshTarget != "" {
+		if err := ui.RunWithOptions(ui.Options{SSH: *sshTarget, Readonly: *readonly, Mouse: *mouse, Theme: *theme}); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if err := ui.RunWithOptions(ui.Options{Readonly: *readonly, Mouse: *mouse, Theme: *theme}); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
