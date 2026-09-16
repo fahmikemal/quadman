@@ -17,8 +17,10 @@ import (
 
 	"github.com/kemal-labs/quadman/internal/config"
 	"github.com/kemal-labs/quadman/internal/loginctl"
+	"github.com/kemal-labs/quadman/internal/podlet"
 	"github.com/kemal-labs/quadman/internal/podman"
 	"github.com/kemal-labs/quadman/internal/quadlet"
+	"github.com/kemal-labs/quadman/internal/remote"
 	"github.com/kemal-labs/quadman/internal/systemd"
 )
 
@@ -108,6 +110,8 @@ type Model struct {
 	linger      bool
 	lingerKnown bool
 	loading     bool
+	// marks holds marked unit names for bulk actions (space toggles).
+	marks       map[string]bool
 	podmanInfo  map[string]podman.Entry
 	podmanTried bool
 	stale       []quadlet.Unit
@@ -194,6 +198,14 @@ type Model struct {
 
 	// custom commands from the YAML config (key -> command).
 	custom []config.CustomCommand
+
+	// ssh runs all CLI calls on a remote host (--ssh user@host). Zero value
+	// means local execution.
+	ssh remote.Runner
+
+	// mouse enables click-to-select (opt-in via config or --mouse; off by
+	// default so text selection keeps working).
+	mouse bool
 }
 
 // statusTTL is how long a success notification stays before it fades.
@@ -258,6 +270,8 @@ func New() Model {
 		custom:     cfg.Settings.CustomCommands,
 	}
 	m.pollInterval = cfg.RefreshInterval()
+	m.mouse = cfg.Settings.Mouse
+	applyTheme(resolveTheme(cfg.Settings.Theme))
 	if cfg.LogBuffer() != config.DefaultLogBuffer {
 		logBufferCap = cfg.LogBuffer()
 	}
@@ -270,6 +284,14 @@ func New() Model {
 	return m
 }
 
+// Options are the CLI-level overrides applied on top of config.yaml.
+type Options struct {
+	Readonly bool
+	SSH      string
+	Mouse    bool
+	Theme    string
+}
+
 // Run starts the quadman TUI.
 func Run() error {
 	return RunWith(false)
@@ -278,16 +300,46 @@ func Run() error {
 // RunWith starts the quadman TUI, forcing readonly mode when readonly is
 // true (from the --readonly flag).
 func RunWith(readonly bool) error {
+	return RunWithOptions(Options{Readonly: readonly})
+}
+
+// RunWithOptions starts the quadman TUI with CLI overrides.
+func RunWithOptions(o Options) error {
 	m := New()
-	if readonly {
+	if o.SSH != "" {
+		m.applySSH(o.SSH)
+	}
+	if o.Readonly {
 		m.readonly = true
+	}
+	if o.Mouse {
+		m.mouse = true
+	}
+	if o.Theme != "" {
+		applyTheme(resolveTheme(o.Theme))
 	}
 	_, err := tea.NewProgram(m).Run()
 	return err
 }
 
+// RunWithSSH starts the quadman TUI against a remote host: every CLI call
+// (systemctl, journalctl, loginctl, podman, podlet) runs over SSH, and
+// file-mutating actions are disabled with an explanation.
+func RunWithSSH(target string, readonly bool) error {
+	return RunWithOptions(Options{SSH: target, Readonly: readonly})
+}
+
+// applySSH points every CLI client at the remote target.
+func (m *Model) applySSH(target string) {
+	m.ssh = remote.Runner{Target: target}
+	m.sys.Remote = m.ssh
+	m.lc.Remote = m.ssh
+	podman.DefaultRunner = m.ssh
+	podlet.DefaultRunner = m.ssh
+}
+
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(refreshCmd(m.sys, m.lc, m.inspect, enrichFull), m.pollTick())
+	return tea.Batch(refreshCmd(m.sys, m.lc, m.inspect, m.ssh, enrichFull), m.pollTick())
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -336,6 +388,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			status += " - " + msg.hint
 		}
 		m.setStatus(status, false)
+		return m, m.refresh(enrichHealth)
+
+	case bulkMsg:
+		m.busy = false
+		m.recordAction(msg.desc, msg.err)
+		if msg.err != nil {
+			m.setStatus(fmt.Sprintf("%s: %d/%d ok: %s", msg.desc, msg.done, msg.total, msg.err.Error()), true)
+			return m, m.refresh(enrichHealth)
+		}
+		m.clearMarks()
+		m.setStatus(fmt.Sprintf("%s: %d/%d ok", msg.desc, msg.done, msg.total), false)
 		return m, m.refresh(enrichHealth)
 
 	case logsMsg:
@@ -493,8 +556,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.mode == modeDetail && m.tab == tabSource {
 			if u, ok := m.selected(); ok {
-				if content, rerr := os.ReadFile(u.Path); rerr == nil {
-					m.viewport.SetContent(withDropins(u, content))
+				if content, rerr := m.readUnitFile(u); rerr == nil {
+					m.viewport.SetContent(m.fileContent(u, content))
 				}
 			}
 		}
@@ -676,6 +739,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return mm, cmd
 	}
 	if mm, cmd, ok := m.openFileKeys(msg); ok {
+		return mm, cmd
+	}
+	if mm, cmd, ok := m.markKeys(msg); ok {
 		return mm, cmd
 	}
 

@@ -117,9 +117,12 @@ Config below).
 ## Usage
 
 ```sh
-quadman              # TUI
-quadman --readonly   # TUI with all state-changing actions disabled
-quadman list         # non-interactive overview for scripts and pipes
+quadman                          # TUI
+quadman --readonly               # TUI with all state-changing actions disabled
+quadman --ssh user@host          # manage a remote rootless host over SSH
+quadman --theme colorblind       # auto, dark, light, or colorblind
+quadman --mouse                  # opt-in click-to-select
+quadman list                     # non-interactive overview for scripts and pipes
 quadman -version
 ```
 
@@ -131,7 +134,8 @@ quadman -version
 | `enter` | view the Quadlet source file               |
 | `/`   | fuzzy-filter the list (type to narrow, `esc` clears) |
 | `l`   | live journal tail for the unit (`f` pauses follow, `/` searches with highlight, `n`/`N` jumps between matches) |
-| `s` / `x` / `r` | start / stop (confirms) / restart the unit |
+| `s` / `x` / `r` | start / stop (confirms) / restart the unit — or all `space`-marked units at once |
+| `space` | mark/unmark the row for bulk actions (`esc` clears marks) |
 | `e`   | enable at boot (appends `[Install]` to the file, asks first) |
 | `d`   | disable from boot (removes `[Install]`, asks first) |
 | `E`   | edit the Quadlet file in `$EDITOR`            |
@@ -164,6 +168,8 @@ refresh_interval: 5s   # list poll tick (default 2.5s)
 log_tail: 200          # journal snapshot lines for a new follow stream
 log_buffer: 1000       # follow-view line cap
 readonly: false        # same as quadman --readonly
+theme: auto            # auto, dark, light, or colorblind
+mouse: false           # same as quadman --mouse (off keeps text selection working)
 
 custom_commands:
   - name: status
@@ -179,6 +185,25 @@ template (`{{.Name}}`, `{{.UnitName}}`, `{{.Kind}}`, `{{.Image}}`), split
 quote-aware, and executed directly. Their results land in the status line
 and the recent-actions log (`A`) like any built-in action. The editor
 choice from first use still lives in `config.json` next to it.
+
+## SSH mode
+
+```sh
+quadman --ssh user@host
+```
+
+Every CLI call (`systemctl`, `journalctl`, `loginctl`, `podman`) runs through
+your own `ssh` binary — keys, agent, `known_hosts`, and `~/.ssh/config` all
+keep working, and nothing new needs configuring. If `ssh user@host true`
+works, quadman works.
+
+Remote mode keeps full read and lifecycle control: list, live state, start /
+stop / restart, journals, storage, events, updates, health, linger, and the
+dependency tree (files are read with `cat` on demand, never synced). Actions
+that edit files on the host (edit, enable/disable at boot, instantiate,
+generate-write, install, delete) are refused with an explanation — manage
+files by running quadman on that host directly. Drop-ins are not enumerated
+remotely; the file view says so.
 
 ## Compatibility
 
@@ -217,15 +242,18 @@ feature tiers, patch bumps for accumulated fixes.
 - [x] Smart hints: `timed-out` → `TimeoutStartSec=`/`Pull=`, start-limit crash-loop, `AutoUpdate=` without the timer enabled
 - [x] Generate Quadlet files via podlet (`n`): `docker run` / compose → preview → `y` write → reload
 
-### v0.4.0+ — Tier 3: scale
+### v0.4.0+ — Tier 3: scale (✅ shipped)
 
-- [ ] SSH mode for remote rootless hosts
-- [x] YAML config (refresh rate, log tail/buffer) + Go-template custom commands (themes still TODO)
-- [ ] Colorblind-safe themes, auto light/dark, opt-in mouse
-- [ ] Bulk mark + mass actions
+- [x] SSH mode for remote rootless hosts (`--ssh user@host`; list, lifecycle,
+      logs, and screens over SSH — file edits stay local to the host)
+- [x] YAML config (refresh rate, log tail/buffer, theme, mouse) + Go-template custom commands
+- [x] Colorblind-safe theme + auto light/dark detection + opt-in mouse
+- [x] Bulk mark + mass actions (`space` marks, `s`/`x`/`r` act on all marked)
 - [x] `--readonly` mode
 - [x] Recent-actions log (`A`: what ran, when, and whether it worked)
-- [ ] `teatest` e2e suite; VHS demo GIF; 500+ unit benchmark
+- [x] Headless Update/View test suite + 500-unit benchmark + VHS demo tape
+      (`teatest` itself is not shipped in bubbletea v2.0.9, so the suite drives
+      the Model directly instead)
 
 ### Notable ecosystem notes (Sep 2026)
 

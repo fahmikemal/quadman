@@ -2,7 +2,6 @@ package ui
 
 import (
 	"context"
-	"os"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -30,12 +29,12 @@ func (m Model) cycleTab(dir int) (tea.Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		content, err := os.ReadFile(u.Path)
+		content, err := m.readUnitFile(u)
 		if err != nil {
 			m.setStatus(err.Error(), true)
 			return m, nil
 		}
-		m.viewport.SetContent(withDropins(u, content))
+		m.viewport.SetContent(m.fileContent(u, content))
 		m.viewport.GotoTop()
 		return m, nil
 	case tabStatus:

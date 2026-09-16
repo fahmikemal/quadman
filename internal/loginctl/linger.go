@@ -11,6 +11,8 @@ import (
 	"os/user"
 	"strings"
 	"time"
+
+	"github.com/kemal-labs/quadman/internal/remote"
 )
 
 // DefaultTimeout bounds each loginctl call so a hung binary cannot stall a
@@ -23,6 +25,15 @@ type Loginctl struct {
 	Bin string
 	// Timeout bounds each call; 0 means DefaultTimeout.
 	Timeout time.Duration
+	// Remote runs the CLI over SSH when set (--ssh user@host). The zero
+	// value runs everything locally.
+	Remote remote.Runner
+}
+
+// run executes the loginctl CLI (locally or over SSH) like
+// exec.CommandContext.
+func (l *Loginctl) run(ctx context.Context, name string, args ...string) *exec.Cmd {
+	return l.Remote.Command(ctx, name, args...)
 }
 
 // New returns a Loginctl using the loginctl binary from PATH.
@@ -62,7 +73,7 @@ func (l *Loginctl) Enabled(ctx context.Context, userName string) (bool, error) {
 	}
 	ctx, cancel := l.timeoutCtx(ctx)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, l.bin(), // #nosec G204 -- argv slice, no shell; user name is behind a "--" separator
+	out, err := l.run(ctx, l.bin(), // #nosec G204 -- argv slice, no shell; user name is behind a "--" separator
 		"show-user", "--property=Linger", "--value", "--", userName).Output()
 	if err != nil {
 		return false, fmt.Errorf("loginctl show-user %s: %w", userName, err)
@@ -82,7 +93,7 @@ func (l *Loginctl) Set(ctx context.Context, userName string, on bool) error {
 	}
 	ctx, cancel := l.timeoutCtx(ctx)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, l.bin(), verb, "--", userName).CombinedOutput() // #nosec G204 -- argv slice, no shell; user name is behind a "--" separator
+	out, err := l.run(ctx, l.bin(), verb, "--", userName).CombinedOutput() // #nosec G204 -- argv slice, no shell; user name is behind a "--" separator
 	if err != nil {
 		return fmt.Errorf("loginctl %s: %w: %s", verb, err, strings.TrimSpace(string(out)))
 	}

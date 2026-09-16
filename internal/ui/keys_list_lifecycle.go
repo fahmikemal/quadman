@@ -15,11 +15,16 @@ func (m Model) startRestartKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) 
 	if m.refuseReadonly() {
 		return m, nil, true
 	}
+	verb := map[string]string{"s": "start", "r": "restart"}[msg.String()]
+	if marked := m.markedUnits(); len(marked) > 0 {
+		m.pending = &pendingAction{verb: "bulk-" + verb, unit: marked[0]}
+		m.setStatus(verb+" "+bulkNoun(marked)+"? [y/N]", false)
+		return m, nil, true
+	}
 	u, ok := m.selected()
 	if !ok {
 		return m, nil, true
 	}
-	verb := map[string]string{"s": "start", "r": "restart"}[msg.String()]
 	sys := m.sys
 	return m, tea.Batch(m.setBusy(verb+" "+u.UnitName),
 		actionCmd(verb+" "+u.UnitName, func(ctx context.Context) (string, error) {
@@ -32,6 +37,11 @@ func (m Model) stopKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, false
 	}
 	if m.refuseReadonly() {
+		return m, nil, true
+	}
+	if marked := m.markedUnits(); len(marked) > 0 {
+		m.pending = &pendingAction{verb: "bulk-stop", unit: marked[0]}
+		m.setStatus("stop "+bulkNoun(marked)+"? containers will be removed (quadlet runs --rm) [y/N]", false)
 		return m, nil, true
 	}
 	u, ok := m.selected()

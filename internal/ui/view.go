@@ -11,7 +11,11 @@ import (
 
 func (m Model) View() tea.View {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render(" quadman - rootless quadlet manager "))
+	title := " quadman - rootless quadlet manager "
+	if m.ssh.IsRemote() {
+		title = " quadman @ " + m.ssh.Target + " "
+	}
+	b.WriteString(titleStyle.Render(title))
 	b.WriteString("\n")
 
 	switch m.mode {
@@ -117,6 +121,8 @@ func (m Model) View() tea.View {
 	}
 	v := tea.NewView(b.String())
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
+	if m.mouse {
+		v.MouseMode = tea.MouseModeCellMotion
+	}
 	return v
 }

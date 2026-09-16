@@ -12,12 +12,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kemal-labs/quadman/internal/remote"
 	"github.com/kemal-labs/quadman/internal/vercmp"
 )
 
 // Timeout bounds the podman call; 0 means DefaultTimeout. podman can be slow
 // to cold-start, but this only runs on first load and after actions.
 const DefaultTimeout = 10 * time.Second
+
+// DefaultRunner executes the podman CLI. It is local by default; the UI sets
+// it to an SSH runner in --ssh mode.
+var DefaultRunner remote.Runner
+
+// runCmd executes the podman CLI (locally or over SSH) like exec.CommandContext.
+func runCmd(ctx context.Context, name string, args ...string) *exec.Cmd {
+	return DefaultRunner.Command(ctx, name, args...)
+}
 
 // Entry is one row of `podman quadlet list --format json`.
 type Entry struct {
@@ -39,7 +49,7 @@ func Available() bool {
 func QuadletList(ctx context.Context) ([]Entry, error) {
 	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "podman", "quadlet", "list", "--format", "json").Output() // #nosec G204 -- constant argv, no shell
+	out, err := runCmd(ctx, "podman", "quadlet", "list", "--format", "json").Output() // #nosec G204 -- constant argv, no shell
 	if err != nil {
 		return nil, fmt.Errorf("podman quadlet list: %w", err)
 	}
@@ -112,7 +122,7 @@ func PsHealth(ctx context.Context) (map[string]string, error) {
 func HealthcheckRun(ctx context.Context, container string) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
-	err := exec.CommandContext(ctx, "podman", "healthcheck", "run", "--", container).Run() // #nosec G204 -- argv slice, no shell; container name is behind a "--" separator
+	err := runCmd(ctx, "podman", "healthcheck", "run", "--", container).Run() // #nosec G204 -- argv slice, no shell; container name is behind a "--" separator
 	if err == nil {
 		return true, nil
 	}
@@ -152,7 +162,7 @@ func AutoUpdateDryRun(ctx context.Context) ([]AutoUpdateEntry, error) {
 func runPodman(ctx context.Context, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "podman", args...).Output() // #nosec G204 -- argv slice, no shell; call sites pass read-only subcommands
+	out, err := runCmd(ctx, "podman", args...).Output() // #nosec G204 -- argv slice, no shell; call sites pass read-only subcommands
 	if err != nil {
 		return nil, fmt.Errorf("podman %s: %w", strings.Join(args, " "), err)
 	}
@@ -164,7 +174,7 @@ func runPodman(ctx context.Context, args ...string) ([]byte, error) {
 func QuadletRm(ctx context.Context, path string) error {
 	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "podman", "quadlet", "rm", "--force", "--", path).CombinedOutput() // #nosec G204 -- argv slice, no shell; path behind "--"
+	out, err := runCmd(ctx, "podman", "quadlet", "rm", "--force", "--", path).CombinedOutput() // #nosec G204 -- argv slice, no shell; path behind "--"
 	if err != nil {
 		return fmt.Errorf("podman quadlet rm: %w: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -176,7 +186,7 @@ func QuadletRm(ctx context.Context, path string) error {
 func QuadletInstall(ctx context.Context, path string) error {
 	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "podman", "quadlet", "install", "--", path).CombinedOutput() // #nosec G204 -- argv slice, no shell; path behind "--"
+	out, err := runCmd(ctx, "podman", "quadlet", "install", "--", path).CombinedOutput() // #nosec G204 -- argv slice, no shell; path behind "--"
 	if err != nil {
 		return fmt.Errorf("podman quadlet install: %w: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -205,7 +215,7 @@ func SystemDf(ctx context.Context) (string, error) {
 // EventsFollow starts `podman events --format json` (a streaming feed) and
 // returns the process's stop function and its stdout stream.
 func EventsFollow(ctx context.Context) (stop func(), stream io.Reader, err error) {
-	cmd := exec.CommandContext(ctx, "podman", "events", "--format", "json") // #nosec G204 -- constant argv, no shell
+	cmd := runCmd(ctx, "podman", "events", "--format", "json") // #nosec G204 -- constant argv, no shell
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, nil, fmt.Errorf("podman events: %w", err)

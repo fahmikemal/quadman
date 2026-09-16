@@ -33,6 +33,9 @@ func (m Model) generateOpenKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) 
 	if msg.String() != "n" {
 		return m, nil, false
 	}
+	if m.refuseRemoteWrite() {
+		return m, nil, true
+	}
 	if m.refuseReadonly() {
 		return m, nil, true
 	}
@@ -62,7 +65,7 @@ func (m Model) treeKeysOpen(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if msg.String() != "t" {
 		return m, nil, false
 	}
-	m.treeModel = tree.New(buildTree(m.units, nil), 80, 20)
+	m.treeModel = tree.New(m.buildTreeModel(), 80, 20)
 	m.mode = modeTree
 	m.resize()
 	return m, nil, true
@@ -72,6 +75,9 @@ func (m Model) treeKeysOpen(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 func (m Model) instantiateOpenKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if msg.String() != "i" {
 		return m, nil, false
+	}
+	if m.refuseRemoteWrite() {
+		return m, nil, true
 	}
 	if m.refuseReadonly() {
 		return m, nil, true
@@ -93,6 +99,9 @@ func (m Model) instantiateOpenKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, boo
 func (m Model) deleteKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if msg.String() != "D" {
 		return m, nil, false
+	}
+	if m.refuseRemoteWrite() {
+		return m, nil, true
 	}
 	if m.refuseReadonly() {
 		return m, nil, true
