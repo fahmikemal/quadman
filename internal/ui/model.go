@@ -34,6 +34,9 @@ const (
 	modeUpdates
 	modeValidate
 	modeTree
+	modeStorage
+	modeEvents
+	modeGenerate
 )
 
 // Detail tabs, cycled with [ and ].
@@ -158,6 +161,15 @@ type Model struct {
 	// detail view tab state
 	tab int
 
+	// events stream
+	eventSess  *logSession
+	eventLines []string
+
+	// generate via podlet
+	generating bool
+	genIn      textinput.Model
+	genContent string
+
 	// validation + environment info
 	issues        unitIssues
 	generator     string
@@ -221,6 +233,8 @@ func New() Model {
 	si.Placeholder = "search logs (regex ok)…"
 	ii := textinput.New()
 	ii.Placeholder = "instance name (e.g. prod)…"
+	gi := textinput.New()
+	gi.Placeholder = "docker run … or compose file path"
 	cfg, _ := config.Load()
 	return Model{
 		sys:        systemd.New(),
@@ -234,6 +248,7 @@ func New() Model {
 		cfg:        cfg,
 		generator:  quadlet.GeneratorBinary(),
 		instanceIn: ii,
+		genIn:      gi,
 		status:     map[string]systemd.Status{},
 		images:     map[string]string{},
 		health:     map[string]string{},
@@ -408,6 +423,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case logLineMsg:
+		if msg.sess == m.eventSess && m.eventSess != nil {
+			m.eventLines = append(m.eventLines, msg.line)
+			if len(m.eventLines) > logBufferCap {
+				m.eventLines = m.eventLines[len(m.eventLines)-logBufferCap:]
+			}
+			if m.mode == modeEvents {
+				wasAtBottom := m.viewport.AtBottom()
+				m.viewport.SetContent(strings.Join(m.eventLines, "\n"))
+				if m.following && wasAtBottom {
+					m.viewport.GotoBottom()
+				}
+			}
+			return m, followLine(m.eventSess)
+		}
 		if msg.sess != m.sess { // a superseded session must not touch the view
 			return m, nil
 		}
@@ -463,6 +492,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.setStatus("timer toggled", false)
 		return m, updatesCmd(m.sys)
+
+	case storageMsg:
+		m.busy = false
+		if msg.err != nil {
+			m.setStatus("system df: "+msg.err.Error(), true)
+			return m, nil
+		}
+		m.mode = modeStorage
+		m.viewport.SetContent(msg.content)
+		m.viewport.GotoTop()
+		m.resize()
+		return m, nil
+
+	case generateMsg:
+		m.busy = false
+		if msg.err != nil {
+			m.setStatus("generate: "+msg.err.Error(), true)
+			return m, nil
+		}
+		m.genContent = msg.content
+		m.mode = modeGenerate
+		m.viewport.SetContent(msg.content)
+		m.viewport.GotoTop()
+		m.resize()
+		return m, nil
 
 	case statusMsg:
 		m.busy = false
@@ -603,6 +657,31 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	// While the generate input is focused, keys edit the command/path.
+	if m.generating {
+		switch msg.String() {
+		case "enter":
+			m.generating = false
+			m.genIn.Blur()
+			input := strings.TrimSpace(m.genIn.Value())
+			m.genIn.SetValue("")
+			if input == "" {
+				m.setStatus("generate cancelled (empty input)", false)
+				return m, nil
+			}
+			return m, tea.Batch(m.setBusy("podlet generate"), generateCmd(input))
+		case "esc":
+			m.generating = false
+			m.genIn.SetValue("")
+			m.genIn.Blur()
+			m.setStatus("generate cancelled", false)
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.genIn, cmd = m.genIn.Update(msg)
+		return m, cmd
+	}
+
 	// While the filter input is focused, keys edit the filter.
 	if m.filtering {
 		switch msg.String() {
@@ -649,6 +728,50 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			})
 		case "r":
 			return m, tea.Batch(m.setBusy("checking auto-updates"), updatesCmd(m.sys))
+		}
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
+
+	case modeStorage:
+		switch msg.String() {
+		case "esc", "q":
+			m.mode = modeList
+			m.resize()
+			return m, nil
+		case "r":
+			return m, tea.Batch(m.setBusy("system df"), storageCmd())
+		}
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
+
+	case modeEvents:
+		switch msg.String() {
+		case "esc", "q":
+			m.stopEvents()
+			m.mode = modeList
+			m.resize()
+			return m, nil
+		case "f":
+			m.following = !m.following
+			if m.following {
+				m.viewport.GotoBottom()
+			}
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
+
+	case modeGenerate:
+		switch msg.String() {
+		case "esc", "q":
+			m.mode = modeList
+			m.resize()
+			return m, nil
+		case "y":
+			return m.installGenerated()
 		}
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
@@ -847,6 +970,21 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			ok, err := podman.HealthcheckRun(context.Background(), container)
 			return healthMsg{container: container, ok: ok, err: err}
 		})
+
+	case "g":
+		return m, tea.Batch(m.setBusy("system df"), storageCmd())
+
+	case "w":
+		return m.startEvents()
+
+	case "n":
+		if !podletAvailable() {
+			m.setStatus("podlet not found — install it to generate quadlets (github.com/containers/podlet)", false)
+			return m, nil
+		}
+		m.generating = true
+		m.genIn.Focus()
+		return m, textinput.Blink
 
 	case "v":
 		m.mode = modeValidate
@@ -1140,6 +1278,9 @@ func (m *Model) resize() {
 	if m.instancing {
 		chrome++ // instance-name input
 	}
+	if m.generating {
+		chrome++ // generate input
+	}
 	body := h - chrome
 	if body < 3 {
 		body = 3
@@ -1164,6 +1305,10 @@ func (m Model) View() tea.View {
 
 	switch m.mode {
 	case modeList:
+		if m.generating {
+			b.WriteString(filterStyle.Render("generate from: " + m.genIn.View()))
+			b.WriteString("\n")
+		}
 		if m.instancing {
 			b.WriteString(filterStyle.Render("instance name for " + m.selectedName() + " @: " + m.instanceIn.View()))
 			b.WriteString("\n")
@@ -1212,6 +1357,18 @@ func (m Model) View() tea.View {
 			b.WriteString("\n")
 		}
 		b.WriteString(m.viewport.View())
+	case modeStorage:
+		b.WriteString(headerStyle.Render(" STORAGE — podman system df "))
+		b.WriteString("\n")
+		b.WriteString(m.viewport.View())
+	case modeEvents:
+		b.WriteString(headerStyle.Render(" EVENTS — podman events (live, f pause, q back) "))
+		b.WriteString("\n")
+		b.WriteString(m.viewport.View())
+	case modeGenerate:
+		b.WriteString(headerStyle.Render(" GENERATE — preview (y write & reload, esc cancel) "))
+		b.WriteString("\n")
+		b.WriteString(m.viewport.View())
 	case modeValidate:
 		b.WriteString(headerStyle.Render(" PROBLEMS "))
 		b.WriteString("\n")
@@ -1253,7 +1410,9 @@ func (m Model) keys() keyMap {
 	switch m.mode {
 	case modeDetail:
 		return detailKeys()
-	case modeUpdates, modeValidate, modeTree:
+	case modeEvents:
+		return detailKeys()
+	case modeUpdates, modeValidate, modeTree, modeStorage, modeGenerate:
 		return updatesKeys()
 	}
 	return listKeys()
@@ -1303,6 +1462,12 @@ func (m Model) legend() []string {
 			return []string{"[/] tabs · f pause/resume · / search · n/N match · E edit · esc/q back"}
 		}
 		return []string{"[/] tabs · E edit · ↑/↓ scroll · esc/q back"}
+	case modeStorage:
+		return []string{"r refresh · ↑/↓ scroll · esc/q back"}
+	case modeEvents:
+		return []string{"f pause/resume · ↑/↓ scroll · esc/q back"}
+	case modeGenerate:
+		return []string{"y write & reload · esc cancel · ↑/↓ scroll"}
 	case modeUpdates:
 		return []string{"U toggle timer · r refresh · esc/q back"}
 	}
