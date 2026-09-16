@@ -9,9 +9,10 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/kemal-labs/quadman/internal/vercmp"
 )
 
 // Timeout bounds the podman call; 0 means DefaultTimeout. podman can be slow
@@ -239,25 +240,5 @@ func Version(ctx context.Context) (string, error) {
 // VersionAtLeast reports whether installed podman is >= want (dotted
 // numeric comparison, e.g. "6.1" <= "6.1.1").
 func VersionAtLeast(have, want string) bool {
-	hp, wp := strings.Split(have, "."), strings.Split(want, ".")
-	for i := 0; i < len(wp); i++ {
-		hn, wn := 0, 0
-		if i < len(hp) {
-			hn = atoi(hp[i])
-		}
-		wn = atoi(wp[i])
-		if hn != wn {
-			return hn > wn
-		}
-	}
-	return true
-}
-
-// atoi parses a version component; non-numeric parts compare as 0.
-func atoi(s string) int {
-	n, err := strconv.Atoi(s)
-	if err != nil {
-		return 0
-	}
-	return n
+	return vercmp.AtLeast(have, want)
 }

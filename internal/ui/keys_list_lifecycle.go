@@ -1,0 +1,44 @@
+package ui
+
+import (
+	"context"
+
+	tea "charm.land/bubbletea/v2"
+)
+
+// Lifecycle actions on the selected unit: start, stop, restart.
+
+func (m Model) startRestartKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
+	if msg.String() != "s" && msg.String() != "r" {
+		return m, nil, false
+	}
+	if m.refuseReadonly() {
+		return m, nil, true
+	}
+	u, ok := m.selected()
+	if !ok {
+		return m, nil, true
+	}
+	verb := map[string]string{"s": "start", "r": "restart"}[msg.String()]
+	sys := m.sys
+	return m, tea.Batch(m.setBusy(verb+" "+u.UnitName),
+		actionCmd(verb+" "+u.UnitName, func(ctx context.Context) (string, error) {
+			return sys.UnitAction(ctx, verb, u.UnitName)
+		})), true
+}
+
+func (m Model) stopKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
+	if msg.String() != "x" {
+		return m, nil, false
+	}
+	if m.refuseReadonly() {
+		return m, nil, true
+	}
+	u, ok := m.selected()
+	if !ok {
+		return m, nil, true
+	}
+	m.pending = &pendingAction{verb: "stop", unit: u}
+	m.setStatus("stop "+u.UnitName+"? container will be removed (quadlet runs --rm) [y/N]", false)
+	return m, nil, true
+}

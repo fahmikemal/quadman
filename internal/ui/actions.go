@@ -72,3 +72,51 @@ func (m Model) installBundle(u quadlet.Unit) (tea.Model, tea.Cmd) {
 			return "", err
 		}))
 }
+
+// runPending executes an armed y/N-confirmed action.
+func (m Model) runPending(p *pendingAction) (tea.Model, tea.Cmd) {
+	sys := m.sys
+	switch p.verb {
+	case "enable":
+		return m, tea.Batch(m.setBusy("enable at boot "+p.unit.UnitName),
+			actionCmdHint("enable at boot "+p.unit.UnitName, "starts on login from now on", func(ctx context.Context) (string, error) {
+				changed, err := quadlet.EnsureBootTarget(p.unit.Path, "default.target")
+				if err != nil {
+					return "", err
+				}
+				if changed {
+					if _, err := sys.DaemonReload(ctx); err != nil {
+						return "", err
+					}
+				}
+				return sys.UnitAction(ctx, "start", p.unit.UnitName)
+			}))
+	case "disable":
+		return m, tea.Batch(m.setBusy("disable at boot "+p.unit.UnitName),
+			actionCmdHint("disable at boot "+p.unit.UnitName, "still running now", func(ctx context.Context) (string, error) {
+				changed, err := quadlet.RemoveBootTarget(p.unit.Path)
+				if err != nil {
+					return "", err
+				}
+				if changed {
+					if _, err := sys.DaemonReload(ctx); err != nil {
+						return "", err
+					}
+				}
+				return "", nil
+			}))
+	case "install":
+		return m.installBundle(p.unit)
+	case "delete":
+		return m.deleteUnit(p.unit)
+	default: // "stop"
+		hint := ""
+		if p.unit.Kind == quadlet.KindContainer {
+			hint = "container removed; state lives in volumes"
+		}
+		return m, tea.Batch(m.setBusy("stop "+p.unit.UnitName),
+			actionCmdHint("stop "+p.unit.UnitName, hint, func(ctx context.Context) (string, error) {
+				return sys.UnitAction(ctx, "stop", p.unit.UnitName)
+			}))
+	}
+}

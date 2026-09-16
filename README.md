@@ -111,13 +111,15 @@ make build   # ./quadman
 ```
 
 Requirements: Linux with systemd, a user session (rootless-first by design), and
-`journalctl` for log view. No daemon, no config file.
+`journalctl` for log view. No daemon; one optional YAML settings file (see
+Config below).
 
 ## Usage
 
 ```sh
-quadman          # TUI
-quadman list     # non-interactive overview for scripts and pipes
+quadman              # TUI
+quadman --readonly   # TUI with all state-changing actions disabled
+quadman list         # non-interactive overview for scripts and pipes
 quadman -version
 ```
 
@@ -144,11 +146,39 @@ quadman -version
 | `I`   | install a `.quadlets` bundle (`podman quadlet install`) |
 | `g`   | storage screen (`podman system df --verbose`, `r` refresh) |
 | `w`   | live podman events stream (`f` pause) |
-| `n`   | generate a quadlet via podlet (`docker run` / compose path) |
+| `n`   | generate a quadlet via podlet (`podman run ...`, `docker run ...`, `run ...` shorthand, or `compose <path>`) |
+| `A`   | recent-actions log (what ran, when, and whether it worked) |
 | `R`   | `systemctl --user daemon-reload` (regenerate after editing Quadlet files) |
 | `L`   | toggle user linger (`loginctl enable-linger`) |
 | `?`   | expand help                                   |
 | `q` / `esc` | quit / back                             |
+
+## Config
+
+Optional YAML settings at `~/.config/quadman/config.yaml` (all keys
+optional; a corrupt file is reported in the status line instead of
+silently ignored):
+
+```yaml
+refresh_interval: 5s   # list poll tick (default 2.5s)
+log_tail: 200          # journal snapshot lines for a new follow stream
+log_buffer: 1000       # follow-view line cap
+readonly: false        # same as quadman --readonly
+
+custom_commands:
+  - name: status
+    key: S
+    run: systemctl --user status {{.UnitName}}
+  - name: image
+    key: P
+    run: podman image inspect {{.Image}}
+```
+
+Custom commands run without a shell: the `run` string is expanded as a Go
+template (`{{.Name}}`, `{{.UnitName}}`, `{{.Kind}}`, `{{.Image}}`), split
+quote-aware, and executed directly. Their results land in the status line
+and the recent-actions log (`A`) like any built-in action. The editor
+choice from first use still lives in `config.json` next to it.
 
 ## Compatibility
 
