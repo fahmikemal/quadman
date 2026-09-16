@@ -1516,13 +1516,83 @@ func (m Model) legend() []string {
 	case modeUpdates:
 		return []string{"U toggle timer · r refresh · esc/q back"}
 	}
-	views := "enter file · l logs · / filter · E edit · u updates · v problems · t tree"
-	actions := "s start · x stop · r restart · e enable · d disable · R reload · L linger · q quit · ? all keys"
-	full := views + " · " + actions
-	if w := m.help.Width(); w <= 0 || ansi.StringWidth(full)+legendChipReserve <= w {
+	w := m.help.Width()
+	keys := legendKeys()
+	if w > 0 && w < legendFullWidth {
+		keys = legendKeysCompact()
+	}
+	full := strings.Join(keys, " · ")
+	if w <= 0 || ansi.StringWidth(full)+legendChipReserve <= w {
 		return []string{full}
 	}
-	return []string{views, actions}
+	return splitLegend(keys, w-legendChipReserve)
+}
+
+// legendFullWidth is the terminal width below which the legend falls back
+// to the compact subset so nothing is truncated.
+const legendFullWidth = 170
+
+// legendKeys returns every list-mode key hint sorted alphabetically by key
+// (symbols first, lowercase before uppercase within a letter).
+func legendKeys() []string {
+	return []string{
+		"/ filter", "? all keys",
+		"d disable", "D delete",
+		"e enable", "E edit",
+		"enter file",
+		"g storage", "h healthcheck",
+		"i instantiate", "I install",
+		"l logs", "L linger",
+		"n generate",
+		"q quit",
+		"r restart", "R reload",
+		"s start",
+		"t tree",
+		"u updates",
+		"v problems",
+		"w events",
+		"x stop",
+		"y/Y copy",
+	}
+}
+
+// legendKeysCompact is the essential subset for narrow terminals, also
+// alphabetically sorted.
+func legendKeysCompact() []string {
+	return []string{
+		"/ filter", "? all keys",
+		"d disable",
+		"e enable", "E edit",
+		"enter file",
+		"l logs", "L linger",
+		"q quit",
+		"r restart", "R reload",
+		"s start",
+		"t tree",
+		"u updates",
+		"v problems",
+		"x stop",
+	}
+}
+
+// splitLegend breaks the sorted key list into two lines, filling the first
+// line up to the target width and putting the rest on the second.
+func splitLegend(keys []string, target int) []string {
+	var first []string
+	w := 0
+	i := 0
+	for ; i < len(keys); i++ {
+		kw := ansi.StringWidth(keys[i]) + 3 // separator
+		if w > 0 && w+kw > target {
+			break
+		}
+		w += kw
+		first = append(first, keys[i])
+	}
+	if i == 0 || i >= len(keys) {
+		return []string{strings.Join(keys, " · ")}
+	}
+	return []string{strings.Join(first, " · "), strings.Join(keys[i:], " · ")}
 }
 
 // clampLines truncates every line to w columns; bubbles/help only truncates
