@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/kemal-labs/quadman/internal/quadlet"
@@ -95,9 +96,9 @@ func versionAtLeast(have, want string) bool {
 	for i := 0; i < len(wp); i++ {
 		hn, wn := 0, 0
 		if i < len(hp) {
-			fmt.Sscanf(hp[i], "%d", &hn)
+			hn = atoi(hp[i])
 		}
-		fmt.Sscanf(wp[i], "%d", &wn)
+		wn = atoi(wp[i])
 		if hn != wn {
 			return hn > wn
 		}
@@ -111,4 +112,13 @@ func sortStrings(s []string) {
 			s[j], s[j-1] = s[j-1], s[j]
 		}
 	}
+}
+
+// atoi parses a version component; non-numeric parts compare as 0.
+func atoi(s string) int {
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0
+	}
+	return n
 }

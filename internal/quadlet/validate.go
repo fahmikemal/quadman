@@ -62,7 +62,7 @@ func Validate(ctx context.Context, dirs []string) ([]Issue, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "-dryrun", "-user")
+	cmd := exec.CommandContext(ctx, bin, "-dryrun", "-user") // #nosec G204 -- bin comes from the fixed generatorPaths list; argv slice, no shell
 	cmd.Env = append(os.Environ(), "QUADLET_UNIT_DIRS="+strings.Join(dirs, ":"))
 	out, _ := cmd.CombinedOutput() // findings live on both streams; exit code is noisy
 
