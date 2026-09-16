@@ -26,3 +26,11 @@ var (
 	lingerOffStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true)
 	lingerUnknownStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Bold(true)
 )
+
+var (
+	tabActiveStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("15")).
+			Background(lipgloss.Color("62"))
+	tabInactiveStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+)

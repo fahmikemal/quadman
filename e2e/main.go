@@ -178,7 +178,7 @@ func main() {
 	// 5. Follow logs 'l', pause 'f', back 'q'.
 	drain()
 	send(f, "l")
-	ok = waitFor("LOGS", 5*time.Second)
+	ok = waitFor("journal", 5*time.Second)
 	check("logs view", ok, "masuk view LOGS")
 	time.Sleep(1500 * time.Millisecond)
 	drain()
@@ -292,7 +292,7 @@ func main() {
 	drain()
 	send(f, "j") // move to any unit after filter cleared
 	send(f, "\r")
-	check("file view enter", waitFor("FILE", 3*time.Second), "view isi file quadlet")
+	check("file view enter", waitFor("source", 3*time.Second), "view isi file quadlet")
 
 	// 15b. Editor picker flow: E opens the first-use picker, choosing vi
 	// hands the terminal to vi, quitting vi returns to quadman, and the
@@ -412,6 +412,83 @@ func runExtraScenarios() {
 	scenarioTreeDropinCopy(quadletDir)
 	scenarioTemplate(quadletDir)
 	scenarioDelete(quadletDir)
+	scenarioTabs(quadletDir)
+	scenarioQuadletsBundle(quadletDir)
+}
+
+// scenarioTabs: the detail view cycles source -> status -> journal -> inspect
+// and back, rendering each tab.
+func scenarioTabs(quadletDir string) {
+	run0("systemctl", "--user", "start", "demo-web.service")
+	drain()
+	cmd, f := launch(120, 42)
+	defer quit(cmd, f)
+	waitFor("demo-web", 12*time.Second)
+	send(f, "/")
+	send(f, "web")
+	send(f, "\r")
+	time.Sleep(400 * time.Millisecond)
+
+	send(f, "\r") // enter -> source tab
+	ok := waitFor("source", 5*time.Second)
+	check("tab source", ok && strings.Contains(last(), "status") && strings.Contains(last(), "journal"), "tab bar tampil dengan 4 tab")
+
+	send(f, "]")
+	ok = waitFor("Loaded", 8*time.Second)
+	check("tab status", ok, "STATUS menampilkan systemctl status")
+
+	send(f, "]")
+	ok = waitFor("live", 5*time.Second)
+	check("tab journal", ok, "JOURNAL tab dengan indikator live")
+
+	send(f, "]")
+	ok = waitFor("busybox", 12*time.Second)
+	check("tab inspect", ok, "INSPECT menampilkan podman inspect")
+
+	send(f, "]") // wrap back to source
+	ok = waitFor("Image=docker", 5*time.Second)
+	check("tab wrap source", ok, "wrap kembali ke SOURCE")
+	send(f, "q")
+	time.Sleep(300 * time.Millisecond)
+}
+
+// scenarioQuadletsBundle: a .quadlets bundle is discovered, previewable,
+// and installable — after install its units appear in the list.
+func scenarioQuadletsBundle(quadletDir string) {
+	bundle := "# FileName=e2eqweb\n[Container]\nImage=docker.io/library/busybox:latest\nExec=sleep 600\n---\n# FileName=e2eqdata\n[Volume]\n"
+	writeUnit(quadletDir, "e2eq.quadlets", bundle)
+	reload()
+	defer removeUnit(quadletDir, "e2eq.quadlets")
+	defer removeUnit(quadletDir, "e2eqweb.container")
+	defer removeUnit(quadletDir, "e2eqdata.volume")
+	defer reload()
+
+	drain()
+	cmd, f := launch(120, 42)
+	defer quit(cmd, f)
+	if !waitFor("e2eq", 12*time.Second) {
+		check("quadlets bundle", false, "bundle tidak ter-discover")
+		return
+	}
+	send(f, "/")
+	send(f, "e2eq")
+	send(f, "\r")
+	time.Sleep(400 * time.Millisecond)
+
+	// Preview.
+	send(f, "\r")
+	ok := waitFor("FileName=e2eqweb", 5*time.Second)
+	check("bundle preview", ok, "preview menampilkan dokumen bundle")
+	send(f, "q")
+	time.Sleep(300 * time.Millisecond)
+
+	// Install.
+	send(f, "I")
+	ok = waitFor("y/N", 3*time.Second)
+	check("bundle install confirm", ok, "prompt install muncul")
+	send(f, "y")
+	ok = waitFor("e2eqweb", 15*time.Second)
+	check("bundle install", ok, "unit hasil install (e2eqweb) muncul di daftar")
 }
 
 // scenarioValidation: a broken quadlet file must surface in the problems
@@ -576,8 +653,8 @@ Exec=sh -c 'while true; do echo tickmark; sleep 2; done'
 		return
 	}
 	send(f, "l")
-	if !waitFor("LOGS", 5*time.Second) {
-		check("live follow", false, "tidak masuk view LOGS")
+	if !waitFor("journal", 5*time.Second) {
+		check("live follow", false, "tidak masuk view journal")
 		return
 	}
 	before := countOccurrences(last(), "tickmark")

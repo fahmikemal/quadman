@@ -57,3 +57,18 @@ func (m Model) deleteUnit(u quadlet.Unit) (tea.Model, tea.Cmd) {
 func quadletRemove(ctx context.Context, path string) error {
 	return podman.QuadletRm(ctx, path)
 }
+
+// installBundle installs a .quadlets bundle via podman quadlet install.
+func (m Model) installBundle(u quadlet.Unit) (tea.Model, tea.Cmd) {
+	return m, tea.Batch(m.setBusy("install "+u.Name),
+		actionCmdHint("install "+u.Name, "installed units appear after the refresh", func(ctx context.Context) (string, error) {
+			if !podman.Available() {
+				return "", fmt.Errorf("podman is required to install bundles")
+			}
+			if err := podman.QuadletInstall(ctx, u.Path); err != nil {
+				return "", err
+			}
+			_, err := m.sys.DaemonReload(ctx)
+			return "", err
+		}))
+}

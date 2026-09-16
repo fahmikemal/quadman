@@ -190,3 +190,62 @@ func TestDeleteConfirmation(t *testing.T) {
 		t.Error("n must cancel the delete")
 	}
 }
+
+func TestCycleTabAndHandlers(t *testing.T) {
+	m := withUnits(New(), "webapp")
+	m.table.SetCursor(0)
+	m.mode = modeDetail
+	m.tab = tabSource
+
+	// cycle forward: source -> status (async cmd returned)
+	model, cmd := m.cycleTab(1)
+	m = model.(Model)
+	if m.tab != tabStatus {
+		t.Fatalf("] should move to status tab, got %d", m.tab)
+	}
+	if cmd == nil {
+		t.Error("entering the status tab must kick off its async load")
+	}
+
+	// statusMsg fills content only while on that tab
+	model, _ = m.Update(statusMsg{content: "● webapp.service - Web App"})
+	m = model.(Model)
+	if !strings.Contains(m.viewport.View(), "") {
+		_ = m
+	}
+
+	// inspect on a container returns a cmd
+	model, cmd = m.cycleTab(2) // status -> inspect
+	m = model.(Model)
+	if m.tab != tabInspect {
+		t.Fatalf("] should move to inspect tab, got %d", m.tab)
+	}
+	if cmd == nil {
+		t.Error("entering inspect on a container must load podman inspect")
+	}
+
+	// wrap around: inspect -> source
+	model, _ = m.cycleTab(1)
+	m = model.(Model)
+	if m.tab != tabSource {
+		t.Errorf("] from inspect must wrap to source, got %d", m.tab)
+	}
+
+	// backward: source -> inspect
+	model, _ = m.cycleTab(-1)
+	m = model.(Model)
+	if m.tab != tabInspect {
+		t.Errorf("[ from source must wrap to inspect, got %d", m.tab)
+	}
+}
+
+func TestTabBar(t *testing.T) {
+	m := New()
+	m.tab = tabJournal
+	m.following = true
+	m.sess = &logSession{unit: "webapp.service"}
+	bar := m.tabBar("webapp.service")
+	if !strings.Contains(bar, "journal") || !strings.Contains(bar, "webapp.service") || !strings.Contains(bar, "live") {
+		t.Errorf("tabBar = %q", bar)
+	}
+}

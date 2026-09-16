@@ -126,6 +126,8 @@ quadman -version
 | `i`   | instantiate a template unit (`web@.container` → `web@prod.service`) |
 | `D`   | delete the unit (stops it and removes the file, asks first) |
 | `y` / `Y` | copy unit name / image to the clipboard (OSC52, works over SSH) |
+| `[` / `]` | cycle detail tabs: source / status / journal / inspect |
+| `I`   | install a `.quadlets` bundle (`podman quadlet install`) |
 | `R`   | `systemctl --user daemon-reload` (regenerate after editing Quadlet files) |
 | `L`   | toggle user linger (`loginctl enable-linger`) |
 | `?`   | expand help                                   |
@@ -162,8 +164,8 @@ feature tiers, patch bumps for accumulated fixes.
 - [x] Mouse (click select, wheel) + OSC52 clipboard (`y`/`Y`)
 - [x] Template instantiation (`web@.container` → `web@prod.service`)
 - [x] Delete units (`podman quadlet rm --force` with fallback)
-- [ ] Multi-document `.quadlets` files (`# FileName=` headers)
-- [ ] Tabbed detail pane: source / status / journal / `podman inspect`
+- [x] Multi-document `.quadlets` files (`# FileName=` headers) — discover, preview, install via `podman quadlet install` (`I`)
+- [x] Tabbed detail pane (`[`/`]`): source / status / journal / `podman inspect`
 - [ ] Storage & events screens (`podman system df`, streaming `podman events`)
 - [ ] Smart hints: `activating (timed-out)` → suggest `TimeoutStartSec=`/`Pull=`;
       Quadlet-diagnostics via generator `--dryrun` output (clean STDERR since Podman 6.1)

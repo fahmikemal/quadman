@@ -29,12 +29,19 @@ import (
 type mode int
 
 const (
-	modeList mode = iota
-	modeFile
-	modeLogs
+	modeList   mode = iota
+	modeDetail      // unified detail view with tabs: source / status / journal / inspect
 	modeUpdates
 	modeValidate
 	modeTree
+)
+
+// Detail tabs, cycled with [ and ].
+const (
+	tabSource = iota
+	tabStatus
+	tabJournal
+	tabInspect
 )
 
 // pollInterval is how often the unit list refreshes itself. The cursor stays
@@ -75,6 +82,14 @@ type lingerSetMsg struct {
 	on    bool
 	known bool
 	err   error
+}
+
+type statusMsg struct {
+	content string
+}
+
+type inspectMsg struct {
+	content string
 }
 
 type editorFinishedMsg struct {
@@ -139,6 +154,9 @@ type Model struct {
 	updateEntries []podman.AutoUpdateEntry
 	timerEnabled  string
 	timerActive   string
+
+	// detail view tab state
+	tab int
 
 	// validation + environment info
 	issues        unitIssues
@@ -322,7 +340,9 @@ func actionCmdHint(desc, hint string, run func(context.Context) (string, error))
 func unitNames(units []quadlet.Unit) []string {
 	names := make([]string, 0, len(units))
 	for _, u := range units {
-		names = append(names, u.UnitName)
+		if u.UnitName != "" { // .quadlets bundles map to N units, not one
+			names = append(names, u.UnitName)
+		}
 	}
 	return names
 }
@@ -380,7 +400,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.SetContent(msg.out)
 		}
 		m.viewport.GotoBottom()
-		m.mode = modeLogs
+		m.mode = modeDetail
+		m.tab = tabJournal
 		m.following = false
 		m.resize()
 		m.clearStatus()
@@ -443,6 +464,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setStatus("timer toggled", false)
 		return m, updatesCmd(m.sys)
 
+	case statusMsg:
+		m.busy = false
+		if m.tab == tabStatus {
+			m.viewport.SetContent(msg.content)
+			m.viewport.GotoTop()
+		}
+		return m, nil
+
+	case inspectMsg:
+		m.busy = false
+		if m.tab == tabInspect {
+			m.viewport.SetContent(msg.content)
+			m.viewport.GotoTop()
+		}
+		return m, nil
+
 	case editorFinishedMsg:
 		if msg.err != nil {
 			m.setStatus("editor: "+msg.err.Error(), true)
@@ -453,10 +490,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.setStatus("no changes", false)
 		}
-		if m.mode == modeFile {
+		if m.mode == modeDetail && m.tab == tabSource {
 			if u, ok := m.selected(); ok {
 				if content, rerr := os.ReadFile(u.Path); rerr == nil {
-					m.viewport.SetContent(string(content))
+					m.viewport.SetContent(withDropins(u, content))
 				}
 			}
 		}
@@ -637,7 +674,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.treeModel, cmd = m.treeModel.Update(msg)
 		return m, cmd
 
-	case modeFile, modeLogs:
+	case modeDetail:
 		switch msg.String() {
 		case "esc", "q":
 			m.stopLogs()
@@ -645,8 +682,17 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.mode = modeList
 			m.resize()
 			return m, nil
+		case "[":
+			return m.cycleTab(-1)
+		case "]":
+			return m.cycleTab(1)
+		case "l":
+			if m.tab != tabJournal {
+				return m.cycleTab(tabJournal - m.tab)
+			}
+			return m, nil
 		case "f":
-			if m.mode == modeLogs && m.sess != nil {
+			if m.tab == tabJournal && m.sess != nil {
 				m.following = !m.following
 				if m.following {
 					m.viewport.GotoBottom()
@@ -654,7 +700,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "/":
-			if m.mode == modeLogs {
+			if m.tab == tabJournal {
 				m.searching = true
 				m.searchIn.Focus()
 				return m, textinput.Blink
@@ -663,12 +709,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.viewport, cmd = m.viewport.Update(msg)
 			return m, cmd
 		case "n":
-			if m.mode == modeLogs {
+			if m.tab == tabJournal {
 				m.nextMatch()
 			}
 			return m, nil
 		case "N":
-			if m.mode == modeLogs {
+			if m.tab == tabJournal {
 				m.prevMatch()
 			}
 			return m, nil
@@ -678,6 +724,31 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
 		return m, cmd
+	}
+
+	// .quadlets bundles get their own small action set: preview + install.
+	if u, ok := m.selected(); ok && u.Kind == quadlet.KindQuadlets {
+		switch msg.String() {
+		case "enter":
+			content, err := os.ReadFile(u.Path)
+			if err != nil {
+				m.setStatus(err.Error(), true)
+				return m, nil
+			}
+			m.viewport.SetContent(withQuadletDocs(content))
+			m.viewport.GotoTop()
+			m.mode = modeDetail
+			m.tab = tabSource
+			m.resize()
+			return m, nil
+		case "I":
+			m.pending = &pendingAction{verb: "install", unit: u}
+			m.setStatus("install "+filepath.Base(u.Path)+" via podman quadlet install? [y/N]", false)
+			return m, nil
+		case "s", "x", "r", "e", "d", "l", "h", "E":
+			m.setStatus("install the bundle first (I) to manage its units", false)
+			return m, nil
+		}
 	}
 
 	switch msg.String() {
@@ -851,7 +922,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		m.viewport.SetContent(withDropins(u, content))
 		m.viewport.GotoTop()
-		m.mode = modeFile
+		m.mode = modeDetail
+		m.tab = tabSource
 		m.resize()
 		return m, nil
 	}
@@ -893,6 +965,8 @@ func (m Model) runPending(p *pendingAction) (tea.Model, tea.Cmd) {
 				}
 				return "", nil
 			}))
+	case "install":
+		return m.installBundle(p.unit)
 	case "delete":
 		return m.deleteUnit(p.unit)
 	default: // "stop"
@@ -1057,7 +1131,7 @@ func (m *Model) resize() {
 	if m.mode == modeList && (m.filtering || m.filterStr != "") {
 		chrome++ // filter line
 	}
-	if m.mode == modeLogs && (m.searching || m.searchStr != "") {
+	if m.mode == modeDetail && m.tab == tabJournal && (m.searching || m.searchStr != "") {
 		chrome++ // search line
 	}
 	if m.pickingEditor {
@@ -1112,11 +1186,11 @@ func (m Model) View() tea.View {
 				"⚠ %d quadlet file(s) changed since last daemon-reload - press R (e.g. %s)",
 				len(m.stale), m.stale[0].Name)))
 		}
-	case modeFile:
+	case modeDetail:
 		u, ok := m.selected()
 		name := ""
 		if ok {
-			name = u.Path
+			name = u.UnitName
 			if e := m.podmanInfo[u.UnitName]; e.App != "" {
 				name += " · app: " + e.App
 			}
@@ -1124,27 +1198,9 @@ func (m Model) View() tea.View {
 				name += " · pod: " + e.Pod
 			}
 		}
-		b.WriteString(headerStyle.Render(" FILE " + name))
+		b.WriteString(m.tabBar(name))
 		b.WriteString("\n")
-		b.WriteString(m.viewport.View())
-	case modeLogs:
-		u, ok := m.selected()
-		unit := ""
-		if ok {
-			unit = u.UnitName
-			if d := m.status[unit].Description; d != "" {
-				unit += " - " + d
-			}
-		}
-		state := "live"
-		if m.sess == nil {
-			state = "snapshot"
-		} else if !m.following {
-			state = "paused"
-		}
-		b.WriteString(headerStyle.Render(" LOGS " + unit + "  (" + state + ", q to go back)"))
-		b.WriteString("\n")
-		if m.searching || m.searchStr != "" {
+		if m.tab == tabJournal && (m.searching || m.searchStr != "") {
 			info := ""
 			if m.searchStr != "" {
 				info = fmt.Sprintf("  (%d/%d matches)", m.matchPos, m.searchMatches)
@@ -1195,10 +1251,8 @@ func (m Model) View() tea.View {
 
 func (m Model) keys() keyMap {
 	switch m.mode {
-	case modeLogs:
-		return logsKeys()
-	case modeFile:
-		return viewKeys()
+	case modeDetail:
+		return detailKeys()
 	case modeUpdates, modeValidate, modeTree:
 		return updatesKeys()
 	}
@@ -1244,10 +1298,11 @@ const legendChipReserve = 16
 // only when the terminal is too narrow for the full legend.
 func (m Model) legend() []string {
 	switch m.mode {
-	case modeFile:
-		return []string{"E edit · ↑/↓ scroll · esc/q back"}
-	case modeLogs:
-		return []string{"f pause/resume · / search · n/N match · ↑/↓ scroll · esc/q back"}
+	case modeDetail:
+		if m.tab == tabJournal {
+			return []string{"[/] tabs · f pause/resume · / search · n/N match · E edit · esc/q back"}
+		}
+		return []string{"[/] tabs · E edit · ↑/↓ scroll · esc/q back"}
 	case modeUpdates:
 		return []string{"U toggle timer · r refresh · esc/q back"}
 	}
@@ -1288,4 +1343,94 @@ func (m Model) selectedName() string {
 		return u.Name
 	}
 	return ""
+}
+
+// cycleTab moves the detail view one tab in the given direction (+1/-1),
+// loading each tab's content lazily.
+func (m Model) cycleTab(dir int) (tea.Model, tea.Cmd) {
+	m.tab = (m.tab + dir + 4) % 4
+	m.clearSearch()
+	switch m.tab {
+	case tabSource:
+		u, ok := m.selected()
+		if !ok {
+			return m, nil
+		}
+		content, err := os.ReadFile(u.Path)
+		if err != nil {
+			m.setStatus(err.Error(), true)
+			return m, nil
+		}
+		m.viewport.SetContent(withDropins(u, content))
+		m.viewport.GotoTop()
+		return m, nil
+	case tabStatus:
+		u, ok := m.selected()
+		if !ok {
+			return m, nil
+		}
+		sys := m.sys
+		return m, tea.Batch(m.setBusy("status "+u.UnitName), func() tea.Msg {
+			text, _ := sys.StatusText(context.Background(), u.UnitName)
+			return statusMsg{content: text}
+		})
+	case tabJournal:
+		u, ok := m.selected()
+		if !ok {
+			return m, nil
+		}
+		if m.sess == nil || m.sess.unit != u.UnitName {
+			return m.startLogs(u)
+		}
+		return m, nil
+	case tabInspect:
+		u, ok := m.selected()
+		if !ok {
+			return m, nil
+		}
+		if u.Kind != quadlet.KindContainer {
+			m.viewport.SetContent("podman inspect only applies to container units\n")
+			m.viewport.GotoTop()
+			return m, nil
+		}
+		container := "systemd-" + u.Name
+		return m, tea.Batch(m.setBusy("inspect "+container), func() tea.Msg {
+			text, err := podman.Inspect(context.Background(), container)
+			if err != nil {
+				text = err.Error()
+			}
+			return inspectMsg{content: text}
+		})
+	}
+	return m, nil
+}
+
+// tabBar renders the detail view's tab strip with the active tab highlighted
+// and the unit name next to it.
+func (m Model) tabBar(unit string) string {
+	tabs := []string{"source", "status", "journal", "inspect"}
+	var b strings.Builder
+	for i, t := range tabs {
+		if i == m.tab {
+			b.WriteString(tabActiveStyle.Render(" " + t + " "))
+		} else {
+			b.WriteString(tabInactiveStyle.Render(" " + t + " "))
+		}
+		if i < len(tabs)-1 {
+			b.WriteString(" ")
+		}
+	}
+	if unit != "" {
+		b.WriteString("  " + helpStyle.Render(unit))
+	}
+	if m.tab == tabJournal {
+		state := "live"
+		if m.sess == nil {
+			state = "snapshot"
+		} else if !m.following {
+			state = "paused"
+		}
+		b.WriteString(helpStyle.Render("  (" + state + ")"))
+	}
+	return b.String()
 }

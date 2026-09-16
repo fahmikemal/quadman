@@ -55,7 +55,8 @@ func (m Model) startLogs(u quadlet.Unit) (tea.Model, tea.Cmd) {
 	m.logLines = nil
 	m.clearSearch()
 	m.following = true
-	m.mode = modeLogs
+	m.mode = modeDetail
+	m.tab = tabJournal
 	m.viewport.SetContent("")
 	m.viewport.GotoBottom()
 	m.resize()

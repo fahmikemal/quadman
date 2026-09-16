@@ -96,7 +96,8 @@ func (e errString) Error() string { return string(e) }
 
 func TestEscReturnsToList(t *testing.T) {
 	m := New()
-	m.mode = modeLogs
+	m.mode = modeDetail
+	m.tab = tabJournal
 	model, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if model.(Model).mode != modeList {
 		t.Error("esc must return from the logs view to the list")
@@ -105,7 +106,8 @@ func TestEscReturnsToList(t *testing.T) {
 
 func TestQReturnsToListFromFileView(t *testing.T) {
 	m := New()
-	m.mode = modeFile
+	m.mode = modeDetail
+	m.tab = tabSource
 	model, _ := m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
 	if model.(Model).mode != modeList {
 		t.Error("q must return from the file view to the list")
@@ -194,7 +196,8 @@ func TestHelpBarContextual(t *testing.T) {
 	if strings.Contains(list, "…") {
 		t.Errorf("two-line legend should fit without truncation at 124 cols: %q", list)
 	}
-	m.mode = modeLogs
+	m.mode = modeDetail
+	m.tab = tabJournal
 	view := m.helpBar()
 	if !strings.Contains(view, "back") || !strings.Contains(view, "pause") {
 		t.Errorf("logs view legend should offer pause/back navigation: %q", view)
@@ -356,7 +359,8 @@ func TestDisableNotEnabled(t *testing.T) {
 
 func TestFollowLogLines(t *testing.T) {
 	m := withUnits(New(), "webapp")
-	m.mode = modeLogs
+	m.mode = modeDetail
+	m.tab = tabJournal
 	m.following = true
 	sess := &logSession{unit: "webapp.service"}
 	m.sess = sess
