@@ -229,12 +229,16 @@ func New() Model {
 	}
 	fi := textinput.New()
 	fi.Placeholder = "filter units…"
+	fi.Prompt = ""
 	si := textinput.New()
 	si.Placeholder = "search logs (regex ok)…"
+	si.Prompt = ""
 	ii := textinput.New()
 	ii.Placeholder = "instance name (e.g. prod)…"
+	ii.Prompt = ""
 	gi := textinput.New()
 	gi.Placeholder = "docker run … or compose file path"
+	gi.Prompt = ""
 	cfg, _ := config.Load()
 	return Model{
 		sys:        systemd.New(),
