@@ -227,17 +227,16 @@ func New() Model {
 		}
 		return fmt.Sprintf("%4d ", ctx.Index+1)
 	}
+	// No placeholders: the first placeholder character renders under the
+	// bright block cursor while the rest stays dim, which reads as a stray
+	// letter. The line prefixes already give the context.
 	fi := textinput.New()
-	fi.Placeholder = "filter units…"
 	fi.Prompt = ""
 	si := textinput.New()
-	si.Placeholder = "search logs (regex ok)…"
 	si.Prompt = ""
 	ii := textinput.New()
-	ii.Placeholder = "instance name (e.g. prod)…"
 	ii.Prompt = ""
 	gi := textinput.New()
-	gi.Placeholder = "docker run … or compose file path"
 	gi.Prompt = ""
 	cfg, _ := config.Load()
 	return Model{
