@@ -543,14 +543,19 @@ func TestLegendWrapsByWidth(t *testing.T) {
 		t.Errorf("legend should wrap to two lines at 124 cols: %q", narrow)
 	}
 
-	// Wide terminal: one line.
+	// Wide terminal (200): the full sorted key list on two lines.
 	m2 := New()
 	model, _ = m2.Update(tea.WindowSizeMsg{Width: 200, Height: 24})
 	wide := model.(Model).helpBar()
-	if strings.Contains(wide, "\n") {
-		t.Errorf("legend should fit on one line at 200 cols: %q", wide)
+	if !strings.Contains(wide, "y/Y copy") || !strings.Contains(wide, "D delete") || !strings.Contains(wide, "w events") {
+		t.Errorf("wide legend should contain the full sorted key set: %q", wide)
 	}
-	if !strings.Contains(wide, "enter file") || !strings.Contains(wide, "s start") {
-		t.Errorf("one-line legend must contain both groups: %q", wide)
+
+	// Very wide terminal: one line.
+	m3 := New()
+	model, _ = m3.Update(tea.WindowSizeMsg{Width: 320, Height: 24})
+	oneline := model.(Model).helpBar()
+	if strings.Contains(oneline, "\n") {
+		t.Errorf("legend should fit on one line at 320 cols: %q", oneline)
 	}
 }
