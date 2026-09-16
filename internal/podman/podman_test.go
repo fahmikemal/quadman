@@ -144,6 +144,25 @@ func TestAutoUpdateDryRunEmpty(t *testing.T) {
 	}
 }
 
+func TestVersionAtLeast(t *testing.T) {
+	cases := []struct {
+		have, want string
+		ok         bool
+	}{
+		{"6.1.1", "6.1", true},
+		{"6.0.2", "6.1", false},
+		{"6.1.0", "6.1", true},
+		{"5.8.6", "6.0", false},
+		{"6.1.1", "5.3", true},
+		{"6.1", "6.1.1", false}, // 6.1 == 6.1.0 < 6.1.1
+	}
+	for _, tc := range cases {
+		if got := VersionAtLeast(tc.have, tc.want); got != tc.ok {
+			t.Errorf("VersionAtLeast(%q, %q) = %v, want %v", tc.have, tc.want, got, tc.ok)
+		}
+	}
+}
+
 func TestAvailable(t *testing.T) {
 	fakePodman(t, "true\n")
 	if !Available() {

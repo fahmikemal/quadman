@@ -13,6 +13,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/table"
 	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/tree"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -32,6 +33,8 @@ const (
 	modeFile
 	modeLogs
 	modeUpdates
+	modeValidate
+	modeTree
 )
 
 // pollInterval is how often the unit list refreshes itself. The cursor stays
@@ -50,6 +53,8 @@ type refreshMsg struct {
 	podmanTried bool
 	health      map[string]string
 	stale       []quadlet.Unit
+	issues      []quadlet.Issue
+	version     string
 	err         error
 }
 
@@ -135,6 +140,18 @@ type Model struct {
 	timerEnabled  string
 	timerActive   string
 
+	// validation + environment info
+	issues        unitIssues
+	generator     string
+	podmanVersion string
+
+	// dependency tree
+	treeModel tree.Model
+
+	// template instantiation
+	instancing bool
+	instanceIn textinput.Model
+
 	// stop confirmation
 	confirmStop bool
 
@@ -184,21 +201,25 @@ func New() Model {
 	fi.Placeholder = "filter units…"
 	si := textinput.New()
 	si.Placeholder = "search logs (regex ok)…"
+	ii := textinput.New()
+	ii.Placeholder = "instance name (e.g. prod)…"
 	cfg, _ := config.Load()
 	return Model{
-		sys:      systemd.New(),
-		lc:       loginctl.New(),
-		table:    t,
-		viewport: vp,
-		help:     help.New(),
-		spinner:  spinner.New(spinner.WithSpinner(spinner.Dot)),
-		filterIn: fi,
-		searchIn: si,
-		cfg:      cfg,
-		status:   map[string]systemd.Status{},
-		images:   map[string]string{},
-		health:   map[string]string{},
-		loading:  true,
+		sys:        systemd.New(),
+		lc:         loginctl.New(),
+		table:      t,
+		viewport:   vp,
+		help:       help.New(),
+		spinner:    spinner.New(spinner.WithSpinner(spinner.Dot)),
+		filterIn:   fi,
+		searchIn:   si,
+		cfg:        cfg,
+		generator:  quadlet.GeneratorBinary(),
+		instanceIn: ii,
+		status:     map[string]systemd.Status{},
+		images:     map[string]string{},
+		health:     map[string]string{},
+		loading:    true,
 	}
 }
 
@@ -251,14 +272,22 @@ func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, level enrichLevel) 
 		// Optional enrichment via podman (app/pod grouping + container health).
 		var pinfo map[string]podman.Entry
 		var health map[string]string
+		var issues []quadlet.Issue
+		var version string
 		if level >= enrichHealth && podman.Available() {
 			if hm, herr := podman.PsHealth(ctx); herr == nil {
 				health = hm
 			}
 		}
-		if level == enrichFull && podman.Available() {
-			if entries, perr := podman.QuadletList(ctx); perr == nil {
-				pinfo = podman.ByUnit(entries)
+		if level == enrichFull {
+			if podman.Available() {
+				if entries, perr := podman.QuadletList(ctx); perr == nil {
+					pinfo = podman.ByUnit(entries)
+				}
+			}
+			issues, _ = quadlet.Validate(ctx, quadlet.SearchDirs())
+			if ver, verr := podman.Version(ctx); verr == nil {
+				version = ver
 			}
 		}
 
@@ -273,6 +302,8 @@ func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, level enrichLevel) 
 			podmanTried: level == enrichFull,
 			health:      health,
 			stale:       stale,
+			issues:      issues,
+			version:     version,
 		}
 	}
 }
@@ -444,6 +475,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tea.MouseClickMsg:
+		return m.handleMouse(msg)
+
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	}
@@ -507,6 +541,31 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	// While the instance-name input is focused, keys edit the name.
+	if m.instancing {
+		switch msg.String() {
+		case "enter":
+			m.instancing = false
+			m.instanceIn.Blur()
+			name := strings.TrimSpace(m.instanceIn.Value())
+			m.instanceIn.SetValue("")
+			if name == "" {
+				m.setStatus("instantiate cancelled (empty name)", false)
+				return m, nil
+			}
+			return m.instantiateUnit(name)
+		case "esc":
+			m.instancing = false
+			m.instanceIn.SetValue("")
+			m.instanceIn.Blur()
+			m.setStatus("instantiate cancelled", false)
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.instanceIn, cmd = m.instanceIn.Update(msg)
+		return m, cmd
+	}
+
 	// While the filter input is focused, keys edit the filter.
 	if m.filtering {
 		switch msg.String() {
@@ -556,6 +615,26 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
+
+	case modeValidate:
+		if msg.String() == "esc" || msg.String() == "q" {
+			m.mode = modeList
+			m.resize()
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
+
+	case modeTree:
+		if msg.String() == "esc" || msg.String() == "q" {
+			m.mode = modeList
+			m.resize()
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.treeModel, cmd = m.treeModel.Update(msg)
 		return m, cmd
 
 	case modeFile, modeLogs:
@@ -698,6 +777,47 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return healthMsg{container: container, ok: ok, err: err}
 		})
 
+	case "v":
+		m.mode = modeValidate
+		m.viewport.SetContent(m.validateView())
+		m.viewport.GotoTop()
+		m.resize()
+		return m, nil
+
+	case "t":
+		m.treeModel = tree.New(buildTree(m.units, nil), 80, 20)
+		m.mode = modeTree
+		m.resize()
+		return m, nil
+
+	case "i":
+		u, ok := m.selected()
+		if !ok {
+			return m, nil
+		}
+		if !strings.HasSuffix(u.Name, "@") {
+			m.setStatus(u.Name+" is not a template (templates end with @)", false)
+			return m, nil
+		}
+		m.instancing = true
+		m.instanceIn.Focus()
+		return m, textinput.Blink
+
+	case "D":
+		u, ok := m.selected()
+		if !ok {
+			return m, nil
+		}
+		m.pending = &pendingAction{verb: "delete", unit: u}
+		m.setStatus("delete "+filepath.Base(u.Path)+"? the unit stops and the file is removed [y/N]", false)
+		return m, nil
+
+	case "y":
+		return m.copySelection("name")
+
+	case "Y":
+		return m.copySelection("image")
+
 	case "R":
 		m.podmanTried = false // re-enrich app/pod grouping after regeneration
 		return m, tea.Batch(m.setBusy("daemon-reload"), actionCmd("daemon-reload", m.sys.DaemonReload))
@@ -729,7 +849,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.setStatus(err.Error(), true)
 			return m, nil
 		}
-		m.viewport.SetContent(string(content))
+		m.viewport.SetContent(withDropins(u, content))
 		m.viewport.GotoTop()
 		m.mode = modeFile
 		m.resize()
@@ -773,6 +893,8 @@ func (m Model) runPending(p *pendingAction) (tea.Model, tea.Cmd) {
 				}
 				return "", nil
 			}))
+	case "delete":
+		return m.deleteUnit(p.unit)
 	default: // "stop"
 		hint := ""
 		if p.unit.Kind == quadlet.KindContainer {
@@ -819,6 +941,12 @@ func (m Model) applyRefresh(msg refreshMsg) (tea.Model, tea.Cmd) {
 	m.linger = msg.linger
 	m.lingerKnown = msg.lingerOK
 	m.stale = msg.stale
+	if msg.issues != nil {
+		m.issues = indexIssues(msg.issues)
+	}
+	if msg.version != "" {
+		m.podmanVersion = msg.version
+	}
 	if msg.podmanTried {
 		m.podmanTried = true
 	}
@@ -887,7 +1015,7 @@ func (m *Model) buildRows() {
 			state = "unhealthy"
 			sub = "health"
 		}
-		rows = append(rows, table.Row{u.Name, string(u.Kind), u.UnitName, state, sub, m.images[u.UnitName]})
+		rows = append(rows, table.Row{u.Name + m.issues.marker(u.Name), string(u.Kind), u.UnitName, state, sub, m.images[u.UnitName]})
 	}
 	m.table.SetRows(rows)
 }
@@ -935,14 +1063,21 @@ func (m *Model) resize() {
 	if m.pickingEditor {
 		chrome++ // editor picker prompt
 	}
+	if m.instancing {
+		chrome++ // instance-name input
+	}
 	body := h - chrome
 	if body < 3 {
 		body = 3
 	}
-	if m.mode == modeList {
+	switch m.mode {
+	case modeList:
 		m.table.SetWidth(w)
 		m.table.SetHeight(body)
-	} else {
+	case modeTree:
+		m.treeModel.SetWidth(w)
+		m.treeModel.SetHeight(body)
+	default:
 		m.viewport.SetWidth(w)
 		m.viewport.SetHeight(body)
 	}
@@ -955,6 +1090,10 @@ func (m Model) View() tea.View {
 
 	switch m.mode {
 	case modeList:
+		if m.instancing {
+			b.WriteString(filterStyle.Render("instance name for " + m.selectedName() + " @: " + m.instanceIn.View()))
+			b.WriteString("\n")
+		}
 		if m.filtering || m.filterStr != "" {
 			b.WriteString(filterStyle.Render("/ " + m.filterIn.View()))
 			b.WriteString("\n")
@@ -1017,6 +1156,14 @@ func (m Model) View() tea.View {
 			b.WriteString("\n")
 		}
 		b.WriteString(m.viewport.View())
+	case modeValidate:
+		b.WriteString(headerStyle.Render(" PROBLEMS "))
+		b.WriteString("\n")
+		b.WriteString(m.viewport.View())
+	case modeTree:
+		b.WriteString(headerStyle.Render(" TREE — quadlet dependencies "))
+		b.WriteString("\n")
+		b.WriteString(m.treeModel.View())
 	case modeUpdates:
 		b.WriteString(headerStyle.Render(" AUTO-UPDATE "))
 		b.WriteString("\n")
@@ -1042,6 +1189,7 @@ func (m Model) View() tea.View {
 	}
 	v := tea.NewView(b.String())
 	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
 	return v
 }
 
@@ -1051,7 +1199,7 @@ func (m Model) keys() keyMap {
 		return logsKeys()
 	case modeFile:
 		return viewKeys()
-	case modeUpdates:
+	case modeUpdates, modeValidate, modeTree:
 		return updatesKeys()
 	}
 	return listKeys()
@@ -1103,7 +1251,7 @@ func (m Model) legend() []string {
 	case modeUpdates:
 		return []string{"U toggle timer · r refresh · esc/q back"}
 	}
-	views := "enter file · l logs · / filter · E edit · u updates · ? all keys"
+	views := "enter file · l logs · / filter · E edit · u updates · v problems · t tree · ? all keys"
 	actions := "s start · x stop · r restart · e enable · d disable · R reload · L linger · q quit"
 	full := views + " · " + actions
 	if w := m.help.Width(); w <= 0 || ansi.StringWidth(full)+legendChipReserve <= w {
@@ -1132,4 +1280,12 @@ func onOff(v bool) string {
 		return "on"
 	}
 	return "off"
+}
+
+// selectedName returns the selected unit's name, or "" when none.
+func (m Model) selectedName() string {
+	if u, ok := m.selected(); ok {
+		return u.Name
+	}
+	return ""
 }

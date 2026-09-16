@@ -155,3 +155,49 @@ func runPodman(ctx context.Context, args ...string) ([]byte, error) {
 	}
 	return out, nil
 }
+
+// QuadletRm removes a quadlet file via `podman quadlet rm --force`, which
+// stops running units first. Requires Podman 5.3+.
+func QuadletRm(ctx context.Context, path string) error {
+	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "podman", "quadlet", "rm", "--force", "--", path).CombinedOutput() // #nosec G204 -- argv slice, no shell; path behind "--"
+	if err != nil {
+		return fmt.Errorf("podman quadlet rm: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// Version returns the installed podman client version, e.g. "6.1.1".
+func Version(ctx context.Context) (string, error) {
+	out, err := runPodman(ctx, "version", "--format", "json")
+	if err != nil {
+		return "", err
+	}
+	var v struct {
+		Client struct {
+			Version string `json:"Version"`
+		} `json:"Client"`
+	}
+	if err := json.Unmarshal(out, &v); err != nil {
+		return "", fmt.Errorf("podman version: %w", err)
+	}
+	return v.Client.Version, nil
+}
+
+// VersionAtLeast reports whether installed podman is >= want (dotted
+// numeric comparison, e.g. "6.1" <= "6.1.1").
+func VersionAtLeast(have, want string) bool {
+	hp, wp := strings.Split(have, "."), strings.Split(want, ".")
+	for i := 0; i < len(wp); i++ {
+		hn, wn := 0, 0
+		if i < len(hp) {
+			fmt.Sscanf(hp[i], "%d", &hn)
+		}
+		fmt.Sscanf(wp[i], "%d", &wn)
+		if hn != wn {
+			return hn > wn
+		}
+	}
+	return true
+}

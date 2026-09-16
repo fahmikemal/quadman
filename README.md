@@ -43,6 +43,16 @@ whole lifecycle in one TUI:
   the `podman-auto-update.timer` state, toggleable with `U`.
 - Container health: unhealthy containers surface in the STATE column, `h`
   runs `podman healthcheck run` on the selected unit.
+- **Built-in validation** — the Quadlet generator itself (dry-run) checks
+  every file on refresh; units with problems get a ✗/⚠ marker and the `v`
+  view explains each error, including version-gate hints for new keys.
+- **Drop-in directories** — `foo.container.d/*.conf` (plus cascading
+  `foo-.container.d/` and generic `container.d/`) shown merged in the file
+  view, in the generator's merge order.
+- **Dependency tree** (`t`) — pods → containers → image/network/volume
+  units and `[Unit]` dependencies, rendered with the bubbles tree.
+- Mouse: click a row to select it, wheel-scroll logs; `y`/`Y` copy names
+  and images via OSC52 (works over SSH).
 - Optional enrichment via `podman quadlet list` (application/pod grouping)
   when podman is installed; fully functional without it.
 - **Linger indicator and toggle** — `loginctl enable-linger` is the one setting every
@@ -111,6 +121,11 @@ quadman -version
 | `E`   | edit the Quadlet file in `$EDITOR`            |
 | `u`   | auto-update screen (`U` toggles the timer)    |
 | `h`   | run `podman healthcheck` on the unit          |
+| `v`   | problems view — generator validation of every Quadlet file |
+| `t`   | dependency tree (pods, images, networks, volumes, [Unit] deps) |
+| `i`   | instantiate a template unit (`web@.container` → `web@prod.service`) |
+| `D`   | delete the unit (stops it and removes the file, asks first) |
+| `y` / `Y` | copy unit name / image to the clipboard (OSC52, works over SSH) |
 | `R`   | `systemctl --user daemon-reload` (regenerate after editing Quadlet files) |
 | `L`   | toggle user linger (`loginctl enable-linger`) |
 | `?`   | expand help                                   |
@@ -139,11 +154,15 @@ feature tiers, patch bumps for accumulated fixes.
 - [x] Surface new Podman 6.1 keys (e.g. `ImageVolume=`) in parsing
 - [x] Tests for the non-interactive `list` command
 
-### v0.3.0 — Tier 2: operational depth
+### v0.3.0 — Tier 2: operational depth (✅ shipped)
 
-- [ ] Manage drop-in directories (`*.container.d/*.conf`, cascading `foo-.container.d/`)
+- [x] Built-in Quadlet validation (generator dry-run, ✗/⚠ markers, problems view, version gating)
+- [x] Manage drop-in directories (`*.container.d/*.conf`, cascading `foo-.container.d/`)
+- [x] Dependency tree view (bubbles `tree`): pod↔container, implicit `Image=`/`Network=`/`Volume=` deps, `[Unit]` deps
+- [x] Mouse (click select, wheel) + OSC52 clipboard (`y`/`Y`)
+- [x] Template instantiation (`web@.container` → `web@prod.service`)
+- [x] Delete units (`podman quadlet rm --force` with fallback)
 - [ ] Multi-document `.quadlets` files (`# FileName=` headers)
-- [ ] Dependency tree view (bubbles `tree`): pod↔container, implicit `Image=`/`Network=`/`Volume=` deps
 - [ ] Tabbed detail pane: source / status / journal / `podman inspect`
 - [ ] Storage & events screens (`podman system df`, streaming `podman events`)
 - [ ] Smart hints: `activating (timed-out)` → suggest `TimeoutStartSec=`/`Pull=`;

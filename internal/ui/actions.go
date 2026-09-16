@@ -1,0 +1,59 @@
+package ui
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/kemal-labs/quadman/internal/podman"
+	"github.com/kemal-labs/quadman/internal/quadlet"
+)
+
+// instantiateUnit starts an instance of a template unit
+// (web@.container -> web@prod.service via systemd's template mechanism).
+func (m Model) instantiateUnit(instance string) (tea.Model, tea.Cmd) {
+	u, ok := m.selected()
+	if !ok {
+		return m, nil
+	}
+	base := strings.TrimSuffix(u.Name, "@")
+	instanceUnit := base + "@" + instance + ".service"
+	sys := m.sys
+	return m, tea.Batch(m.setBusy("start "+instanceUnit),
+		actionCmd("start "+instanceUnit, func(ctx context.Context) (string, error) {
+			return sys.UnitAction(ctx, "start", instanceUnit)
+		}))
+}
+
+// deleteUnit removes the quadlet file (confirm-armed by the caller).
+// It prefers `podman quadlet rm` (application-aware, --force stops running
+// units) and falls back to stopping the unit, deleting the file, and
+// reloading the generator.
+func (m Model) deleteUnit(u quadlet.Unit) (tea.Model, tea.Cmd) {
+	sys := m.sys
+	return m, tea.Batch(m.setBusy("delete "+u.Name),
+		actionCmdHint("delete "+u.Name, "file removed; the unit stays until the next boot if it was enabled", func(ctx context.Context) (string, error) {
+			if podman.Available() {
+				if err := quadletRemove(ctx, u.Path); err == nil {
+					return "", nil
+				}
+			}
+			if _, err := sys.UnitAction(ctx, "stop", u.UnitName); err != nil {
+				// Not running or already gone — deleting the file still applies.
+				_ = err
+			}
+			if err := os.Remove(u.Path); err != nil {
+				return "", fmt.Errorf("remove %s: %w", u.Path, err)
+			}
+			_, err := sys.DaemonReload(ctx)
+			return "", err
+		}))
+}
+
+// quadletRemove shells out to `podman quadlet rm --force`.
+func quadletRemove(ctx context.Context, path string) error {
+	return podman.QuadletRm(ctx, path)
+}
