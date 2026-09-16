@@ -117,5 +117,12 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.Up, k.Down, k.Enter, k.Logs, k.Filter},
 		{k.Start, k.Stop, k.Restart, k.Enable, k.Disable},
 		{k.Edit, k.Updates, k.Health, k.DaemonReload, k.Linger, k.Help, k.Quit},
+		{
+			key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "problems")),
+			key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "dep tree")),
+			key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "instantiate")),
+			key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "delete unit")),
+			key.NewBinding(key.WithKeys("y", "Y"), key.WithHelp("y/Y", "copy name/image")),
+		},
 	}
 }

@@ -4,8 +4,8 @@ package main
 
 import (
 	"bytes"
-	"io"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -408,6 +408,137 @@ func runExtraScenarios() {
 	scenarioUnhealthy(quadletDir)
 	scenarioResponsive()
 	scenarioEmptyState()
+	scenarioValidation(quadletDir)
+	scenarioTreeDropinCopy(quadletDir)
+	scenarioTemplate(quadletDir)
+	scenarioDelete(quadletDir)
+}
+
+// scenarioValidation: a broken quadlet file must surface in the problems
+// view after a daemon-reload refresh.
+func scenarioValidation(quadletDir string) {
+	writeUnit(quadletDir, "e2e-bad.container", "[Container]\nImage=docker.io/library/busybox:latest\nBadKey=123\n")
+	reload()
+	defer removeUnit(quadletDir, "e2e-bad.container")
+	defer reload()
+
+	drain()
+	cmd, f := launch(120, 42)
+	defer quit(cmd, f)
+	if !waitFor("e2e-bad", 12*time.Second) {
+		check("validation", false, "bad unit tidak muncul di daftar")
+		return
+	}
+	send(f, "R") // daemon-reload -> enrichFull -> validation pass
+	ok := waitFor("\u2717", 15*time.Second)
+	check("validation marker", ok, "marker X di kolom nama")
+	drain()
+	send(f, "v")
+	ok = waitFor("BadKey", 8*time.Second)
+	check("problems view", ok, "PROBLEMS menampilkan error generator")
+	send(f, "\x1b")
+	time.Sleep(300 * time.Millisecond)
+}
+
+// scenarioTreeDropinCopy: dependency tree renders, drop-ins show in the
+// file view, and y copies to the clipboard status.
+func scenarioTreeDropinCopy(quadletDir string) {
+	dropDir := quadletDir + "/demo-web.container.d"
+	_ = os.MkdirAll(dropDir, 0o755)
+	writeUnit(dropDir, "10-extra.conf", "Environment=E2E=1\n")
+	defer func() {
+		_ = os.Remove(dropDir + "/10-extra.conf")
+		_ = os.Remove(dropDir)
+	}()
+
+	drain()
+	cmd, f := launch(120, 42)
+	defer quit(cmd, f)
+	waitFor("demo-web", 12*time.Second)
+	send(f, "/")
+	send(f, "web")
+	send(f, "\r")
+	time.Sleep(400 * time.Millisecond)
+
+	// Tree view.
+	send(f, "t")
+	ok := waitFor("quadlets", 5*time.Second)
+	check("tree view", ok && strings.Contains(last(), "demo-web"), "TREE menampilkan unit")
+	send(f, "\x1b")
+	time.Sleep(300 * time.Millisecond)
+
+	// File view with drop-in.
+	send(f, "\r")
+	ok = waitFor("drop-in:", 5*time.Second)
+	check("drop-in in file view", ok, "konten drop-in tampil di FILE view")
+	send(f, "q")
+	time.Sleep(300 * time.Millisecond)
+
+	// Clipboard copy.
+	drain()
+	send(f, "y")
+	ok = waitFor("copied", 5*time.Second)
+	check("clipboard y", ok, "status copied setelah y")
+}
+
+// scenarioTemplate: instantiating a template starts web@<instance>.service.
+func scenarioTemplate(quadletDir string) {
+	writeUnit(quadletDir, "e2e@.container", "[Container]\nImage=docker.io/library/busybox:latest\nExec=sleep 600\n")
+	reload()
+	defer removeUnit(quadletDir, "e2e@.container")
+	defer reload()
+	defer run0("systemctl", "--user", "stop", "e2e@inst.service")
+
+	drain()
+	cmd, f := launch(120, 42)
+	defer quit(cmd, f)
+	if !waitFor("e2e@", 12*time.Second) {
+		check("template instantiate", false, "template tidak muncul di daftar")
+		return
+	}
+	send(f, "/")
+	send(f, "e2e@")
+	send(f, "\r")
+	time.Sleep(400 * time.Millisecond)
+	send(f, "i")
+	ok := waitFor("instance", 3*time.Second)
+	if !ok {
+		check("template instantiate", false, "input instance tidak muncul")
+		return
+	}
+	send(f, "inst")
+	send(f, "\r")
+	time.Sleep(3 * time.Second)
+	active := runOut("systemctl", "--user", "is-active", "e2e@inst.service") == "active"
+	check("template instantiate", active, "e2e@inst.service aktif via instansiasi systemd")
+	run0("systemctl", "--user", "stop", "e2e@inst.service")
+}
+
+// scenarioDelete: deleting a unit asks for confirmation and removes the file.
+func scenarioDelete(quadletDir string) {
+	writeUnit(quadletDir, "e2e-junk.container", "[Container]\nImage=docker.io/library/busybox:latest\nExec=sleep 600\n")
+	reload()
+	defer removeUnit(quadletDir, "e2e-junk.container") // safety net kalau delete gagal
+	defer reload()
+
+	drain()
+	cmd, f := launch(120, 42)
+	defer quit(cmd, f)
+	if !waitFor("e2e-junk", 12*time.Second) {
+		check("delete unit", false, "junk unit tidak muncul")
+		return
+	}
+	send(f, "/")
+	send(f, "junk")
+	send(f, "\r")
+	time.Sleep(400 * time.Millisecond)
+	send(f, "D")
+	ok := waitFor("y/N", 3*time.Second)
+	check("delete confirm", ok, "prompt konfirmasi delete muncul")
+	send(f, "y")
+	time.Sleep(3 * time.Second)
+	_, statErr := os.Stat(quadletDir + "/e2e-junk.container")
+	check("delete unit", os.IsNotExist(statErr), "file quadlet terhapus setelah y")
 }
 
 // scenarioLiveFollow: a ticker unit emits a line every 2s; new lines must
@@ -557,4 +688,13 @@ func logPumpErr(err error) {
 	mu.Lock()
 	pumpErrs++
 	mu.Unlock()
+}
+
+// runOut runs a command and returns its trimmed stdout ("" on error).
+func runOut(name string, args ...string) string {
+	out, err := exec.Command(name, args...).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
