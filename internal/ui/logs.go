@@ -10,8 +10,14 @@ import (
 	"github.com/kemal-labs/quadman/internal/systemd"
 )
 
-// logBufferCap bounds how many journal lines the follow view keeps.
-const logBufferCap = 1000
+// logBufferCap bounds how many journal lines the follow view keeps. It
+// defaults to 1000 and is overridden from the YAML config (log_buffer) in
+// New when set.
+var logBufferCap = 1000
+
+// logTailLines is the journal snapshot size for a new follow stream. It
+// defaults to 200 and is overridden from the YAML config (log_tail).
+var logTailLines = 200
 
 // logSession is one live `journalctl -f` stream.
 type logSession struct {
@@ -45,7 +51,7 @@ func followLine(sess *logSession) tea.Cmd {
 // If the stream cannot start it falls back to the 300-line snapshot.
 func (m Model) startLogs(u quadlet.Unit) (tea.Model, tea.Cmd) {
 	m.stopLogs()
-	stop, stream, err := m.sys.FollowJournal(context.Background(), u.UnitName, 200)
+	stop, stream, err := m.sys.FollowJournal(context.Background(), u.UnitName, logTailLines)
 	if err != nil {
 		return m, tea.Batch(m.setBusy("loading logs "+u.UnitName), logsCmd(m.sys, u.UnitName))
 	}

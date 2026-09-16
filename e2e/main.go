@@ -337,7 +337,12 @@ func main() {
 // launch starts a fresh quadman in a PTY of the given size with EDITOR
 // stripped from the environment (so editor tests always see the picker).
 func launch(cols, rows uint16, extraEnv ...string) (*exec.Cmd, *os.File) {
-	cmd := exec.Command("./quadman")
+	return launchArgs(cols, rows, nil, extraEnv...)
+}
+
+// launchArgs is launch with extra CLI argv (e.g. --readonly).
+func launchArgs(cols, rows uint16, argv []string, extraEnv ...string) (*exec.Cmd, *os.File) {
+	cmd := exec.Command(append([]string{"./quadman"}, argv...)...)
 	activeCmd = cmd
 	env := []string{"TERM=xterm-256color"}
 	for _, e := range os.Environ() {
@@ -417,6 +422,11 @@ func runExtraScenarios() {
 	scenarioStorage()
 	scenarioEvents(quadletDir)
 	scenarioGenerate(quadletDir)
+	scenarioReadonly(quadletDir)
+	scenarioRecentActions(quadletDir)
+	scenarioCustomCommand(quadletDir)
+	scenarioYAMLConfig()
+	scenarioGenerateStrict(quadletDir)
 }
 
 // scenarioStorage: g opens the storage screen with podman system df output.
@@ -799,6 +809,121 @@ func scenarioEmptyState() {
 
 func countOccurrences(haystack, needle string) int {
 	return strings.Count(haystack, needle)
+}
+
+// scenarioReadonly: --readonly shows the banner and refuses writes.
+func scenarioReadonly(quadletDir string) {
+	_ = quadletDir
+	drain()
+	cmd, f := launchArgs(120, 42, []string{"--readonly"})
+	defer quit(cmd, f)
+	if !waitFor("QUADLET", 12*time.Second) {
+		check("readonly banner", false, "daftar tidak muncul dalam mode readonly")
+		return
+	}
+	ok := waitFor("readonly", 5*time.Second)
+	check("readonly banner", ok, "chip readonly tampil di legenda")
+	drain()
+	send(f, "s")
+	ok = waitFor("readonly mode", 5*time.Second)
+	check("readonly refuse", ok, "tombol start ditolak dengan penjelasan")
+}
+
+// scenarioRecentActions: an action lands in the A log with its result.
+func scenarioRecentActions(quadletDir string) {
+	_ = quadletDir
+	drain()
+	cmd, f := launch(120, 42)
+	defer quit(cmd, f)
+	if !waitFor("QUADLET", 12*time.Second) {
+		check("recent actions", false, "daftar tidak muncul")
+		return
+	}
+	send(f, "R") // daemon-reload is a safe logged action
+	if !waitFor("daemon-reload ok", 12*time.Second) {
+		check("recent actions", false, "daemon-reload tidak selesai")
+		return
+	}
+	drain()
+	send(f, "A")
+	ok := waitFor("ACTIONS", 5*time.Second)
+	l := last()
+	check("recent actions", ok && strings.Contains(l, "daemon-reload"), "layar ACTIONS menampilkan hasil daemon-reload")
+	send(f, "q")
+	time.Sleep(300 * time.Millisecond)
+}
+
+// scenarioCustomCommand: a config.yaml custom key runs and logs its result.
+func scenarioCustomCommand(quadletDir string) {
+	_ = quadletDir
+	cfgDir := os.TempDir() + "/qe2e-custom"
+	_ = os.MkdirAll(cfgDir+"/quadman", 0o755)
+	yaml := "custom_commands:\n  - name: probe\n    key: C\n    run: echo PROBE-{{.UnitName}}\n"
+	if err := os.WriteFile(cfgDir+"/quadman/config.yaml", []byte(yaml), 0o644); err != nil {
+		check("custom command", false, "gagal menulis config.yaml sementara")
+		return
+	}
+	defer os.RemoveAll(cfgDir)
+
+	drain()
+	cmd, f := launch(120, 42, "XDG_CONFIG_HOME="+cfgDir)
+	defer quit(cmd, f)
+	if !waitFor("QUADLET", 12*time.Second) {
+		check("custom command", false, "daftar tidak muncul")
+		return
+	}
+	drain()
+	send(f, "C")
+	ok := waitFor("custom probe ok", 8*time.Second)
+	check("custom command", ok, "custom key C jalan dan hasilnya tampil di status")
+	drain()
+	send(f, "A")
+	ok = waitFor("custom probe", 5*time.Second)
+	check("custom logged", ok, "hasil custom tercatat di layar ACTIONS")
+	send(f, "q")
+	time.Sleep(300 * time.Millisecond)
+}
+
+// scenarioYAMLConfig: a corrupt config.yaml surfaces an error instead of
+// silently ignored settings.
+func scenarioYAMLConfig() {
+	cfgDir := os.TempDir() + "/qe2e-badyaml"
+	_ = os.MkdirAll(cfgDir+"/quadman", 0o755)
+	if err := os.WriteFile(cfgDir+"/quadman/config.yaml", []byte("refresh_interval: [unclosed\n"), 0o644); err != nil {
+		check("yaml corrupt", false, "gagal menulis config.yaml rusak")
+		return
+	}
+	defer os.RemoveAll(cfgDir)
+
+	drain()
+	cmd, f := launch(120, 42, "XDG_CONFIG_HOME="+cfgDir)
+	defer quit(cmd, f)
+	ok := waitFor("config:", 12*time.Second)
+	check("yaml corrupt", ok, "YAML rusak dilaporkan di status, bukan diabaikan diam-diam")
+}
+
+// scenarioGenerateStrict: garbage input is rejected with guidance instead of
+// reaching podlet.
+func scenarioGenerateStrict(quadletDir string) {
+	_ = quadletDir
+	drain()
+	cmd, f := launch(120, 42)
+	defer quit(cmd, f)
+	if !waitFor("QUADLET", 12*time.Second) {
+		check("generate strict", false, "daftar tidak muncul")
+		return
+	}
+	send(f, "n")
+	if !waitFor("generate from", 3*time.Second) {
+		check("generate strict", false, "input generate tidak muncul")
+		return
+	}
+	send(f, "nginx:latest")
+	send(f, "\r")
+	ok := waitFor("not a run command", 8*time.Second)
+	check("generate strict", ok, "input sampah ditolak dengan panduan run/compose")
+	send(f, "\x1b")
+	time.Sleep(300 * time.Millisecond)
 }
 
 func writeUnit(dir, name, content string) {

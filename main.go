@@ -25,6 +25,7 @@ var version = "dev"
 
 func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
+	readonly := flag.Bool("readonly", false, "disable all state-changing actions (view, logs, and screens only)")
 	flag.Parse()
 
 	if *showVersion {
@@ -46,7 +47,7 @@ func main() {
 		return
 	}
 
-	if err := ui.Run(); err != nil {
+	if err := ui.RunWith(*readonly); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
