@@ -414,6 +414,78 @@ func runExtraScenarios() {
 	scenarioDelete(quadletDir)
 	scenarioTabs(quadletDir)
 	scenarioQuadletsBundle(quadletDir)
+	scenarioStorage()
+	scenarioEvents(quadletDir)
+	scenarioGenerate(quadletDir)
+}
+
+// scenarioStorage: g opens the storage screen with podman system df output.
+func scenarioStorage() {
+	drain()
+	cmd, f := launch(120, 42)
+	defer quit(cmd, f)
+	waitFor("QUADLET", 12*time.Second)
+	send(f, "g")
+	ok := waitFor("STORAGE", 10*time.Second)
+	check("storage screen", ok && (strings.Contains(last(), "space usage") || strings.Contains(last(), "REPOSITORY") || strings.Contains(last(), "No images")), "df menampilkan penggunaan disk")
+	send(f, "q")
+	time.Sleep(300 * time.Millisecond)
+}
+
+// scenarioEvents: w streams podman events live; starting a unit appears.
+func scenarioEvents(quadletDir string) {
+	drain()
+	cmd, f := launch(120, 42)
+	defer quit(cmd, f)
+	waitFor("demo-web", 12*time.Second)
+	send(f, "w")
+	ok := waitFor("EVENTS", 5*time.Second)
+	if !ok {
+		check("events screen", false, "layar events tidak terbuka")
+		return
+	}
+	time.Sleep(2 * time.Second) // biarkan listener events attach dulu
+	drain()
+	run0("systemctl", "--user", "restart", "demo-web.service")
+	// JSON event terpotong lebar viewport sebelum field Status — marker
+	// yang pasti terlihat: image name dan exit code dari event died.
+	ok = waitFor("busybox", 15*time.Second)
+	if !ok {
+		ok = strings.Contains(last(), "ContainerExitCode") || strings.Contains(last(), "docker.io")
+	}
+	check("events stream", ok, "event restart terlihat mengalir live")
+	send(f, "f")
+	time.Sleep(200 * time.Millisecond)
+	send(f, "q")
+	time.Sleep(300 * time.Millisecond)
+}
+
+// scenarioGenerate: n runs podlet, previews the quadlet, y writes + reloads,
+// and the new unit appears in the list.
+func scenarioGenerate(quadletDir string) {
+	target := "e2egen.container"
+	defer removeUnit(quadletDir, target)
+	defer reload()
+
+	drain()
+	cmd, f := launch(120, 42)
+	defer quit(cmd, f)
+	waitFor("QUADLET", 12*time.Second)
+	send(f, "n")
+	ok := waitFor("generate from", 3*time.Second)
+	if !ok {
+		check("generate flow", false, "input generate tidak muncul")
+		return
+	}
+	send(f, "podman run --name e2egen docker.io/library/busybox:latest sleep 600")
+	send(f, "\r")
+	ok = waitFor("Container]", 15*time.Second)
+	check("generate preview", ok, "preview quadlet hasil podlet")
+	send(f, "y")
+	ok = waitFor("written to", 12*time.Second)
+	_, statErr := os.Stat(quadletDir + "/" + target)
+	ok2 := waitFor("e2egen", 12*time.Second)
+	check("generate install", ok && statErr == nil && ok2, "file tertulis + unit muncul di daftar setelah reload")
 }
 
 // scenarioTabs: the detail view cycles source -> status -> journal -> inspect

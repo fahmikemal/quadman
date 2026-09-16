@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -188,6 +189,34 @@ func Inspect(ctx context.Context, container string) (string, error) {
 		return "", err
 	}
 	return string(out), nil
+}
+
+// SystemDf returns `podman system df --verbose` output (disk usage of
+// images, containers, and volumes).
+func SystemDf(ctx context.Context) (string, error) {
+	out, err := runPodman(ctx, "system", "df", "--verbose")
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+// EventsFollow starts `podman events --format json` (a streaming feed) and
+// returns the process's stop function and its stdout stream.
+func EventsFollow(ctx context.Context) (stop func(), stream io.Reader, err error) {
+	cmd := exec.CommandContext(ctx, "podman", "events", "--format", "json") // #nosec G204 -- constant argv, no shell
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, nil, fmt.Errorf("podman events: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, nil, fmt.Errorf("podman events: %w", err)
+	}
+	stop = func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}
+	return stop, stdout, nil
 }
 
 // Version returns the installed podman client version, e.g. "6.1.1".

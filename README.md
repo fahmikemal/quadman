@@ -128,6 +128,9 @@ quadman -version
 | `y` / `Y` | copy unit name / image to the clipboard (OSC52, works over SSH) |
 | `[` / `]` | cycle detail tabs: source / status / journal / inspect |
 | `I`   | install a `.quadlets` bundle (`podman quadlet install`) |
+| `g`   | storage screen (`podman system df --verbose`, `r` refresh) |
+| `w`   | live podman events stream (`f` pause) |
+| `n`   | generate a quadlet via podlet (`docker run` / compose path) |
 | `R`   | `systemctl --user daemon-reload` (regenerate after editing Quadlet files) |
 | `L`   | toggle user linger (`loginctl enable-linger`) |
 | `?`   | expand help                                   |
@@ -166,6 +169,9 @@ feature tiers, patch bumps for accumulated fixes.
 - [x] Delete units (`podman quadlet rm --force` with fallback)
 - [x] Multi-document `.quadlets` files (`# FileName=` headers) — discover, preview, install via `podman quadlet install` (`I`)
 - [x] Tabbed detail pane (`[`/`]`): source / status / journal / `podman inspect`
+- [x] Storage & events screens (`g` = `podman system df --verbose`, `w` = streaming `podman events`)
+- [x] Smart hints: `timed-out` → `TimeoutStartSec=`/`Pull=`, start-limit crash-loop, `AutoUpdate=` without the timer enabled
+- [x] Generate Quadlet files via podlet (`n`): `docker run` / compose → preview → `y` write → reload
 - [ ] Storage & events screens (`podman system df`, streaming `podman events`)
 - [ ] Smart hints: `activating (timed-out)` → suggest `TimeoutStartSec=`/`Pull=`;
       Quadlet-diagnostics via generator `--dryrun` output (clean STDERR since Podman 6.1)

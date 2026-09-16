@@ -71,6 +71,12 @@ func (m Model) validateView() string {
 			}
 		}
 	}
+	if hints := m.smartHints(); len(hints) > 0 {
+		b.WriteString("\nHINTS (from live state):\n")
+		for _, h := range hints {
+			b.WriteString("  • " + h + "\n")
+		}
+	}
 	b.WriteString("\nesc back · edit the file with E to fix")
 	return b.String()
 }
