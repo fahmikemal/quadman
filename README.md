@@ -220,9 +220,11 @@ feature tiers, patch bumps for accumulated fixes.
 ### v0.4.0+ — Tier 3: scale
 
 - [ ] SSH mode for remote rootless hosts
-- [ ] YAML config (refresh rate, log tail/buffer, theme) + Go-template custom commands
-- [ ] Colorblind-safe themes, auto light/dark, OSC52 clipboard, opt-in mouse
-- [ ] Bulk mark + mass actions; `--readonly` mode
+- [x] YAML config (refresh rate, log tail/buffer) + Go-template custom commands (themes still TODO)
+- [ ] Colorblind-safe themes, auto light/dark, opt-in mouse
+- [ ] Bulk mark + mass actions
+- [x] `--readonly` mode
+- [x] Recent-actions log (`A`: what ran, when, and whether it worked)
 - [ ] `teatest` e2e suite; VHS demo GIF; 500+ unit benchmark
 
 ### Notable ecosystem notes (Sep 2026)
