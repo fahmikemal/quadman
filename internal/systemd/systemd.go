@@ -38,6 +38,11 @@ func New() *Systemd {
 	return &Systemd{User: true, Bin: "systemctl", JournalBin: "journalctl"}
 }
 
+// NewSystem returns a Systemd targeting the system-wide (rootful) instance.
+func NewSystem() *Systemd {
+	return &Systemd{User: false, Bin: "systemctl", JournalBin: "journalctl"}
+}
+
 func (s *Systemd) bin() string {
 	if s.Bin != "" {
 		return s.Bin
@@ -214,6 +219,22 @@ func UserGeneratorDir() string {
 		return ""
 	}
 	return filepath.Join(rt, "systemd", "generator")
+}
+
+// SystemGeneratorDir returns the directory where the system-wide systemd instance
+// writes generator output (/run/systemd/generator).
+func SystemGeneratorDir() string {
+	return "/run/systemd/generator"
+}
+
+// GeneratorDir returns the generator directory for this Systemd instance.
+// For system instances (!User), it returns SystemGeneratorDir() (/run/systemd/generator).
+// For user instances (User), it returns UserGeneratorDir().
+func (s *Systemd) GeneratorDir() string {
+	if !s.User {
+		return SystemGeneratorDir()
+	}
+	return UserGeneratorDir()
 }
 
 // DaemonReload makes systemd regenerate Quadlet units from their source

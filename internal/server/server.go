@@ -65,6 +65,9 @@ type Options struct {
 
 	// Version sets the SSH protocol version string.
 	Version string
+
+	// System targets system-wide (rootful) units instead of user units.
+	System bool
 }
 
 // defaultHostKeyPath returns the path to the auto-generated host key file.
@@ -152,6 +155,7 @@ func teaHandler(opts Options) bubbletea.Handler {
 			QuadletDirs: opts.QuadletDirs,
 			ClientInfo:  clientInfo,
 			NoEditor:    true,
+			System:      opts.System,
 		}
 
 		m := ui.NewWithOptions(uiOpts)

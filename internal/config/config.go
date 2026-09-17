@@ -37,6 +37,7 @@ type Settings struct {
 	LogTail         int             `yaml:"log_tail,omitempty"`
 	LogBuffer       int             `yaml:"log_buffer,omitempty"`
 	Readonly        bool            `yaml:"readonly,omitempty"`
+	System          bool            `yaml:"system,omitempty"`
 	Theme           string          `yaml:"theme,omitempty"`
 	Mouse           bool            `yaml:"mouse,omitempty"`
 	QuadletDirs     []string        `yaml:"quadlet_dirs,omitempty"`
@@ -91,7 +92,7 @@ func Load() (Config, error) {
 		return c, err
 	}
 	data, err := os.ReadFile(path) // #nosec G304 -- path is quadman's own config file under the user's config dir
-	if os.IsNotExist(err) {
+	if os.IsNotExist(err) || len(data) == 0 {
 		return loadYAML(c)
 	}
 	if err != nil {
@@ -153,6 +154,11 @@ func (c Config) LogBuffer() int {
 // Readonly reports whether the UI must refuse state-changing actions.
 func (c Config) Readonly() bool {
 	return c.Settings.Readonly
+}
+
+// System reports whether the UI runs in system mode by default.
+func (c Config) System() bool {
+	return c.Settings.System
 }
 
 // Save writes the config file, creating its directory when needed.

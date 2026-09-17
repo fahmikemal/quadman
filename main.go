@@ -44,6 +44,7 @@ func main() {
 	sshTarget := flag.String("ssh", "", "run against a remote host over SSH (e.g. user@host); file edits are disabled in this mode")
 	mouse := flag.Bool("mouse", false, "enable click-to-select (off by default so text selection keeps working)")
 	theme := flag.String("theme", "", "color scheme: auto, dark, light, or colorblind (default from config.yaml)")
+	systemFlag := flag.Bool("system", false, "manage system-wide (rootful) Quadlet units instead of user units")
 	var quadletDirs quadletDirList
 	flag.Var(&quadletDirs, "quadlet-dir", "extra Quadlet source directory (repeatable; listed after the generator search path)")
 	flag.Parse()
@@ -52,6 +53,9 @@ func main() {
 		fmt.Println("quadman", moduleVersion())
 		return
 	}
+
+	// Auto-detect system mode when running as root.
+	system := *systemFlag || os.Getuid() == 0
 
 	args := flag.Args()
 
@@ -63,11 +67,11 @@ func main() {
 	if len(args) > 0 {
 		switch args[0] {
 		case "list":
-			list()
+			listCmd(system)
 		case "version":
 			fmt.Println("quadman", moduleVersion())
 		case "serve":
-			serve(args[1:], *readonly, *mouse, *theme, quadletDirs)
+			serve(args[1:], *readonly, *mouse, *theme, quadletDirs, system)
 		default:
 			fmt.Fprintf(os.Stderr, "unknown command %q (available: list, serve, version)\n", args[0])
 			os.Exit(2)
@@ -76,14 +80,14 @@ func main() {
 	}
 
 	if *sshTarget != "" {
-		if err := ui.RunWithOptions(ui.Options{SSH: *sshTarget, Readonly: *readonly, Mouse: *mouse, Theme: *theme, QuadletDirs: quadletDirs}); err != nil {
+		if err := ui.RunWithOptions(ui.Options{SSH: *sshTarget, Readonly: *readonly, Mouse: *mouse, Theme: *theme, QuadletDirs: quadletDirs, System: system}); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
 		return
 	}
 
-	if err := ui.RunWithOptions(ui.Options{Readonly: *readonly, Mouse: *mouse, Theme: *theme, QuadletDirs: quadletDirs}); err != nil {
+	if err := ui.RunWithOptions(ui.Options{Readonly: *readonly, Mouse: *mouse, Theme: *theme, QuadletDirs: quadletDirs, System: system}); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
@@ -127,24 +131,28 @@ func moduleVersion() string {
 	return version
 }
 
-// list prints a non-interactive overview of quadlet units and their state.
-func list() {
-	if err := runList(os.Stdout, systemd.New()); err != nil {
+// listCmd prints a non-interactive overview of quadlet units and their state.
+func listCmd(system bool) {
+	sys := systemd.New()
+	if system {
+		sys = systemd.NewSystem()
+	}
+	if err := runList(os.Stdout, sys, system); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 }
 
-// runList renders the overview into w. It is separated from list() so tests
+// runList renders the overview into w. It is separated from listCmd() so tests
 // can drive it with a fake systemctl and capture the output.
-func runList(w io.Writer, sys *systemd.Systemd) error {
-	units, err := quadlet.Discover()
+func runList(w io.Writer, sys *systemd.Systemd, system bool) error {
+	units, err := quadlet.DiscoverMode(system)
 	if err != nil {
 		return err
 	}
 	if len(units) == 0 {
 		fmt.Fprintln(w, "no quadlet units found in:")
-		for _, d := range quadlet.SearchDirs() {
+		for _, d := range quadlet.SearchDirsMode(system) {
 			fmt.Fprintln(w, "  "+d)
 		}
 		return nil
@@ -157,15 +165,19 @@ func runList(w io.Writer, sys *systemd.Systemd) error {
 		images[i] = info.Image
 	}
 
-	if genDir := systemd.UserGeneratorDir(); genDir != "" {
+	if genDir := sys.GeneratorDir(); genDir != "" {
 		if stale := quadlet.StaleUnits(units, genDir); len(stale) > 0 {
 			names := make([]string, 0, len(stale))
 			for _, u := range stale {
 				names = append(names, u.Name)
 			}
+			reloadHint := "run: systemctl --user daemon-reload"
+			if system {
+				reloadHint = "run: systemctl daemon-reload"
+			}
 			fmt.Fprintf(os.Stderr, "warning: %d quadlet file(s) changed since last daemon-reload: %s\n",
 				len(stale), strings.Join(names, ", "))
-			fmt.Fprintln(os.Stderr, "run: systemctl --user daemon-reload")
+			fmt.Fprintln(os.Stderr, reloadHint)
 		}
 	}
 
@@ -195,7 +207,7 @@ func unitNames(units []quadlet.Unit) []string {
 }
 
 // serve starts the Wish SSH daemon so remote clients can run quadman over SSH.
-func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme string, extraDirs []string) {
+func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme string, extraDirs []string, system bool) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	port := fs.String("port", "", "port to listen on (e.g. 2222, default :2222)")
 	fs.StringVar(port, "p", "", "shorthand for --port")
@@ -262,6 +274,7 @@ func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme strin
 		Banner:             *banner,
 		IdleTimeout:        *idleTimeout,
 		MaxTimeout:         *maxTimeout,
+		System:             system,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

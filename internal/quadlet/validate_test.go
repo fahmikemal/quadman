@@ -61,3 +61,28 @@ func TestStripGeneratorPrefix(t *testing.T) {
 		t.Errorf("plain = %q", got)
 	}
 }
+
+func TestValidateModeSystem(t *testing.T) {
+	if GeneratorBinary() == "" {
+		t.Skip("no podman-system-generator on this host")
+	}
+	dir := t.TempDir()
+	p := filepath.Join(dir, "bad.container")
+	if err := os.WriteFile(p, []byte("[Container]\nImage=alpine\nBadKey=xyz\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	issues, err := ValidateMode(context.Background(), []string{dir}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, is := range issues {
+		if is.File == "bad.container" && is.Severity == SeverityError {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected error issue for bad.container in system mode, got: %+v", issues)
+	}
+}

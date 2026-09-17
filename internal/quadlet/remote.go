@@ -14,11 +14,24 @@ import (
 // `systemctl list-units` when podman is absent remotely. Unit.Path is the
 // remote path: file contents are read on demand with Runner.Cat, never
 // synced locally.
+// DiscoverRemote lists Quadlet units on a remote host for the user (rootless) session.
 func DiscoverRemote(ctx context.Context, r remote.Runner) ([]Unit, error) {
+	return DiscoverRemoteMode(ctx, r, false)
+}
+
+// DiscoverRemoteMode lists Quadlet units on a remote host for either user or system session.
+// It prefers `podman quadlet list` (name, kind inferred from the file extension,
+// generated unit, source path on the remote) and falls back to
+// `systemctl list-units` (with or without --user) when podman is absent remotely.
+func DiscoverRemoteMode(ctx context.Context, r remote.Runner, system bool) ([]Unit, error) {
 	if out, err := r.Output(ctx, "podman", "quadlet", "list", "--format", "{{.Name}}\t{{.UnitName}}\t{{.Path}}"); err == nil {
 		return parseQuadletList(out), nil
 	}
-	out, err := r.Output(ctx, "systemctl", "--user", "list-units", "--type=service", "--all", "--plain", "--no-legend", "--no-pager")
+	args := []string{"list-units", "--type=service", "--all", "--plain", "--no-legend", "--no-pager"}
+	if !system {
+		args = append([]string{"--user"}, args...)
+	}
+	out, err := r.Output(ctx, "systemctl", args...)
 	if err != nil {
 		return nil, err
 	}

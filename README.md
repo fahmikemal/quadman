@@ -37,6 +37,8 @@ whole lifecycle in one TUI:
 - **Follow-mode journals** — live `journalctl -f` tail per unit with
   stick-to-tail scrolling, pause (`f`), live grep filter (`F`), priority filter (`p`), export to `.log`/`.jsonl` (`S`), and OSC52 clipboard copy (`c`).
 - **Command Palette** (`Ctrl+P`) — fuzzy-search and execute all unit lifecycle actions, screens, views, diagnostics, and user custom commands with live context-sensitive validation.
+- **Native Wish SSH Daemon** (`quadman serve`) — serve the TUI directly over SSH without installing quadman on the connecting machine, with public key auth (`authorized_keys`), password auth, host key generation, and readonly mode.
+- **Dual Rootless / System Mode** (`--system`) — default rootless-first identity, with native rootful system support (`/etc/containers/systemd`, `/run/containers/systemd`) and automatic root detection (`sudo quadman`).
 - `/` fuzzy-filter the unit list as you type.
 - Edit quadlet files in `$EDITOR` from the TUI; get nudged to regenerate
   when the file changed.
@@ -95,8 +97,8 @@ Download a prebuilt binary (Linux amd64/arm64) from the
 [Releases](https://github.com/kemal-labs/quadman/releases) page:
 
 ```sh
-curl -LO https://github.com/kemal-labs/quadman/releases/latest/download/quadman_0.3.2_linux_amd64.tar.gz
-tar -xzf quadman_0.3.2_linux_amd64.tar.gz && sudo install quadman /usr/local/bin/
+curl -LO https://github.com/kemal-labs/quadman/releases/latest/download/quadman_0.4.2_linux_amd64.tar.gz
+tar -xzf quadman_0.4.2_linux_amd64.tar.gz && sudo install quadman /usr/local/bin/
 ```
 
 Or with Go:
@@ -118,7 +120,9 @@ Config below).
 ## Usage
 
 ```sh
-quadman                          # TUI
+quadman                          # TUI (rootless user session by default)
+quadman --system                 # native system-wide (rootful) mode (/etc/containers/systemd)
+sudo quadman                     # auto-detects root and activates system mode
 quadman serve                    # serve TUI over SSH via Wish daemon (default :2222)
 quadman serve -p 2222 --readonly # serve as a read-only monitoring dashboard over SSH
 quadman --readonly               # TUI with all state-changing actions disabled
@@ -127,6 +131,7 @@ quadman --theme colorblind       # auto, dark, light, or colorblind
 quadman --mouse                  # opt-in click-to-select
 quadman --quadlet-dir ~/quadlets # extra Quadlet source dir (repeatable)
 quadman list                     # non-interactive overview for scripts and pipes
+quadman list --system            # list system-wide quadlets
 quadman -version
 ```
 
@@ -298,6 +303,19 @@ feature tiers, patch bumps for accumulated fixes.
 - [x] Headless Update/View test suite + 500-unit benchmark + VHS demo tape
       (`teatest` itself is not shipped in bubbletea v2.0.9, so the suite drives
       the Model directly instead)
+
+### v0.4.2 — Tier 4: Enterprise, Multi-Mode & Remote Access (✅ shipped)
+
+- [x] **Wish v2 SSH Daemon (`quadman serve`)** — embedded SSH server via Charm Wish v2, connect directly with `ssh -p 2222 host`, host key auto-generation, public key auth (`authorized_keys`), password auth, read-only mode, and session timeout management.
+- [x] **Command Palette (`Ctrl+P`)** — fuzzy-searchable modal overlay for immediate discovery & execution of all unit lifecycle verbs, diagnostic tools, screen switching, and custom commands with context-sensitive state validation.
+- [x] **Log Export & Live Filtering** — export journal logs to timestamped `.log` (plain text) and `.jsonl` (structured journal format) files (`S`), OSC52 clipboard copy (`c`), live grep filtering (`F`), and log priority cycling (`p`: err, warning, info, all).
+- [x] **Native Rootful / System Mode (`--system`)** — first-class support for system-wide Quadlet units (`/etc/containers/systemd`, `/run/containers/systemd`, `/usr/share/containers/systemd`), auto-detection when executed as root (UID 0 / `sudo quadman`), dynamic `--user` CLI switching, and system linger safeguards.
+
+### Next Horizon
+
+- [ ] Secret management integration (Podman secret units, `Secret=` keys inspection)
+- [ ] Standalone systemd timer entities view (`*.timer` and calendar schedules)
+- [ ] Export Agent Skill / CLI definition (`quadman --skill` for AI agent tooling)
 
 ### Notable ecosystem notes (Sep 2026)
 

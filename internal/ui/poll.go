@@ -62,7 +62,7 @@ func (m Model) refresh(level enrichLevel) tea.Cmd {
 	if cache == nil {
 		cache = &quadlet.InspectCache{}
 	}
-	return refreshCmd(m.sys, m.lc, cache, m.ssh, level)
+	return refreshCmd(m.sys, m.lc, cache, m.ssh, level, m.system)
 }
 
 // pollTick schedules the next poll using the model's configured interval
@@ -71,7 +71,7 @@ func (m Model) pollTick() tea.Cmd {
 	return pollCmd(m.pollInterval)
 }
 
-func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, cache *quadlet.InspectCache, runner remote.Runner, level enrichLevel) tea.Cmd {
+func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, cache *quadlet.InspectCache, runner remote.Runner, level enrichLevel, system bool) tea.Cmd {
 	if cache == nil {
 		cache = &quadlet.InspectCache{}
 	}
@@ -81,7 +81,7 @@ func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, cache *quadlet.Insp
 		var images []string
 		if runner.IsRemote() {
 			var err error
-			units, err = quadlet.DiscoverRemote(ctx, runner)
+			units, err = quadlet.DiscoverRemoteMode(ctx, runner, system)
 			if err != nil {
 				return refreshMsg{err: err}
 			}
@@ -95,7 +95,7 @@ func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, cache *quadlet.Insp
 			}
 		} else {
 			var err error
-			units, err = quadlet.Discover()
+			units, err = quadlet.DiscoverMode(system)
 			if err != nil {
 				return refreshMsg{err: err}
 			}
@@ -106,7 +106,13 @@ func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, cache *quadlet.Insp
 		if err != nil {
 			return refreshMsg{units: units, images: images, err: err}
 		}
-		linger, lerr := lc.Enabled(ctx, "")
+		var linger bool
+		var lingerOK bool
+		if !system {
+			var lerr error
+			linger, lerr = lc.Enabled(ctx, "")
+			lingerOK = lerr == nil
+		}
 
 		// Optional enrichment via podman (app/pod grouping + container health).
 		var pinfo map[string]podman.Entry
@@ -125,7 +131,7 @@ func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, cache *quadlet.Insp
 				}
 			}
 			if !runner.IsRemote() {
-				issues, _ = quadlet.Validate(ctx, quadlet.SearchDirs())
+				issues, _ = quadlet.ValidateMode(ctx, quadlet.SearchDirsMode(system), system)
 			}
 			if ver, verr := podman.Version(ctx); verr == nil {
 				version = ver
@@ -134,14 +140,14 @@ func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, cache *quadlet.Insp
 
 		var stale []quadlet.Unit
 		if !runner.IsRemote() {
-			stale = quadlet.StaleUnits(units, systemd.UserGeneratorDir())
+			stale = quadlet.StaleUnits(units, sys.GeneratorDir())
 		}
 		return refreshMsg{
 			units:       units,
 			images:      images,
 			statuses:    statuses,
 			linger:      linger,
-			lingerOK:    lerr == nil,
+			lingerOK:    lingerOK,
 			podman:      pinfo,
 			podmanTried: level == enrichFull,
 			health:      health,

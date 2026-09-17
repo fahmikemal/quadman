@@ -247,29 +247,35 @@ return m, tea.ExecProcess(exec.Command(editor, u.Path), func(err error) tea.Msg 
 - [ ] Enrichment opsional via `podman quadlet list --format json` (fallback rapi kalau podman tidak ada).
 - [ ] Banner "daemon-reload needed?" saat mtime file > mtime terakhir reload (simpan state reload terakhir).
 
-### Tier 1 — diferensiator utama (minggu)
-- [ ] **Follow-mode logs**: `journalctl -f -n 200`, ring buffer 1000, AtBottom/GotoBottom, toggle pause `f`, hint bar.
-- [ ] **Filter `/`** — pilih: ganti table→`list` (fuzzy built-in) atau table + textinput re-filter.
-- [ ] **Edit file via $EDITOR** (`tea.ExecProcess`) → setelah exit: tawarkan daemon-reload otomatis.
-- [ ] **Layar auto-update**: status `AutoUpdate=` per unit; `podman auto-update --dry-run --format json` preview; status/toggle `podman-auto-update.timer` user; sadar rollback.
-- [ ] Kolom health: `podman healthcheck run` / state health dari `podman ps --format json`; aksi `h` run healthcheck.
+### Tier 1 — diferensiator utama (✅ selesai)
+- [x] **Follow-mode logs**: `journalctl -f -n 200`, ring buffer 1000, AtBottom/GotoBottom, toggle pause `f`, hint bar.
+- [x] **Filter `/`** — fuzzy built-in / live table re-filter.
+- [x] **Edit file via $EDITOR** (`tea.ExecProcess`) → setelah exit: tawarkan daemon-reload otomatis.
+- [x] **Layar auto-update**: status `AutoUpdate=` per unit; `podman auto-update --dry-run --format json` preview; status/toggle `podman-auto-update.timer` user; sadar rollback.
+- [x] Kolom health: `podman healthcheck run` / state health dari `podman ps --format json`; aksi `h` run healthcheck.
 
-### Tier 2 — kedalaman operasional
-- [ ] **Drop-in directories**: parse & merge (`foo.container.d/*.conf` + cascading `foo-.container.d/`), view "effective unit" (base+dropins, dropin ditandai), edit per drop-in.
-- [ ] **Dukungan `.quadlets`** multi-document (parse `# FileName=`).
-- [ ] **Tree topology dependency** (`bubbles/tree`): pod↔container, Image=/Network=/Volume= implicit deps, [Unit] deps.
-- [ ] Detail pane bertab (`[`/`]`): source / status systemctl / journal / inspect podman.
-- [ ] Screen storage & events: `podman system df --verbose`, streaming `podman events --format json`, warning sebelum prune saat ada unit inactive.
-- [ ] Hint pintar: sub-state `timed-out` → saran `TimeoutStartSec`/`Pull=`; stop → hint "container removed, state di volume".
-- [ ] Generate via **podlet** (paste docker-run / compose → preview → install → reload).
+### Tier 2 — kedalaman operasional (✅ selesai)
+- [x] **Drop-in directories**: parse & merge (`foo.container.d/*.conf` + cascading `foo-.container.d/`), view "effective unit" (base+dropins, dropin ditandai), edit per drop-in.
+- [x] **Dukungan `.quadlets`** multi-document (parse `# FileName=`).
+- [x] **Tree topology dependency** (`bubbles/tree`): pod↔container, Image=/Network=/Volume= implicit deps, [Unit] deps.
+- [x] Detail pane bertab (`[`/`]`): source / status systemctl / journal / inspect podman.
+- [x] Screen storage & events: `podman system df --verbose`, streaming `podman events --format json`, warning sebelum prune saat ada unit inactive.
+- [x] Hint pintar: sub-state `timed-out` → saran `TimeoutStartSec`/`Pull=`; stop → hint "container removed, state di volume".
+- [x] Generate via **podlet** (paste docker-run / compose → preview → install → reload).
 
-### Tier 3 — infrastruktur & skala
-- [ ] SSH/remote mode (roadmap lama) — via `podman --remote` + systemctl ssh, atau `quadman --host user@host`.
-- [ ] Config YAML (XDG) + **custom commands** Go-template + keybinding customization.
-- [ ] Tema (YAML, colorblind-safe default, auto light/dark via BackgroundColorMsg, degrade 256/16).
-- [ ] Mouse opt-in + wheel di table/viewport; OSC52 clipboard.
-- [ ] Bulk mark (`space`) + aksi massal; readonly mode (`--readonly`).
-- [ ] `teatest` e2e; VHS GIF di README; skrip benchmark refresh 500+ unit.
+### Tier 3 — infrastruktur & skala (✅ selesai)
+- [x] SSH/remote mode — via `quadman --ssh user@host`.
+- [x] Config YAML (XDG) + **custom commands** Go-template + keybinding customization.
+- [x] Tema (YAML, colorblind-safe, auto light/dark).
+- [x] Mouse opt-in + wheel di table/viewport; OSC52 clipboard (`y`/`Y`).
+- [x] Bulk mark (`space`) + aksi massal; readonly mode (`--readonly`).
+- [x] Headless test suite + E2E test harness; VHS GIF di README; benchmark refresh 500+ unit.
+
+### Tier 4 — enterprise, multi-mode & akses remote (✅ selesai)
+- [x] **Wish v2 SSH Daemon (`quadman serve`)**: embedded SSH daemon via Charm Wish v2, direct client connections, public key & password auth, idle/max timeouts, readonly server mode.
+- [x] **Command Palette (`Ctrl+P`)**: fuzzy command runner untuk lifecycle, diagnostics, screen switches, dan custom commands dengan context-aware validation.
+- [x] **Export Log & Structured Filtering**: export journal ke `.log` & `.jsonl` (`S`), clipboard copy (`c`), live grep filter (`F`), dan priority filter (`p`).
+- [x] **Native Rootful / System Mode (`--system`)**: support `/etc/containers/systemd` & `/run/containers/systemd`, auto-detect root (UID 0), dynamic `--user` CLI handling, dan linger safeguards.
 
 ### Prinsip yang dijaga
 - Tetap **CLI-only** (tanpa podman socket) — diferensiasi vs podman-tui.

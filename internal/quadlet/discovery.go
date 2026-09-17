@@ -56,6 +56,27 @@ var ExtraDirs []string
 // System-wide dirs like /etc/containers/systemd are not searched because the
 // generator only picks those up for root (system) units, not --user units.
 func SearchDirs() []string {
+	return SearchDirsMode(false)
+}
+
+// SystemSearchDirs returns the Quadlet source directories for system (rootful)
+// units, in generator lookup order:
+// /run/containers/systemd, /etc/containers/systemd, /usr/share/containers/systemd.
+func SystemSearchDirs() []string {
+	return SearchDirsMode(true)
+}
+
+// SearchDirsMode returns the Quadlet source directories in generator lookup order
+// for either user (rootless) or system (rootful) mode, followed by any ExtraDirs.
+func SearchDirsMode(system bool) []string {
+	if system {
+		dirs := []string{
+			"/run/containers/systemd",
+			"/etc/containers/systemd",
+			"/usr/share/containers/systemd",
+		}
+		return append(dirs, ExtraDirs...)
+	}
 	var dirs []string
 	if rt := os.Getenv("XDG_RUNTIME_DIR"); rt != "" {
 		dirs = append(dirs, filepath.Join(rt, "containers", "systemd"))
@@ -166,10 +187,21 @@ func (u Unit) mtime() time.Time {
 	return time.Time{}
 }
 
-// Discover scans the Quadlet search directories. Like the generator, the
-// first directory in lookup order wins for a given name+kind pair.
+// Discover scans the Quadlet search directories for the user (rootless) session.
+// Like the generator, the first directory in lookup order wins for a given
+// name+kind pair.
 func Discover() ([]Unit, error) {
-	units, err := DiscoverDirs(SearchDirs())
+	return DiscoverMode(false)
+}
+
+// DiscoverSystem scans the Quadlet search directories for the system (rootful) session.
+func DiscoverSystem() ([]Unit, error) {
+	return DiscoverMode(true)
+}
+
+// DiscoverMode scans the Quadlet search directories for either user or system session.
+func DiscoverMode(system bool) ([]Unit, error) {
+	units, err := DiscoverDirs(SearchDirsMode(system))
 	if err != nil {
 		return nil, err
 	}

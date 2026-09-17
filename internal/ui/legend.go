@@ -4,8 +4,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
-
-	"github.com/kemal-labs/quadman/internal/quadlet"
 )
 
 func (m Model) keys() keyMap {
@@ -21,25 +19,31 @@ func (m Model) keys() keyMap {
 }
 
 func (m Model) helpBar() string {
-	linger := lingerUnknownStyle.Render("linger: ?")
-	if m.lingerKnown {
+	chip := lingerUnknownStyle.Render("linger: ?")
+	if m.system {
+		chip = lingerOnStyle.Render("system")
+	} else if m.lingerKnown {
 		if m.linger {
-			linger = lingerOnStyle.Render("linger: on")
+			chip = lingerOnStyle.Render("linger: on")
 		} else {
-			linger = lingerOffStyle.Render("linger: off")
+			chip = lingerOffStyle.Render("linger: off")
 		}
 	}
 	if m.showHelp {
 		m.help.ShowAll = true
+		systemOrLingerHelp := "Linger keeps rootless containers running after logout - enable it once on every quadlet host (loginctl enable-linger)."
+		if m.system {
+			systemOrLingerHelp = "System mode: managing system-wide Quadlet units in /run/containers/systemd, /etc/containers/systemd, /usr/share/containers/systemd."
+		}
 		lines := []string{
-			m.help.View(m.keys()) + "  ·  " + linger,
-			"Linger keeps rootless containers running after logout - enable it once on every quadlet host (loginctl enable-linger).",
+			m.help.View(m.keys()) + "  ·  " + chip,
+			systemOrLingerHelp,
 			"R re-runs systemd's generator after you edit quadlet files, then the list refreshes.",
 			"e adds [Install] WantedBy=default.target to the quadlet file so the unit starts at boot; d removes it (newer systemd refuses 'systemctl enable' on generated units).",
 			"x stops the unit; quadlet runs containers with --rm, so stopping removes the container (state lives in volumes).",
 			"E edits in your editor; the first use asks once and saves the choice to ~/.config/quadman/config.json (delete that file to re-pick).",
 			"A ~ after a name means the file lives in a quadlet_dirs extra dir the generator cannot see.",
-			"Quadlet search order: " + strings.Join(quadlet.SearchDirs(), " → "),
+			"Quadlet search order: " + strings.Join(m.searchDirs(), " → "),
 		}
 		return helpStyle.Render(clampLines(strings.Join(lines, "\n"), m.help.Width()))
 	}
@@ -47,7 +51,7 @@ func (m Model) helpBar() string {
 	// Compact legend: full words; one line when it fits, two when narrow.
 	bar := strings.Join(m.legend(), "\n")
 	ls := strings.Split(bar, "\n")
-	ls[len(ls)-1] += "  ·  " + linger
+	ls[len(ls)-1] += "  ·  " + chip
 	if m.readonly {
 		ls[len(ls)-1] += "  ·  " + lingerOffStyle.Render("readonly")
 	}

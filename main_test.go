@@ -55,7 +55,7 @@ func TestRunList(t *testing.T) {
 
 	var buf bytes.Buffer
 	sys := &systemd.Systemd{User: true, Bin: fakeSystemctl(t)}
-	if err := runList(&buf, sys); err != nil {
+	if err := runList(&buf, sys, false); err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()
@@ -72,7 +72,7 @@ func TestRunListEmpty(t *testing.T) {
 
 	var buf bytes.Buffer
 	sys := &systemd.Systemd{User: true, Bin: fakeSystemctl(t)}
-	if err := runList(&buf, sys); err != nil {
+	if err := runList(&buf, sys, false); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(buf.String(), "no quadlet units found") {
@@ -100,7 +100,7 @@ func TestRunListShowFailure(t *testing.T) {
 
 	var buf bytes.Buffer
 	sys := &systemd.Systemd{User: true, Bin: broken}
-	if err := runList(&buf, sys); err != nil {
+	if err := runList(&buf, sys, false); err != nil {
 		t.Fatal(err) // a broken systemctl must degrade to "-" states, not fail
 	}
 	if !strings.Contains(buf.String(), "webapp") {

@@ -403,6 +403,9 @@ func (m Model) buildPaletteActions() []paletteAction {
 		category:    "System",
 		description: "Toggle loginctl enable-linger (keeps containers running after logout)",
 		enabled: func(m Model) (bool, string) {
+			if m.system {
+				return false, "rootless only"
+			}
 			if m.readonly {
 				return false, "readonly"
 			}

@@ -559,3 +559,60 @@ func TestLegendWrapsByWidth(t *testing.T) {
 		t.Errorf("legend should fit on one line at 320 cols: %q", oneline)
 	}
 }
+
+func TestSystemModeTitle(t *testing.T) {
+	m := NewWithOptions(Options{System: true})
+	m.width, m.height = 120, 30
+	v := m.View()
+	if !strings.Contains(v.Content, "[SYSTEM]") {
+		t.Error("system mode title must contain [SYSTEM]")
+	}
+	if strings.Contains(v.Content, "rootless") {
+		t.Error("system mode title must not contain 'rootless'")
+	}
+}
+
+func TestSystemModeHelpBarChip(t *testing.T) {
+	m := NewWithOptions(Options{System: true})
+	bar := m.helpBar()
+	if !strings.Contains(bar, "system") {
+		t.Error("system mode helpBar must show 'system' chip")
+	}
+	// "linger:" is the chip format; plain "linger" may appear in key help (L linger).
+	if strings.Contains(bar, "linger:") {
+		t.Error("system mode helpBar must not show 'linger:' chip")
+	}
+}
+
+func TestSystemModeLingerGuard(t *testing.T) {
+	m := NewWithOptions(Options{System: true})
+	mm, _, ok := m.lingerKeys(tea.KeyPressMsg{Code: 'L', Text: "L"})
+	if !ok {
+		t.Error("lingerKeys should consume 'L' in system mode")
+	}
+	model := mm.(Model)
+	if !strings.Contains(model.statusLine, "rootless") {
+		t.Errorf("expected rootless status message, got %q", model.statusLine)
+	}
+}
+
+func TestSystemModeSearchDirs(t *testing.T) {
+	m := NewWithOptions(Options{System: true})
+	dirs := m.searchDirs()
+	if len(dirs) < 3 {
+		t.Fatalf("searchDirs() = %v, want at least 3 entries", dirs)
+	}
+	if dirs[0] != "/run/containers/systemd" {
+		t.Errorf("dirs[0] = %q, want /run/containers/systemd", dirs[0])
+	}
+}
+
+func TestNewWithOptionsSystemSetsUser(t *testing.T) {
+	m := NewWithOptions(Options{System: true})
+	if m.sys.User {
+		t.Error("System mode must set sys.User = false")
+	}
+	if !m.system {
+		t.Error("System mode must set m.system = true")
+	}
+}
