@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -76,7 +77,8 @@ func defaultExportFilename(unit string, ext string) string {
 
 // exportLogsText writes log lines as plain text to path.
 func exportLogsText(path string, unit string, lines []string) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	cleanPath := filepath.Clean(path)
+	f, err := os.OpenFile(cleanPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) // #nosec G304 -- path is user-requested export log destination
 	if err != nil {
 		return err
 	}
@@ -97,7 +99,8 @@ func exportLogsText(path string, unit string, lines []string) error {
 
 // exportLogsJSONL writes log lines as structured JSON Lines (ndjson) to path.
 func exportLogsJSONL(path string, unit string, lines []string) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	cleanPath := filepath.Clean(path)
+	f, err := os.OpenFile(cleanPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) // #nosec G304 -- path is user-requested export log destination
 	if err != nil {
 		return err
 	}
