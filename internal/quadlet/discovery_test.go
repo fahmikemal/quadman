@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -211,5 +212,54 @@ func TestSearchDirsNoRuntimeDir(t *testing.T) {
 	want := filepath.Join(home, ".config", "containers", "systemd")
 	if len(dirs) == 0 || dirs[0] != want {
 		t.Errorf("dirs[0] = %q, want %q (config fallback when XDG vars are unset)", dirs, want)
+	}
+}
+
+func TestSystemSearchDirs(t *testing.T) {
+	dirs := SystemSearchDirs()
+	want := []string{
+		"/run/containers/systemd",
+		"/etc/containers/systemd",
+		"/usr/share/containers/systemd",
+	}
+	if len(dirs) < 3 {
+		t.Fatalf("SystemSearchDirs = %v, want at least 3 entries", dirs)
+	}
+	for i, w := range want {
+		if dirs[i] != w {
+			t.Errorf("dirs[%d] = %q, want %q", i, dirs[i], w)
+		}
+	}
+	// Verify that user-specific dirs are not in system dirs
+	for _, d := range dirs {
+		if strings.Contains(d, "/users") {
+			t.Errorf("SystemSearchDirs must not include user-specific dirs: %s", d)
+		}
+	}
+}
+
+func TestDiscoverMode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sysweb.container")
+	if err := os.WriteFile(path, []byte("[Container]\nImage=alpine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldExtra := ExtraDirs
+	ExtraDirs = []string{dir}
+	defer func() { ExtraDirs = oldExtra }()
+
+	units, err := DiscoverMode(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, u := range units {
+		if u.Name == "sysweb" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("DiscoverMode(true) did not find sysweb unit in extra dirs: %v", units)
 	}
 }

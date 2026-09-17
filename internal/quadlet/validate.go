@@ -52,17 +52,25 @@ var (
 	warningRe = regexp.MustCompile(`^Warning: (\S+) (.+)$`)
 )
 
-// Validate runs the Quadlet generator in dry-run mode over dirs and returns
-// every finding it reports. It returns nil issues (not an error) when no
-// generator binary is installed.
+// Validate runs the Quadlet generator in dry-run mode over dirs in user (rootless) mode.
 func Validate(ctx context.Context, dirs []string) ([]Issue, error) {
+	return ValidateMode(ctx, dirs, false)
+}
+
+// ValidateMode runs the Quadlet generator in dry-run mode over dirs.
+// When system is true, it omits the -user flag for system-wide validation.
+func ValidateMode(ctx context.Context, dirs []string, system bool) ([]Issue, error) {
 	bin := GeneratorBinary()
 	if bin == "" || len(dirs) == 0 {
 		return nil, nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "-dryrun", "-user") // #nosec G204 -- bin comes from the fixed generatorPaths list; argv slice, no shell
+	args := []string{"-dryrun"}
+	if !system {
+		args = append(args, "-user")
+	}
+	cmd := exec.CommandContext(ctx, bin, args...) // #nosec G204 -- bin comes from the fixed generatorPaths list; argv slice, no shell
 	cmd.Env = append(os.Environ(), "QUADLET_UNIT_DIRS="+strings.Join(dirs, ":"))
 	out, _ := cmd.CombinedOutput() // findings live on both streams; exit code is noisy
 

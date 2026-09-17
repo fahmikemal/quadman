@@ -218,6 +218,9 @@ type Model struct {
 	// noEditor disables local $EDITOR launching (e.g. in SSH server sessions).
 	noEditor bool
 
+	// system targets the system-wide (rootful) Quadlet session instead of user session.
+	system bool
+
 	// command palette (Ctrl+P)
 	paletteIn       textinput.Model
 	paletteCursor   int
@@ -303,6 +306,10 @@ func New() Model {
 	if cfg.LogTail() != config.DefaultLogTail {
 		logTailLines = cfg.LogTail()
 	}
+	if cfg.Settings.System {
+		m.system = true
+		m.sys.User = false
+	}
 	if cfgErr != nil {
 		m.setStatus("config: "+cfgErr.Error(), true)
 	}
@@ -318,6 +325,7 @@ type Options struct {
 	QuadletDirs []string
 	ClientInfo  string
 	NoEditor    bool
+	System      bool
 }
 
 // Run starts the quadman TUI.
@@ -340,6 +348,10 @@ func NewWithOptions(o Options) Model {
 	if o.Readonly {
 		m.readonly = true
 	}
+	if o.System {
+		m.system = true
+		m.sys.User = false
+	}
 	if o.Mouse {
 		m.mouse = true
 	}
@@ -356,6 +368,10 @@ func NewWithOptions(o Options) Model {
 		m.noEditor = true
 	}
 	return m
+}
+
+func (m Model) searchDirs() []string {
+	return quadlet.SearchDirsMode(m.system)
 }
 
 // RunWithOptions starts the quadman TUI with CLI overrides.
@@ -400,7 +416,7 @@ func (m *Model) applySSH(target string) {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(refreshCmd(m.sys, m.lc, m.inspect, m.ssh, enrichFull), m.pollTick())
+	return tea.Batch(m.refresh(enrichFull), m.pollTick())
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

@@ -318,7 +318,11 @@ func main() {
 	ok = waitFor("no changes", 5*time.Second)
 	savedCfg, _ := os.ReadFile(cfgPath)
 	check("editor flow", ok && strings.Contains(string(savedCfg), "vi"), "vi terbuka, kembali ke quadman, pilihan tersimpan")
-	_ = os.WriteFile(cfgPath, cfgBackup, 0o600) // restore user's choice
+	if len(cfgBackup) > 0 {
+		_ = os.WriteFile(cfgPath, cfgBackup, 0o600) // restore user's choice
+	} else {
+		_ = os.Remove(cfgPath)
+	}
 
 	send(f, "q")
 	time.Sleep(300 * time.Millisecond)
@@ -440,6 +444,7 @@ func runExtraScenarios() {
 	scenarioServeSSH()
 	scenarioCommandPalette()
 	scenarioLogExportAndFilter()
+	scenarioSystemMode()
 }
 
 // scenarioStorage: g opens the storage screen with podman system df output.
@@ -1182,6 +1187,44 @@ func scenarioLogExportAndFilter() {
 	// Back to list with 'q'
 	send(f, "q")
 	time.Sleep(300 * time.Millisecond)
+}
+
+// scenarioSystemMode tests running quadman with --system flag.
+func scenarioSystemMode() {
+	drain()
+	cmd, f := launchArgs(120, 42, []string{"--system"})
+	defer quit(cmd, f)
+
+	// Verify title has [SYSTEM]
+	ok := waitFor("[SYSTEM]", 10*time.Second)
+	check("system title [SYSTEM]", ok, "title bar menampilkan mode [SYSTEM]")
+
+	// Verify title does not have rootless
+	hasRootless := strings.Contains(last(), "rootless")
+	check("system no rootless", !hasRootless, "title bar tidak mengandung kata rootless")
+
+	// Verify chip is system
+	ok = waitFor("system", 5*time.Second)
+	check("system chip", ok && !strings.Contains(last(), "linger:"), "legend menampilkan chip system bukan linger")
+
+	// Press L and verify linger guard notice
+	send(f, "L")
+	ok = waitFor("linger only applies to rootless", 5*time.Second)
+	check("system linger guard", ok, "tombol L menolak aksi linger dengan notifikasi status")
+
+	// Press ? and verify system help
+	send(f, "?")
+	ok = waitFor("System mode: managing system-wide Quadlet units", 5*time.Second)
+	check("system help view", ok, "layar help menampilkan panduan path system mode")
+
+	// Close help
+	send(f, "?")
+	time.Sleep(300 * time.Millisecond)
+
+	// Also test non-interactive list --system
+	out := runOut("./quadman", "--system", "list")
+	listOk := strings.Contains(out, "QUADLET") || strings.Contains(out, "/etc/containers/systemd")
+	check("system cli list", listOk, "perintah list --system jalan dan mencari di path system")
 }
 
 func logPumpErr(err error) {

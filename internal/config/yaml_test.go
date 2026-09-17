@@ -21,7 +21,7 @@ func writeYAML(t *testing.T, dir, content string) {
 func TestLoadYAMLSettings(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
-	writeYAML(t, dir, "refresh_interval: 5s\nlog_tail: 50\nlog_buffer: 200\nreadonly: true\n")
+	writeYAML(t, dir, "refresh_interval: 5s\nlog_tail: 50\nlog_buffer: 200\nreadonly: true\nsystem: true\n")
 
 	c, err := Load()
 	if err != nil {
@@ -38,6 +38,9 @@ func TestLoadYAMLSettings(t *testing.T) {
 	}
 	if !c.Readonly() {
 		t.Error("readonly must be true")
+	}
+	if !c.System() {
+		t.Error("system must be true")
 	}
 }
 
@@ -58,6 +61,9 @@ func TestLoadYAMLDefaults(t *testing.T) {
 	}
 	if c.Readonly() {
 		t.Error("readonly must default to false")
+	}
+	if c.System() {
+		t.Error("system must default to false")
 	}
 }
 

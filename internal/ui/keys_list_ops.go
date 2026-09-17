@@ -150,6 +150,10 @@ func (m Model) lingerKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if msg.String() != "L" {
 		return m, nil, false
 	}
+	if m.system {
+		m.setStatus("linger only applies to rootless user sessions", false)
+		return m, nil, true
+	}
 	if m.refuseReadonly() {
 		return m, nil, true
 	}

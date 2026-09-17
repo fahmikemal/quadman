@@ -213,6 +213,33 @@ func TestUserGeneratorDir(t *testing.T) {
 	}
 }
 
+func TestSystemGeneratorDir(t *testing.T) {
+	if got := SystemGeneratorDir(); got != "/run/systemd/generator" {
+		t.Errorf("SystemGeneratorDir = %q, want /run/systemd/generator", got)
+	}
+}
+
+func TestNewSystem(t *testing.T) {
+	s := NewSystem()
+	if s.User {
+		t.Error("NewSystem().User must be false")
+	}
+	if s.Bin != "systemctl" || s.JournalBin != "journalctl" {
+		t.Errorf("NewSystem() bins = %q, %q", s.Bin, s.JournalBin)
+	}
+	if got := s.GeneratorDir(); got != "/run/systemd/generator" {
+		t.Errorf("NewSystem().GeneratorDir() = %q, want /run/systemd/generator", got)
+	}
+}
+
+func TestGeneratorDirUserScope(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+	s := New()
+	if got := s.GeneratorDir(); got != filepath.Join("/run/user/1000", "systemd", "generator") {
+		t.Errorf("New().GeneratorDir() = %q", got)
+	}
+}
+
 func TestDaemonReload(t *testing.T) {
 	argsFile := filepath.Join(t.TempDir(), "args")
 	bin := fakeBin(t, "systemctl", argsFile, "")
@@ -223,6 +250,21 @@ func TestDaemonReload(t *testing.T) {
 	}
 	args := readArgs(t, argsFile)
 	want := []string{"--user", "daemon-reload"}
+	if strings.Join(args, " ") != strings.Join(want, " ") {
+		t.Errorf("args = %v, want %v", args, want)
+	}
+}
+
+func TestDaemonReloadSystemScope(t *testing.T) {
+	argsFile := filepath.Join(t.TempDir(), "args")
+	bin := fakeBin(t, "systemctl", argsFile, "")
+	s := &Systemd{User: false, Bin: bin}
+
+	if _, err := s.DaemonReload(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	args := readArgs(t, argsFile)
+	want := []string{"daemon-reload"}
 	if strings.Join(args, " ") != strings.Join(want, " ") {
 		t.Errorf("args = %v, want %v", args, want)
 	}

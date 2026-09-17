@@ -5,17 +5,26 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-
-	"github.com/kemal-labs/quadman/internal/quadlet"
 )
 
 func (m Model) View() tea.View {
 	var b strings.Builder
 	title := " quadman - rootless quadlet manager "
+	if m.system {
+		title = " quadman - quadlet manager [SYSTEM] "
+	}
 	if m.ssh.IsRemote() {
-		title = " quadman @ " + m.ssh.Target + " "
+		if m.system {
+			title = " quadman @ " + m.ssh.Target + " [SYSTEM] "
+		} else {
+			title = " quadman @ " + m.ssh.Target + " "
+		}
 	} else if m.clientInfo != "" {
-		title = " quadman [SSH: " + m.clientInfo + "] "
+		if m.system {
+			title = " quadman [SSH: " + m.clientInfo + "] [SYSTEM] "
+		} else {
+			title = " quadman [SSH: " + m.clientInfo + "] "
+		}
 	}
 	b.WriteString(titleStyle.Render(title))
 	b.WriteString("\n")
@@ -40,7 +49,7 @@ func (m Model) View() tea.View {
 			b.WriteString(helpStyle.Render(
 				"No quadlet units found. Drop *.container / *.pod / *.kube / *.volume / *.image / *.build files into"))
 			b.WriteString("\n")
-			b.WriteString(helpStyle.Render(strings.Join(quadlet.SearchDirs(), "  or  ")))
+			b.WriteString(helpStyle.Render(strings.Join(m.searchDirs(), "  or  ")))
 		}
 		if len(m.stale) > 0 && !m.loading {
 			b.WriteString("\n")
