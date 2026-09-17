@@ -41,6 +41,17 @@ type Settings struct {
 	Mouse           bool            `yaml:"mouse,omitempty"`
 	QuadletDirs     []string        `yaml:"quadlet_dirs,omitempty"`
 	CustomCommands  []CustomCommand `yaml:"custom_commands,omitempty"`
+	Serve           ServeSettings   `yaml:"serve,omitempty"`
+}
+
+// ServeSettings configures the built-in Wish SSH server mode.
+type ServeSettings struct {
+	Address        string `yaml:"address,omitempty"`
+	Port           string `yaml:"port,omitempty"`
+	HostKey        string `yaml:"host_key,omitempty"`
+	AuthorizedKeys string `yaml:"authorized_keys,omitempty"`
+	Password       string `yaml:"password,omitempty"`
+	Readonly       bool   `yaml:"readonly,omitempty"`
 }
 
 // Defaults for the YAML tunables when unset.

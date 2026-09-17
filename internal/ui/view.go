@@ -14,6 +14,8 @@ func (m Model) View() tea.View {
 	title := " quadman - rootless quadlet manager "
 	if m.ssh.IsRemote() {
 		title = " quadman @ " + m.ssh.Target + " "
+	} else if m.clientInfo != "" {
+		title = " quadman [SSH: " + m.clientInfo + "] "
 	}
 	b.WriteString(titleStyle.Render(title))
 	b.WriteString("\n")
@@ -71,6 +73,11 @@ func (m Model) View() tea.View {
 			b.WriteString(filterStyle.Render("/ " + m.searchIn.View() + info))
 			b.WriteString("\n")
 		}
+		if m.tab == tabJournal && (m.filteringLogs || m.logFilter != "") {
+			countInfo := fmt.Sprintf("  [%d/%d lines]", len(m.visibleLogLines()), len(m.logLines))
+			b.WriteString(filterStyle.Render("Filter: / " + m.logFilterIn.View() + countInfo))
+			b.WriteString("\n")
+		}
 		b.WriteString(m.viewport.View())
 	case modeStorage:
 		b.WriteString(headerStyle.Render(" STORAGE — podman system df "))
@@ -100,6 +107,8 @@ func (m Model) View() tea.View {
 		b.WriteString(headerStyle.Render(" ACTIONS — recent results this session "))
 		b.WriteString("\n")
 		b.WriteString(m.viewport.View())
+	case modePalette:
+		b.WriteString(m.paletteView())
 	}
 
 	b.WriteString("\n")

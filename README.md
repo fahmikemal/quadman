@@ -35,7 +35,8 @@ whole lifecycle in one TUI:
 - Warns when quadlet files changed after the last `daemon-reload`, so you
   never wonder why your edits do nothing.
 - **Follow-mode journals** — live `journalctl -f` tail per unit with
-  stick-to-tail scrolling and pause (`f`).
+  stick-to-tail scrolling, pause (`f`), live grep filter (`F`), priority filter (`p`), export to `.log`/`.jsonl` (`S`), and OSC52 clipboard copy (`c`).
+- **Command Palette** (`Ctrl+P`) — fuzzy-search and execute all unit lifecycle actions, screens, views, diagnostics, and user custom commands with live context-sensitive validation.
 - `/` fuzzy-filter the unit list as you type.
 - Edit quadlet files in `$EDITOR` from the TUI; get nudged to regenerate
   when the file changed.
@@ -118,6 +119,8 @@ Config below).
 
 ```sh
 quadman                          # TUI
+quadman serve                    # serve TUI over SSH via Wish daemon (default :2222)
+quadman serve -p 2222 --readonly # serve as a read-only monitoring dashboard over SSH
 quadman --readonly               # TUI with all state-changing actions disabled
 quadman --ssh user@host          # manage a remote rootless host over SSH
 quadman --theme colorblind       # auto, dark, light, or colorblind
@@ -133,8 +136,9 @@ quadman -version
 | ----- | --------------------------------------------- |
 | `↑/↓` `j/k` | move in the list                       |
 | `enter` | view the Quadlet source file               |
+| `Ctrl+P` | command palette (fuzzy search and run any action or custom command) |
 | `/`   | fuzzy-filter the list (type to narrow, `esc` clears) |
-| `l`   | live journal tail for the unit (`f` pauses follow, `/` searches with highlight, `n`/`N` jumps between matches) |
+| `l`   | live journal tail (`f` pause, `/` search, `F` grep filter, `p` priority, `S` export, `c` copy) |
 | `s` / `x` / `r` | start / stop (confirms) / restart the unit — or all `space`-marked units at once |
 | `space` | mark/unmark the row for bulk actions (`esc` clears marks) |
 | `e`   | enable at boot (appends `[Install]` to the file, asks first) |
@@ -207,6 +211,28 @@ that edit files on the host (edit, enable/disable at boot, instantiate,
 generate-write, install, delete) are refused with an explanation — manage
 files by running quadman on that host directly. Drop-ins are not enumerated
 remotely; the file view says so.
+
+## SSH Server (Wish daemon)
+
+```sh
+quadman serve                                          # listens on :2222 by default
+quadman serve -p 2222 --readonly                       # read-only dashboard over SSH
+quadman serve --authorized-keys ~/.ssh/authorized_keys # restrict to authorized keys
+quadman serve --password secret123                     # password protected
+```
+
+quadman includes a native SSH server powered by [Charm Wish](https://github.com/charmbracelet/wish) (`wish/v2`). When running on a server, anyone on your network or team can access the quadman TUI with a single command without installing quadman locally:
+
+```sh
+ssh -p 2222 user@host
+```
+
+Key features of the SSH server:
+- **Zero local dependency**: Connecting clients only need a standard `ssh` terminal client.
+- **Auto-generated Host Key**: Generates an ED25519 host key automatically in `~/.config/quadman/host_ed25519` if none is specified.
+- **Authentication Options**: Supports open access (default), `authorized_keys` file verification, or password protection.
+- **Readonly Dashboard Mode**: Pass `--readonly` to safely expose quadman as an observability dashboard for teammates without granting permission to start/stop units.
+- **Safe Execution**: Local `$EDITOR` process hijacking is safely disabled in SSH server sessions.
 
 ## Quadlet locations
 

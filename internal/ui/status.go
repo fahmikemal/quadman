@@ -38,6 +38,9 @@ func (m *Model) resize() {
 	if m.mode == modeDetail && m.tab == tabJournal && (m.searching || m.searchStr != "") {
 		chrome++ // search line
 	}
+	if m.mode == modeDetail && m.tab == tabJournal && (m.filteringLogs || m.logFilter != "") {
+		chrome++ // log filter line
+	}
 	if m.pickingEditor {
 		chrome++ // editor picker prompt
 	}

@@ -305,6 +305,44 @@ sleep 5
 	}
 }
 
+func TestJournalPriority(t *testing.T) {
+	argsFile := filepath.Join(t.TempDir(), "args")
+	bin := fakeBin(t, "journalctl", argsFile, `echo "error line"`)
+	s := &Systemd{User: true, JournalBin: bin}
+
+	out, err := s.JournalWithPriority(context.Background(), "webapp.service", 50, "err")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "error line" {
+		t.Errorf("got %q", out)
+	}
+	args := readArgs(t, argsFile)
+	if !contains(args, "--priority=err") {
+		t.Errorf("args missing --priority=err: %v", args)
+	}
+
+	argsFile2 := filepath.Join(t.TempDir(), "args2")
+	bin2 := fakeBin(t, "journalctl", argsFile2, `echo "warn line"
+sleep 2
+`)
+	s2 := &Systemd{User: true, JournalBin: bin2}
+	stop, stream, err := s2.FollowJournalWithPriority(context.Background(), "webapp.service", 50, "warning")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+
+	sc := bufio.NewScanner(stream)
+	if sc.Scan() && sc.Text() != "warn line" {
+		t.Errorf("unexpected output: %s", sc.Text())
+	}
+	argsFollow := readArgs(t, argsFile2)
+	if !contains(argsFollow, "--priority=warning") {
+		t.Errorf("follow args missing --priority=warning: %v", argsFollow)
+	}
+}
+
 func TestIsEnabledIsActive(t *testing.T) {
 	cases := []struct {
 		script string

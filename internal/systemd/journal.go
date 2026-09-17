@@ -13,6 +13,11 @@ import (
 // Journal returns the last lines of a unit's journal as a snapshot. It
 // honors the same User scope as the systemctl calls.
 func (s *Systemd) Journal(ctx context.Context, unit string, lines int) (string, error) {
+	return s.JournalWithPriority(ctx, unit, lines, "")
+}
+
+// JournalWithPriority returns the last lines of a unit's journal filtered by priority level.
+func (s *Systemd) JournalWithPriority(ctx context.Context, unit string, lines int, priority string) (string, error) {
 	if lines <= 0 {
 		lines = 200
 	}
@@ -21,6 +26,9 @@ func (s *Systemd) Journal(ctx context.Context, unit string, lines int) (string, 
 		"--output=short-iso",
 		"--unit=" + unit, // value form: a unit name can never be read as an option
 		"--lines=" + strconv.Itoa(lines),
+	}
+	if priority != "" {
+		args = append(args, "--priority="+priority)
 	}
 	if s.User {
 		args = append([]string{"--user"}, args...)
@@ -52,6 +60,11 @@ func (s *Systemd) StatusText(ctx context.Context, unit string) (string, error) {
 // process together with its stdout stream. The caller must call stop to kill
 // the process and reap it; ctx cancelation stops it too.
 func (s *Systemd) FollowJournal(ctx context.Context, unit string, lines int) (stop func(), stream io.Reader, err error) {
+	return s.FollowJournalWithPriority(ctx, unit, lines, "")
+}
+
+// FollowJournalWithPriority starts `journalctl -f` filtered by priority level.
+func (s *Systemd) FollowJournalWithPriority(ctx context.Context, unit string, lines int, priority string) (stop func(), stream io.Reader, err error) {
 	if lines <= 0 {
 		lines = 200
 	}
@@ -61,6 +74,9 @@ func (s *Systemd) FollowJournal(ctx context.Context, unit string, lines int) (st
 		"--unit=" + unit,
 		"--lines=" + strconv.Itoa(lines),
 		"--follow",
+	}
+	if priority != "" {
+		args = append(args, "--priority="+priority)
 	}
 	if s.User {
 		args = append([]string{"--user"}, args...)

@@ -119,6 +119,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.Start, k.Stop, k.Restart, k.Enable, k.Disable},
 		{k.Edit, k.Updates, k.Health, k.DaemonReload, k.Linger, k.Help, k.Quit},
 		{
+			key.NewBinding(key.WithKeys("ctrl+p"), key.WithHelp("^P", "command palette")),
 			key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "problems")),
 			key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "dep tree")),
 			key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "instantiate")),

@@ -29,6 +29,17 @@ func (m Model) startRestartKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) 
 		m.setStatus(u.Name+" lives in an extra dir - "+externalHint(), true)
 		return m, nil, true
 	}
+	st := m.status[u.UnitName]
+	if verb == "start" {
+		if st.LoadState == "not-found" {
+			m.setStatus(u.UnitName+" not found by systemd — press R to daemon-reload", true)
+			return m, nil, true
+		}
+		if st.ActiveState == "active" {
+			m.setStatus(u.UnitName+" is already active ("+st.SubState+")", false)
+			return m, nil, true
+		}
+	}
 	sys := m.sys
 	return m, tea.Batch(m.setBusy(verb+" "+u.UnitName),
 		actionCmd(verb+" "+u.UnitName, func(ctx context.Context) (string, error) {
@@ -50,6 +61,11 @@ func (m Model) stopKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	}
 	u, ok := m.selected()
 	if !ok {
+		return m, nil, true
+	}
+	st := m.status[u.UnitName]
+	if st.ActiveState == "inactive" || st.ActiveState == "failed" {
+		m.setStatus(u.UnitName+" is already stopped ("+st.ActiveState+")", false)
 		return m, nil, true
 	}
 	m.pending = &pendingAction{verb: "stop", unit: u}

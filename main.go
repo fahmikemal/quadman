@@ -11,13 +11,17 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
+	"os/signal"
 	"runtime/debug"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 
 	"github.com/kemal-labs/quadman/internal/config"
 	"github.com/kemal-labs/quadman/internal/quadlet"
+	"github.com/kemal-labs/quadman/internal/server"
 	"github.com/kemal-labs/quadman/internal/systemd"
 	"github.com/kemal-labs/quadman/internal/ui"
 )
@@ -62,8 +66,10 @@ func main() {
 			list()
 		case "version":
 			fmt.Println("quadman", moduleVersion())
+		case "serve":
+			serve(args[1:], *readonly, *mouse, *theme, quadletDirs)
 		default:
-			fmt.Fprintf(os.Stderr, "unknown command %q (available: list, version)\n", args[0])
+			fmt.Fprintf(os.Stderr, "unknown command %q (available: list, serve, version)\n", args[0])
 			os.Exit(2)
 		}
 		return
@@ -186,4 +192,113 @@ func unitNames(units []quadlet.Unit) []string {
 		names = append(names, u.UnitName)
 	}
 	return names
+}
+
+// serve starts the Wish SSH daemon so remote clients can run quadman over SSH.
+func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme string, extraDirs []string) {
+	fs := flag.NewFlagSet("serve", flag.ExitOnError)
+	port := fs.String("port", "", "port to listen on (e.g. 2222, default :2222)")
+	fs.StringVar(port, "p", "", "shorthand for --port")
+	addr := fs.String("address", "", "listen address (e.g. :2222 or 0.0.0.0:2222)")
+	fs.StringVar(addr, "a", "", "shorthand for --address")
+	hostKey := fs.String("host-key", "", "path to private host key (default: auto-generated under ~/.config/quadman)")
+	authKeys := fs.String("authorized-keys", "", "path to authorized_keys file (optional public key auth)")
+	pass := fs.String("password", "", "optional password required to log in")
+	readonly := fs.Bool("readonly", defaultReadonly, "disable all state-changing actions for connected sessions")
+	mouse := fs.Bool("mouse", defaultMouse, "enable mouse support for connected sessions")
+	theme := fs.String("theme", defaultTheme, "color scheme: auto, dark, light, or colorblind")
+	banner := fs.String("banner", "", "custom SSH connection banner")
+	idleTimeout := fs.Duration("idle-timeout", 0, "session idle timeout (default 30m)")
+	maxTimeout := fs.Duration("max-timeout", 0, "max session duration (default 2h)")
+
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(2)
+	}
+
+	// Load settings from config.yaml if available
+	cfg, _ := config.Load()
+	scfg := cfg.Settings.Serve
+
+	finalAddr := *addr
+	if finalAddr == "" {
+		if *port != "" {
+			finalAddr = ":" + *port
+		} else if scfg.Address != "" {
+			finalAddr = scfg.Address
+		} else if scfg.Port != "" {
+			finalAddr = ":" + scfg.Port
+		} else {
+			finalAddr = server.DefaultAddress
+		}
+	}
+
+	finalHostKey := *hostKey
+	if finalHostKey == "" && scfg.HostKey != "" {
+		finalHostKey = scfg.HostKey
+	}
+
+	finalAuthKeys := *authKeys
+	if finalAuthKeys == "" && scfg.AuthorizedKeys != "" {
+		finalAuthKeys = scfg.AuthorizedKeys
+	}
+
+	finalPass := *pass
+	if finalPass == "" && scfg.Password != "" {
+		finalPass = scfg.Password
+	}
+
+	finalReadonly := *readonly || scfg.Readonly
+
+	opts := server.Options{
+		Address:            finalAddr,
+		HostKeyPath:        finalHostKey,
+		AuthorizedKeysPath: finalAuthKeys,
+		Password:           finalPass,
+		Readonly:           finalReadonly,
+		Mouse:              *mouse,
+		Theme:              *theme,
+		QuadletDirs:        extraDirs,
+		Banner:             *banner,
+		IdleTimeout:        *idleTimeout,
+		MaxTimeout:         *maxTimeout,
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	fmt.Printf("quadman SSH daemon starting on %s ...\n", opts.Address)
+	fmt.Printf("Connect with: ssh %s\n", formatConnectHint(opts.Address))
+	if finalReadonly {
+		fmt.Println("Mode: readonly (all state-changing actions disabled)")
+	}
+	if finalAuthKeys != "" {
+		fmt.Printf("Authentication: public keys from %s\n", finalAuthKeys)
+	} else if finalPass != "" {
+		fmt.Println("Authentication: password protected")
+	} else {
+		fmt.Println("Authentication: open (any public key accepted)")
+	}
+	fmt.Println("Press Ctrl+C to stop the server.")
+
+	if err := server.Serve(ctx, opts); err != nil {
+		fmt.Fprintln(os.Stderr, "server error:", err)
+		os.Exit(1)
+	}
+	fmt.Println("\nquadman SSH daemon stopped gracefully.")
+}
+
+func formatConnectHint(addr string) string {
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		if strings.HasPrefix(addr, ":") {
+			port = strings.TrimPrefix(addr, ":")
+		} else {
+			return addr
+		}
+	}
+	if port == "22" {
+		return "<host>"
+	}
+	return "-p " + port + " <host>"
 }
