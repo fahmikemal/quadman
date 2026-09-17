@@ -263,3 +263,26 @@ func TestDiscoverMode(t *testing.T) {
 		t.Errorf("DiscoverMode(true) did not find sysweb unit in extra dirs: %v", units)
 	}
 }
+
+func TestDiscoverDirsPermissionDenied(t *testing.T) {
+	parent := t.TempDir()
+	unreadable := filepath.Join(parent, "unreadable")
+	if err := os.Mkdir(unreadable, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chmod(unreadable, 0o755) }()
+
+	goodDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(goodDir, "good.container"), []byte("[Container]\nImage=alpine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Should not return an error even if one dir is unreadable
+	units, err := DiscoverDirs([]string{unreadable, goodDir})
+	if err != nil {
+		t.Fatalf("DiscoverDirs returned unexpected error on unreadable dir: %v", err)
+	}
+	if len(units) != 1 || units[0].Name != "good" {
+		t.Errorf("expected 1 unit 'good', got %v", units)
+	}
+}

@@ -216,7 +216,7 @@ func DiscoverDirs(dirs []string) ([]Unit, error) {
 	for _, dir := range dirs {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
-			if os.IsNotExist(err) {
+			if os.IsNotExist(err) || os.IsPermission(err) {
 				continue
 			}
 			return nil, fmt.Errorf("read %s: %w", dir, err)
