@@ -44,7 +44,7 @@ func TestRemoteArgv(t *testing.T) {
 	}
 	raw, _ := os.ReadFile(record)
 	argv := string(raw)
-	for _, want := range []string{"BatchMode=yes", "root@remote", "--", "systemctl", "--user", "show", "--", "web.service"} {
+	for _, want := range []string{"BatchMode=yes", "root@remote", "systemctl", "--user", "show", "--", "web.service"} {
 		if !strings.Contains(argv, want) {
 			t.Errorf("ssh argv missing %q: %s", want, argv)
 		}
@@ -65,5 +65,23 @@ func TestIsRemote(t *testing.T) {
 	}
 	if !(Runner{Target: "h"}).IsRemote() {
 		t.Error("target must be remote")
+	}
+}
+
+func TestRemoteNoLeadingDashDashToRemoteShell(t *testing.T) {
+	r := Runner{Target: "ubuntu@remote"}
+	argv := r.argv("systemctl", []string{"--user", "show", "web.service"})
+	var targetIdx = -1
+	for i, a := range argv {
+		if a == "ubuntu@remote" {
+			targetIdx = i
+			break
+		}
+	}
+	if targetIdx == -1 {
+		t.Fatalf("target not found in argv: %v", argv)
+	}
+	if targetIdx+1 >= len(argv) || argv[targetIdx+1] != "systemctl" {
+		t.Fatalf("command following target must be 'systemctl', not %q (argv: %v)", argv[targetIdx+1], argv)
 	}
 }

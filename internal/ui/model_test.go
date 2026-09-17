@@ -596,6 +596,21 @@ func TestSystemModeLingerGuard(t *testing.T) {
 	}
 }
 
+func TestSystemModeLingerGuardView(t *testing.T) {
+	m := NewWithOptions(Options{System: true})
+	m.loading = false
+	m.width = 120
+	m.height = 42
+	mm, _, ok := m.lingerKeys(tea.KeyPressMsg{Code: 'L', Text: "L"})
+	if !ok {
+		t.Fatal("not ok")
+	}
+	v := mm.(Model).View().Content
+	if !strings.Contains(v, "linger only applies to rootless") {
+		t.Fatalf("View missing status: %q", v)
+	}
+}
+
 func TestSystemModeSearchDirs(t *testing.T) {
 	m := NewWithOptions(Options{System: true})
 	dirs := m.searchDirs()

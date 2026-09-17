@@ -29,8 +29,11 @@ func (m *Model) resize() {
 	// block is much taller than the compact legend, and undercounting clips
 	// its last lines in short terminals.
 	chrome := 3 + strings.Count(m.helpBar(), "\n") + 1 // title + blank + help bar + status
-	if m.mode == modeList && len(m.stale) > 0 {
-		chrome++ // reload banner
+	if m.mode == modeList && len(m.units) == 0 && !m.loading {
+		chrome += 3 // empty-state notice (\n + 2 text lines)
+	}
+	if m.mode == modeList && len(m.stale) > 0 && !m.loading {
+		chrome += 2 // reload banner (\n + text line)
 	}
 	if m.mode == modeList && (m.filtering || m.filterStr != "") {
 		chrome++ // filter line

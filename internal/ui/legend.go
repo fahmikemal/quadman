@@ -51,9 +51,14 @@ func (m Model) helpBar() string {
 	// Compact legend: full words; one line when it fits, two when narrow.
 	bar := strings.Join(m.legend(), "\n")
 	ls := strings.Split(bar, "\n")
-	ls[len(ls)-1] += "  ·  " + chip
+	chips := "  ·  " + chip
 	if m.readonly {
-		ls[len(ls)-1] += "  ·  " + lingerOffStyle.Render("readonly")
+		chips += "  ·  " + lingerOffStyle.Render("readonly")
+	}
+	if w := m.help.Width(); w > 0 && ansi.StringWidth(ls[len(ls)-1])+ansi.StringWidth(chips) > w {
+		ls = append(ls, strings.TrimPrefix(chips, "  ·  "))
+	} else {
+		ls[len(ls)-1] += chips
 	}
 	return helpStyle.Render(clampLines(strings.Join(ls, "\n"), m.help.Width()))
 }
@@ -88,11 +93,15 @@ func (m Model) legend() []string {
 	if w > 0 && w < legendFullWidth {
 		keys = legendKeysCompact()
 	}
+	reserve := legendChipReserve
+	if m.readonly {
+		reserve += 14
+	}
 	full := strings.Join(keys, " · ")
-	if w <= 0 || ansi.StringWidth(full)+legendChipReserve <= w {
+	if w <= 0 || ansi.StringWidth(full)+reserve <= w {
 		return []string{full}
 	}
-	return splitLegend(keys, w-legendChipReserve)
+	return splitLegend(keys, w, reserve)
 }
 
 // legendFullWidth is the terminal width below which the legend falls back
@@ -142,18 +151,36 @@ func legendKeysCompact() []string {
 	}
 }
 
-// splitLegend breaks the sorted key list into two lines, filling the first
-// line up to the target width and putting the rest on the second.
-func splitLegend(keys []string, target int) []string {
+// splitLegend breaks the sorted key list into two lines, balancing keys
+// across lines so that the second line leaves room for chips (reserve)
+// without overflowing the terminal width.
+func splitLegend(keys []string, width, reserve int) []string {
+	if width <= 0 {
+		return []string{strings.Join(keys, " · ")}
+	}
+	bestSplit := -1
+	for i := 1; i < len(keys); i++ {
+		first := strings.Join(keys[:i], " · ")
+		second := strings.Join(keys[i:], " · ")
+		if ansi.StringWidth(first) <= width && ansi.StringWidth(second)+reserve <= width {
+			bestSplit = i
+		}
+	}
+	if bestSplit > 0 {
+		return []string{strings.Join(keys[:bestSplit], " · "), strings.Join(keys[bestSplit:], " · ")}
+	}
 	var first []string
-	w := 0
+	curW := 0
 	i := 0
 	for ; i < len(keys); i++ {
-		kw := ansi.StringWidth(keys[i]) + 3 // separator
-		if w > 0 && w+kw > target {
+		kw := ansi.StringWidth(keys[i])
+		if curW > 0 {
+			kw += 3 // separator " · "
+		}
+		if curW > 0 && curW+kw > width {
 			break
 		}
-		w += kw
+		curW += kw
 		first = append(first, keys[i])
 	}
 	if i == 0 || i >= len(keys) {
