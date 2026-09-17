@@ -55,12 +55,12 @@ func Available() bool {
 }
 
 // argv builds the ssh invocation for a remote command: options first, then
-// the destination, then "--" and the remote argv untouched.
+// the destination, then the remote command name and its arguments.
 func (r Runner) argv(name string, args []string) []string {
 	argv := []string{
 		"-o", "BatchMode=yes",
 		"-o", fmt.Sprintf("ConnectTimeout=%d", int(r.timeout().Seconds())),
-		"--", r.Target, "--", name,
+		"--", r.Target, name,
 	}
 	return append(argv, args...)
 }

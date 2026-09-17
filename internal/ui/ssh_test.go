@@ -105,3 +105,21 @@ func TestSSHTitleShowsTarget(t *testing.T) {
 	podman.DefaultRunner.Target = ""
 	podlet.DefaultRunner.Target = ""
 }
+
+func TestSSHRefreshCmd(t *testing.T) {
+	m := sshModel(t)
+	cmd := refreshCmd(m.sys, m.lc, nil, m.ssh, enrichNone, false)
+	msg := cmd()
+	rm, ok := msg.(refreshMsg)
+	if !ok {
+		t.Fatalf("expected refreshMsg, got %T", msg)
+	}
+	if rm.err != nil {
+		t.Fatalf("refreshCmd returned error over SSH: %v", rm.err)
+	}
+	if len(rm.units) != 1 || rm.units[0].Name != "web" {
+		t.Errorf("expected 1 unit 'web', got %v", rm.units)
+	}
+	podman.DefaultRunner.Target = ""
+	podlet.DefaultRunner.Target = ""
+}

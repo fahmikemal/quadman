@@ -1203,6 +1203,10 @@ func scenarioSystemMode() {
 	hasRootless := strings.Contains(last(), "rootless")
 	check("system no rootless", !hasRootless, "title bar tidak mengandung kata rootless")
 
+	// Wait for initial load to complete
+	waitForAny([]string{"No quadlet units found", "active", "inactive"}, 10*time.Second)
+	time.Sleep(200 * time.Millisecond)
+
 	// Verify chip is system
 	ok = waitFor("system", 5*time.Second)
 	check("system chip", ok && !strings.Contains(last(), "linger:"), "legend menampilkan chip system bukan linger")

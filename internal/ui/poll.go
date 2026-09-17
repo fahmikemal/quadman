@@ -222,9 +222,6 @@ func inspectRemote(ctx context.Context, runner remote.Runner, u quadlet.Unit) qu
 // applyRefresh merges a finished refresh into the model, keeping the cursor
 // pinned on the same unit by name.
 func (m Model) applyRefresh(msg refreshMsg) (tea.Model, tea.Cmd) {
-	if m.loading {
-		m.clearStatus()
-	}
 	if msg.err != nil {
 		m.setStatus(msg.err.Error(), true)
 	}
@@ -279,6 +276,7 @@ func (m Model) applyRefresh(msg refreshMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.loading = false
+	m.resize()
 	return m, nil
 }
 
