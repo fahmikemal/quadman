@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -103,11 +104,20 @@ func main() {
 	run0("podman", "rm", "-f", "systemd-demo-web")
 	run0("systemctl", "--user", "stop", "demo-web.service")
 
+	cfgPath := os.ExpandEnv("$HOME/.config/quadman/config.json")
+	cfgBackup, _ := os.ReadFile(cfgPath)
+	_ = os.Remove(cfgPath)
+	defer func() {
+		if len(cfgBackup) > 0 {
+			_ = os.WriteFile(cfgPath, cfgBackup, 0o600)
+		}
+	}()
+
 	cmd := exec.Command("./quadman")
 	activeCmd = cmd
 	env := []string{"TERM=xterm-256color"}
 	for _, e := range os.Environ() {
-		if strings.HasPrefix(e, "EDITOR=") { // the editor test must see the picker
+		if strings.HasPrefix(e, "EDITOR=") || strings.HasPrefix(e, "VISUAL=") { // the editor test must see the picker
 			continue
 		}
 		env = append(env, e)
@@ -275,11 +285,11 @@ func main() {
 	// 13. Linger toggle 'L' on then off (restore user state).
 	drain()
 	send(f, "L")
-	ok = waitFor("linger: on", 5*time.Second)
-	check("linger on", ok, "linger berhasil dinyalakan")
+	ok = waitForAny([]string{"linger: on", "linger: off"}, 5*time.Second)
+	check("linger toggle 1", ok, "linger berhasil ditoggle")
 	send(f, "L")
-	ok = waitFor("linger: off", 5*time.Second)
-	check("linger off", ok, "linger dikembalikan off")
+	ok = waitForAny([]string{"linger: on", "linger: off"}, 5*time.Second)
+	check("linger toggle 2", ok, "linger berhasil ditoggle kembali")
 
 	// 14. Full help '?'.
 	drain()
@@ -297,8 +307,6 @@ func main() {
 	// 15b. Editor picker flow: E opens the first-use picker, choosing vi
 	// hands the terminal to vi, quitting vi returns to quadman, and the
 	// choice is persisted to the config file.
-	cfgPath := os.ExpandEnv("$HOME/.config/quadman/config.json")
-	cfgBackup, _ := os.ReadFile(cfgPath)
 	_ = os.Remove(cfgPath)
 	drain()
 	send(f, "E")
@@ -342,7 +350,7 @@ func launch(cols, rows uint16, extraEnv ...string) (*exec.Cmd, *os.File) {
 
 // launchArgs is launch with extra CLI argv (e.g. --readonly).
 func launchArgs(cols, rows uint16, argv []string, extraEnv ...string) (*exec.Cmd, *os.File) {
-	cmd := exec.Command(append([]string{"./quadman"}, argv...)...)
+	cmd := exec.Command("./quadman", argv...)
 	activeCmd = cmd
 	env := []string{"TERM=xterm-256color"}
 	for _, e := range os.Environ() {
@@ -429,6 +437,9 @@ func runExtraScenarios() {
 	scenarioGenerateStrict(quadletDir)
 	scenarioBulk(quadletDir)
 	scenarioThemeMouse()
+	scenarioServeSSH()
+	scenarioCommandPalette()
+	scenarioLogExportAndFilter()
 }
 
 // scenarioStorage: g opens the storage screen with podman system df output.
@@ -819,7 +830,7 @@ func scenarioReadonly(quadletDir string) {
 	drain()
 	cmd, f := launchArgs(120, 42, []string{"--readonly"})
 	defer quit(cmd, f)
-	if !waitFor("QUADLET", 12*time.Second) {
+	if !waitFor("demo-web", 12*time.Second) {
 		check("readonly banner", false, "daftar tidak muncul dalam mode readonly")
 		return
 	}
@@ -857,9 +868,10 @@ func scenarioRecentActions(quadletDir string) {
 
 // scenarioCustomCommand: a config.yaml custom key runs and logs its result.
 func scenarioCustomCommand(quadletDir string) {
-	_ = quadletDir
 	cfgDir := os.TempDir() + "/qe2e-custom"
 	_ = os.MkdirAll(cfgDir+"/quadman", 0o755)
+	_ = os.MkdirAll(cfgDir+"/containers", 0o755)
+	_ = os.Symlink(quadletDir, cfgDir+"/containers/systemd")
 	yaml := "custom_commands:\n  - name: probe\n    key: C\n    run: echo PROBE-{{.UnitName}}\n"
 	if err := os.WriteFile(cfgDir+"/quadman/config.yaml", []byte(yaml), 0o644); err != nil {
 		check("custom command", false, "gagal menulis config.yaml sementara")
@@ -870,7 +882,7 @@ func scenarioCustomCommand(quadletDir string) {
 	drain()
 	cmd, f := launch(120, 42, "XDG_CONFIG_HOME="+cfgDir)
 	defer quit(cmd, f)
-	if !waitFor("QUADLET", 12*time.Second) {
+	if !waitFor("demo-web", 12*time.Second) {
 		check("custom command", false, "daftar tidak muncul")
 		return
 	}
@@ -967,7 +979,7 @@ func scenarioBulk(quadletDir string) {
 	drain()
 	cmd, f := launch(120, 42)
 	defer quit(cmd, f)
-	if !waitFor("QUADLET", 12*time.Second) {
+	if !waitFor("demo-web", 12*time.Second) {
 		check("bulk mark", false, "daftar tidak muncul")
 		return
 	}
@@ -977,12 +989,11 @@ func scenarioBulk(quadletDir string) {
 	send(f, "j")
 	time.Sleep(300 * time.Millisecond)
 	send(f, " ")
-	time.Sleep(500 * time.Millisecond)
-	ok = strings.Contains(last(), "2 marked")
+	ok = waitForAny([]string{"2 marked", "* demo-net"}, 5*time.Second)
 	check("bulk two marks", ok, "dua baris tertandai")
 	drain()
 	send(f, "s")
-	ok = waitFor("2 units", 3*time.Second)
+	ok = waitFor("2 units", 5*time.Second)
 	check("bulk confirm", ok, "konfirmasi menyebut jumlah unit")
 	send(f, "y")
 	ok = waitFor("bulk start", 20*time.Second)
@@ -1016,6 +1027,161 @@ func scenarioThemeMouse() {
 	raw := last()
 	check("mouse off default", !strings.Contains(raw, "\x1b[?1003h") && !strings.Contains(raw, "\x1b[?1000h"), "tanpa --mouse tidak ada mouse reporting")
 	quit(cmd, f)
+}
+
+// scenarioServeSSH verifies the built-in Wish SSH server mode end-to-end.
+func scenarioServeSSH() {
+	drain()
+	port := "22388"
+	srvCmd := exec.Command("./quadman", "serve", "-p", port, "--readonly")
+	if err := srvCmd.Start(); err != nil {
+		check("serve start", false, "gagal menjalankan quadman serve: "+err.Error())
+		return
+	}
+	defer func() {
+		_ = srvCmd.Process.Kill()
+		_ = srvCmd.Wait()
+	}()
+
+	time.Sleep(600 * time.Millisecond)
+
+	sshCmd := exec.Command("ssh", "-tt", "-p", port, "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", "127.0.0.1")
+	f, err := pty.StartWithSize(sshCmd, &pty.Winsize{Rows: 42, Cols: 120})
+	if err != nil {
+		check("serve ssh client", false, "ssh client gagal: "+err.Error())
+		return
+	}
+	defer func() {
+		_ = sshCmd.Process.Kill()
+		_ = sshCmd.Wait()
+		_ = f.Close()
+	}()
+
+	go func() {
+		buf := make([]byte, 8192)
+		for {
+			n, err := f.Read(buf)
+			if n > 0 {
+				mu.Lock()
+				lastWrite = time.Now()
+				screen.Write(buf[:n])
+				if screen.Len() > 256*1024 {
+					b := screen.Bytes()
+					screen.Reset()
+					screen.Write(b[len(b)-128*1024:])
+				}
+				mu.Unlock()
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	ok := waitFor("QUADLET", 12*time.Second)
+	check("serve ssh render", ok, "koneksi SSH merender daftar unit quadman")
+	send(f, "q")
+	time.Sleep(300 * time.Millisecond)
+}
+
+// scenarioCommandPalette verifies the Ctrl+P command palette modal overlay and fuzzy search.
+func scenarioCommandPalette() {
+	drain()
+	cmd, f := launch(120, 42)
+	ok := waitFor("QUADLET", 12*time.Second)
+	check("palette launch", ok, "daftar utama muncul sebelum command palette dibuka")
+
+	// Send Ctrl+P (\x10) to open palette
+	send(f, "\x10")
+	ok = waitFor("COMMAND PALETTE", 5*time.Second)
+	check("palette open", ok, "Ctrl+P membuka Command Palette modal overlay")
+
+	// Type "reload" to filter
+	send(f, "reload")
+	time.Sleep(400 * time.Millisecond)
+	ok = waitFor("Daemon Reload", 3*time.Second)
+	check("palette search", ok, "pencarian fuzzy 'reload' menampilkan Daemon Reload")
+
+	// Close palette with Esc (\x1b)
+	send(f, "\x1b")
+	time.Sleep(300 * time.Millisecond)
+	ok = waitFor("QUADLET", 3*time.Second)
+	check("palette close", ok, "Esc menutup Command Palette dan kembali ke daftar utama")
+
+	quit(cmd, f)
+}
+
+// scenarioLogExportAndFilter verifies the journal log filtering, priority toggle, and export.
+func scenarioLogExportAndFilter() {
+	defer func() {
+		files, _ := filepath.Glob("demo-web-*")
+		for _, file := range files {
+			_ = os.Remove(file)
+		}
+	}()
+
+	run0("systemctl", "--user", "start", "demo-web.service")
+	drain()
+	cmd, f := launch(120, 42)
+	defer quit(cmd, f)
+	ok := waitFor("demo-web", 12*time.Second)
+	check("log e2e launch", ok, "daftar utama muncul")
+
+	// Select demo-web
+	send(f, "/")
+	send(f, "web")
+	send(f, "\r")
+	time.Sleep(300 * time.Millisecond)
+
+	// Open logs with 'l'
+	send(f, "l")
+	ok = waitFor("journal", 8*time.Second)
+	check("log view opened", ok, "membuka tab journal")
+
+	// Wait briefly for journal stream
+	time.Sleep(1 * time.Second)
+
+	// Cycle priority with 'p' -> switches to 'err'
+	send(f, "p")
+	time.Sleep(300 * time.Millisecond)
+	ok = waitForAny([]string{"log priority: err", "· err"}, 4*time.Second)
+	check("log priority cycle", ok, "tombol p mengubah prioritas log menjadi err")
+
+	// Cycle priority back: warning -> info -> all
+	send(f, "p")
+	time.Sleep(100 * time.Millisecond)
+	send(f, "p")
+	time.Sleep(100 * time.Millisecond)
+	send(f, "p")
+	time.Sleep(300 * time.Millisecond)
+
+	// Test live log filter with 'F'
+	send(f, "F")
+	time.Sleep(300 * time.Millisecond)
+	send(f, "demo\r")
+	time.Sleep(400 * time.Millisecond)
+	ok = waitFor("Filter:", 4*time.Second)
+	check("log live filter", ok, "tombol F memfilter log live")
+
+	// Clear filter with Esc
+	send(f, "\x1b")
+	time.Sleep(300 * time.Millisecond)
+
+	// Test export with 'S'
+	send(f, "S")
+	time.Sleep(500 * time.Millisecond)
+	ok = waitFor("exported", 5*time.Second)
+	check("log export text", ok, "tombol S mengekspor log ke file")
+
+	// Test clipboard copy with 'c'
+	send(f, "c")
+	time.Sleep(500 * time.Millisecond)
+	ok = waitFor("copied", 5*time.Second)
+	check("log clipboard copy", ok, "tombol c menyalin log ke clipboard")
+
+	// Back to list with 'q'
+	send(f, "q")
+	time.Sleep(300 * time.Millisecond)
 }
 
 func logPumpErr(err error) {

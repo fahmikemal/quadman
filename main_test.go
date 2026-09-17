@@ -107,3 +107,22 @@ func TestRunListShowFailure(t *testing.T) {
 		t.Errorf("output should still list the unit, got:\n%s", buf.String())
 	}
 }
+
+func TestFormatConnectHint(t *testing.T) {
+	tests := []struct {
+		addr string
+		want string
+	}{
+		{":2222", "-p 2222 <host>"},
+		{"0.0.0.0:2222", "-p 2222 <host>"},
+		{"127.0.0.1:22", "<host>"},
+		{":22", "<host>"},
+		{"custom.host:8022", "-p 8022 <host>"},
+	}
+	for _, tc := range tests {
+		got := formatConnectHint(tc.addr)
+		if got != tc.want {
+			t.Errorf("formatConnectHint(%q) = %q, want %q", tc.addr, got, tc.want)
+		}
+	}
+}

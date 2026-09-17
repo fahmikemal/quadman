@@ -45,7 +45,7 @@ func searchRanges(content, query string) [][]int {
 // applySearch recomputes highlights for the current search string and points
 // the viewport at the first match.
 func (m *Model) applySearch() {
-	ranges := searchRanges(strings.Join(m.logLines, "\n"), m.searchStr)
+	ranges := searchRanges(strings.Join(m.visibleLogLines(), "\n"), m.searchStr)
 	m.searchMatches = len(ranges)
 	if len(ranges) == 0 {
 		m.matchPos = 0
@@ -87,7 +87,7 @@ func (m *Model) refreshSearchKeepPos() {
 		return
 	}
 	pos := m.matchPos
-	ranges := searchRanges(strings.Join(m.logLines, "\n"), m.searchStr)
+	ranges := searchRanges(strings.Join(m.visibleLogLines(), "\n"), m.searchStr)
 	m.searchMatches = len(ranges)
 	if len(ranges) == 0 {
 		m.matchPos = 0

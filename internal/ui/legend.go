@@ -65,7 +65,7 @@ func (m Model) legend() []string {
 	switch m.mode {
 	case modeDetail:
 		if m.tab == tabJournal {
-			return []string{"[/] tabs · f pause/resume · / search · n/N match · E edit · esc/q back"}
+			return []string{"[/] tabs · f pause/resume · / search · F grep · p prio · S export · c copy · esc/q back"}
 		}
 		return []string{"[/] tabs · E edit · ↑/↓ scroll · esc/q back"}
 	case modeStorage:

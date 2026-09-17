@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"strings"
+
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 )
@@ -9,8 +11,41 @@ func (m Model) modeDetailKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if m.mode != modeDetail {
 		return m, nil, false
 	}
+
+	// Active log filtering input mode
+	if m.tab == tabJournal && m.filteringLogs {
+		switch msg.String() {
+		case "enter":
+			m.filteringLogs = false
+			m.logFilterIn.Blur()
+			m.logFilter = strings.TrimSpace(m.logFilterIn.Value())
+			m.refreshLogContent()
+			return m, nil, true
+		case "esc":
+			m.filteringLogs = false
+			m.logFilterIn.Blur()
+			m.logFilterIn.SetValue("")
+			m.logFilter = ""
+			m.refreshLogContent()
+			return m, nil, true
+		default:
+			var cmd tea.Cmd
+			m.logFilterIn, cmd = m.logFilterIn.Update(msg)
+			m.logFilter = strings.TrimSpace(m.logFilterIn.Value())
+			m.refreshLogContent()
+			return m, cmd, true
+		}
+	}
+
 	switch msg.String() {
 	case "esc", "q":
+		if m.tab == tabJournal && m.logFilter != "" {
+			m.logFilter = ""
+			m.logFilterIn.SetValue("")
+			m.refreshLogContent()
+			m.setStatus("log filter cleared", false)
+			return m, nil, true
+		}
 		m.stopLogs()
 		m.clearSearch()
 		m.mode = modeList
@@ -45,6 +80,31 @@ func (m Model) modeDetailKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
 		return m, cmd, true
+	case "F":
+		if m.tab == tabJournal {
+			m.filteringLogs = true
+			m.logFilterIn.Focus()
+			return m, textinput.Blink, true
+		}
+		return m, nil, true
+	case "p":
+		if m.tab == tabJournal {
+			mm, cmd := m.cycleLogPriority()
+			return mm, cmd, true
+		}
+		return m, nil, true
+	case "S", "ctrl+s":
+		if m.tab == tabJournal {
+			mm, cmd := m.exportLogs("txt")
+			return mm, cmd, true
+		}
+		return m, nil, true
+	case "c":
+		if m.tab == tabJournal {
+			mm, cmd := m.exportLogs("clipboard")
+			return mm, cmd, true
+		}
+		return m, nil, true
 	case "n":
 		if m.tab == tabJournal {
 			m.nextMatch()

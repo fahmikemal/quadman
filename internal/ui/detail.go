@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -102,6 +103,12 @@ func (m Model) tabBar(unit string) string {
 			state = "snapshot"
 		} else if !m.following {
 			state = "paused"
+		}
+		if m.logPriority != "" {
+			state += " · " + m.logPriority
+		}
+		if m.logFilter != "" {
+			state += fmt.Sprintf(" · filter:%q [%d/%d]", m.logFilter, len(m.visibleLogLines()), len(m.logLines))
 		}
 		b.WriteString(helpStyle.Render("  (" + state + ")"))
 	}

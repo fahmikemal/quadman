@@ -35,7 +35,8 @@ const (
 	modeStorage
 	modeEvents
 	modeGenerate
-	modeRecent // recent-actions log (A)
+	modeRecent  // recent-actions log (A)
+	modePalette // command palette (Ctrl+P)
 )
 
 // Detail tabs, cycled with [ and ].
@@ -128,10 +129,14 @@ type Model struct {
 	matchPos      int
 
 	// follow logs
-	sess      *logSession
-	logLines  []string
-	following bool
-	pollCount int
+	sess          *logSession
+	logLines      []string
+	logPriority   string // "", "err", "warning", "info"
+	logFilter     string // live grep filter
+	logFilterIn   textinput.Model
+	filteringLogs bool
+	following     bool
+	pollCount     int
 
 	// updates screen
 	updateEntries []podman.AutoUpdateEntry
@@ -206,6 +211,19 @@ type Model struct {
 	// mouse enables click-to-select (opt-in via config or --mouse; off by
 	// default so text selection keeps working).
 	mouse bool
+
+	// clientInfo identifies the connected client when served via Wish SSH.
+	clientInfo string
+
+	// noEditor disables local $EDITOR launching (e.g. in SSH server sessions).
+	noEditor bool
+
+	// command palette (Ctrl+P)
+	paletteIn       textinput.Model
+	paletteCursor   int
+	paletteActions  []paletteAction
+	paletteFiltered []paletteAction
+	prevMode        mode
 }
 
 // statusTTL is how long a success notification stays before it fades.
@@ -247,27 +265,33 @@ func New() Model {
 	ii.Prompt = ""
 	gi := textinput.New()
 	gi.Prompt = ""
+	pi := textinput.New()
+	pi.Prompt = ""
+	lfi := textinput.New()
+	lfi.Prompt = ""
 	cfg, cfgErr := config.Load()
 	m := Model{
-		sys:        systemd.New(),
-		lc:         loginctl.New(),
-		table:      t,
-		viewport:   vp,
-		help:       help.New(),
-		spinner:    spinner.New(spinner.WithSpinner(spinner.Dot)),
-		filterIn:   fi,
-		searchIn:   si,
-		cfg:        cfg,
-		generator:  quadlet.GeneratorBinary(),
-		instanceIn: ii,
-		genIn:      gi,
-		inspect:    &quadlet.InspectCache{},
-		status:     map[string]systemd.Status{},
-		images:     map[string]string{},
-		health:     map[string]string{},
-		loading:    true,
-		readonly:   cfg.Readonly(),
-		custom:     cfg.Settings.CustomCommands,
+		sys:         systemd.New(),
+		lc:          loginctl.New(),
+		table:       t,
+		viewport:    vp,
+		help:        help.New(),
+		spinner:     spinner.New(spinner.WithSpinner(spinner.Dot)),
+		filterIn:    fi,
+		searchIn:    si,
+		paletteIn:   pi,
+		logFilterIn: lfi,
+		cfg:         cfg,
+		generator:   quadlet.GeneratorBinary(),
+		instanceIn:  ii,
+		genIn:       gi,
+		inspect:     &quadlet.InspectCache{},
+		status:      map[string]systemd.Status{},
+		images:      map[string]string{},
+		health:      map[string]string{},
+		loading:     true,
+		readonly:    cfg.Readonly(),
+		custom:      cfg.Settings.CustomCommands,
 	}
 	m.pollInterval = cfg.RefreshInterval()
 	m.mouse = cfg.Settings.Mouse
@@ -292,6 +316,8 @@ type Options struct {
 	Mouse       bool
 	Theme       string
 	QuadletDirs []string
+	ClientInfo  string
+	NoEditor    bool
 }
 
 // Run starts the quadman TUI.
@@ -305,8 +331,8 @@ func RunWith(readonly bool) error {
 	return RunWithOptions(Options{Readonly: readonly})
 }
 
-// RunWithOptions starts the quadman TUI with CLI overrides.
-func RunWithOptions(o Options) error {
+// NewWithOptions returns a configured Model with CLI overrides applied.
+func NewWithOptions(o Options) Model {
 	m := New()
 	if o.SSH != "" {
 		m.applySSH(o.SSH)
@@ -323,6 +349,18 @@ func RunWithOptions(o Options) error {
 	if len(o.QuadletDirs) > 0 {
 		applyExtraDirs(o.QuadletDirs)
 	}
+	if o.ClientInfo != "" {
+		m.clientInfo = o.ClientInfo
+	}
+	if o.NoEditor {
+		m.noEditor = true
+	}
+	return m
+}
+
+// RunWithOptions starts the quadman TUI with CLI overrides.
+func RunWithOptions(o Options) error {
+	m := NewWithOptions(o)
 	_, err := tea.NewProgram(m).Run()
 	return err
 }
@@ -431,7 +469,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				dimErrStyle.Render("journalctl failed for " + msg.unit + "\n\n" + msg.err.Error() +
 					"\n\nHint: the user journal may be missing. Is systemd user session running?"))
 		} else {
-			m.viewport.SetContent(msg.out)
+			if msg.out != "" {
+				m.logLines = strings.Split(msg.out, "\n")
+				m.viewport.SetContent(strings.Join(m.visibleLogLines(), "\n"))
+			} else {
+				m.viewport.SetContent(msg.out)
+			}
 		}
 		m.viewport.GotoBottom()
 		m.mode = modeDetail
@@ -464,7 +507,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.logLines) > logBufferCap {
 			m.logLines = m.logLines[len(m.logLines)-logBufferCap:]
 		}
-		m.viewport.SetContent(strings.Join(m.logLines, "\n"))
+		m.viewport.SetContent(strings.Join(m.visibleLogLines(), "\n"))
 		if m.following && wasAtBottom {
 			m.viewport.GotoBottom()
 		}
@@ -655,6 +698,15 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	if mm, cmd, ok := m.filterKeys(msg); ok {
 		return mm, cmd
+	}
+
+	// Command Palette modal handler or launcher.
+	if mm, cmd, ok := m.modePaletteKeys(msg); ok {
+		return mm, cmd
+	}
+	if msg.String() == "ctrl+p" {
+		m.openPalette()
+		return m, nil
 	}
 
 	// One small handler per mode.

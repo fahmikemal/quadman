@@ -71,6 +71,10 @@ func (m Model) editKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if msg.String() != "E" {
 		return m, nil, false
 	}
+	if m.noEditor {
+		m.setStatus("editor not available in SSH server session: edit Quadlet files directly on the host", true)
+		return m, nil, true
+	}
 	if m.refuseRemoteWrite() {
 		return m, nil, true
 	}
@@ -79,7 +83,6 @@ func (m Model) editKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	}
 	mm, cmd := m.editSelected()
 	return mm, cmd, true
-
 }
 
 func (m Model) updatesOpenKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
