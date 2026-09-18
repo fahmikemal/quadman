@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/kemal-labs/quadman/internal/quadlet"
+	"github.com/fahmikemal/quadman/internal/quadlet"
 )
 
 // withDropins renders a unit file followed by every drop-in the generator

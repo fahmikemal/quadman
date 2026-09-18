@@ -5,7 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/kemal-labs/quadman/internal/quadlet"
+	"github.com/fahmikemal/quadman/internal/quadlet"
 )
 
 func (m Model) bundleKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {

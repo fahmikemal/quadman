@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kemal-labs/quadman/internal/remote"
+	"github.com/fahmikemal/quadman/internal/remote"
 )
 
 // DefaultTimeout bounds each systemctl/journalctl call so a hung binary

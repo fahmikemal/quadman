@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kemal-labs/quadman/internal/remote"
+	"github.com/fahmikemal/quadman/internal/remote"
 )
 
 func fakeRunner(t *testing.T, script string) remote.Runner {

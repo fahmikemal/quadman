@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/kemal-labs/quadman/internal/quadlet"
-	"github.com/kemal-labs/quadman/internal/vercmp"
+	"github.com/fahmikemal/quadman/internal/quadlet"
+	"github.com/fahmikemal/quadman/internal/vercmp"
 )
 
 // unitIssues indexes validation issues by quadlet base name (file name

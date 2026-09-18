@@ -15,13 +15,13 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/kemal-labs/quadman/internal/config"
-	"github.com/kemal-labs/quadman/internal/loginctl"
-	"github.com/kemal-labs/quadman/internal/podlet"
-	"github.com/kemal-labs/quadman/internal/podman"
-	"github.com/kemal-labs/quadman/internal/quadlet"
-	"github.com/kemal-labs/quadman/internal/remote"
-	"github.com/kemal-labs/quadman/internal/systemd"
+	"github.com/fahmikemal/quadman/internal/config"
+	"github.com/fahmikemal/quadman/internal/loginctl"
+	"github.com/fahmikemal/quadman/internal/podlet"
+	"github.com/fahmikemal/quadman/internal/podman"
+	"github.com/fahmikemal/quadman/internal/quadlet"
+	"github.com/fahmikemal/quadman/internal/remote"
+	"github.com/fahmikemal/quadman/internal/systemd"
 )
 
 type mode int

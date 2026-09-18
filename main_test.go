@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kemal-labs/quadman/internal/systemd"
+	"github.com/fahmikemal/quadman/internal/systemd"
 )
 
 // fakeSystemctl writes a script that answers `systemctl show` for the two

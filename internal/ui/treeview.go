@@ -5,7 +5,7 @@ import (
 
 	"charm.land/bubbles/v2/tree"
 
-	"github.com/kemal-labs/quadman/internal/quadlet"
+	"github.com/fahmikemal/quadman/internal/quadlet"
 )
 
 // buildTree constructs the dependency tree: every unit as a node, its

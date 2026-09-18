@@ -4,10 +4,10 @@
 
 **A terminal UI manager for rootless Podman [Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) units.**
 
-[![CI](https://github.com/kemal-labs/quadman/actions/workflows/ci.yml/badge.svg)](https://github.com/kemal-labs/quadman/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/kemal-labs/quadman)](https://github.com/kemal-labs/quadman/releases)
-[![Go Reference](https://pkg.go.dev/badge/github.com/kemal-labs/quadman.svg)](https://pkg.go.dev/github.com/kemal-labs/quadman)
-[![Go Report Card](https://goreportcard.com/badge/github.com/kemal-labs/quadman)](https://goreportcard.com/report/github.com/kemal-labs/quadman)
+[![CI](https://github.com/fahmikemal/quadman/actions/workflows/ci.yml/badge.svg)](https://github.com/fahmikemal/quadman/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/fahmikemal/quadman)](https://github.com/fahmikemal/quadman/releases)
+[![Go Reference](https://pkg.go.dev/badge/github.com/fahmikemal/quadman.svg)](https://pkg.go.dev/github.com/fahmikemal/quadman)
+[![Go Report Card](https://goreportcard.com/badge/github.com/fahmikemal/quadman)](https://goreportcard.com/report/github.com/fahmikemal/quadman)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 </div>
@@ -94,17 +94,17 @@ the TUI — pause with `f`, search with `/`:
 ## Install
 
 Download a prebuilt binary (Linux amd64/arm64) from the
-[Releases](https://github.com/kemal-labs/quadman/releases) page:
+[Releases](https://github.com/fahmikemal/quadman/releases) page:
 
 ```sh
-curl -LO https://github.com/kemal-labs/quadman/releases/latest/download/quadman_0.4.3_linux_amd64.tar.gz
+curl -LO https://github.com/fahmikemal/quadman/releases/latest/download/quadman_0.4.3_linux_amd64.tar.gz
 tar -xzf quadman_0.4.3_linux_amd64.tar.gz && sudo install quadman /usr/local/bin/
 ```
 
 Or with Go:
 
 ```sh
-go install github.com/kemal-labs/quadman@latest
+go install github.com/fahmikemal/quadman@latest
 ```
 
 Or build from a clone:

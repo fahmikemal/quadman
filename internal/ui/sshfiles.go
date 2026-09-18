@@ -5,7 +5,7 @@ import (
 	"errors"
 	"os"
 
-	"github.com/kemal-labs/quadman/internal/quadlet"
+	"github.com/fahmikemal/quadman/internal/quadlet"
 )
 
 // errNoSuchUnit is returned when a tree lookup names a unit that is not in
