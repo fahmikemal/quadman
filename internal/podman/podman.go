@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kemal-labs/quadman/internal/remote"
-	"github.com/kemal-labs/quadman/internal/vercmp"
+	"github.com/fahmikemal/quadman/internal/remote"
+	"github.com/fahmikemal/quadman/internal/vercmp"
 )
 
 // Timeout bounds the podman call; 0 means DefaultTimeout. podman can be slow

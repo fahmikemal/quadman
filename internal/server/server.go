@@ -19,7 +19,7 @@ import (
 	"charm.land/wish/v2/bubbletea"
 	"charm.land/wish/v2/logging"
 
-	"github.com/kemal-labs/quadman/internal/ui"
+	"github.com/fahmikemal/quadman/internal/ui"
 )
 
 // DefaultAddress is the default network interface and port the server listens on.

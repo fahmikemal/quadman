@@ -8,8 +8,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/kemal-labs/quadman/internal/config"
-	"github.com/kemal-labs/quadman/internal/quadlet"
+	"github.com/fahmikemal/quadman/internal/config"
+	"github.com/fahmikemal/quadman/internal/quadlet"
 )
 
 // TestFeatureReadonlyEndToEnd drives readonly mode through its full flow:

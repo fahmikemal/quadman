@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/kemal-labs/quadman/internal/quadlet"
+	"github.com/fahmikemal/quadman/internal/quadlet"
 )
 
 // paletteAction represents a single executable action inside the Command Palette.

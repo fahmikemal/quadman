@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/kemal-labs/quadman/internal/systemd"
+	"github.com/fahmikemal/quadman/internal/systemd"
 )
 
 func TestPaletteOpenAndClose(t *testing.T) {

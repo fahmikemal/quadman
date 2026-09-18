@@ -4,7 +4,7 @@ import (
 	"charm.land/bubbles/v2/table"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/kemal-labs/quadman/internal/quadlet"
+	"github.com/fahmikemal/quadman/internal/quadlet"
 )
 
 // refilter recomputes the visible unit list after the filter changed,

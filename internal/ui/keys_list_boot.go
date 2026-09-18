@@ -6,8 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/kemal-labs/quadman/internal/podman"
-	"github.com/kemal-labs/quadman/internal/quadlet"
+	"github.com/fahmikemal/quadman/internal/podman"
+	"github.com/fahmikemal/quadman/internal/quadlet"
 )
 
 // Boot enablement, edit, updates, and health actions.

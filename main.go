@@ -19,11 +19,11 @@ import (
 	"syscall"
 	"text/tabwriter"
 
-	"github.com/kemal-labs/quadman/internal/config"
-	"github.com/kemal-labs/quadman/internal/quadlet"
-	"github.com/kemal-labs/quadman/internal/server"
-	"github.com/kemal-labs/quadman/internal/systemd"
-	"github.com/kemal-labs/quadman/internal/ui"
+	"github.com/fahmikemal/quadman/internal/config"
+	"github.com/fahmikemal/quadman/internal/quadlet"
+	"github.com/fahmikemal/quadman/internal/server"
+	"github.com/fahmikemal/quadman/internal/systemd"
+	"github.com/fahmikemal/quadman/internal/ui"
 )
 
 var version = "dev"

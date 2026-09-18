@@ -7,7 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/kemal-labs/quadman/internal/quadlet"
+	"github.com/fahmikemal/quadman/internal/quadlet"
 )
 
 // bulkMsg is the result of one unit inside a mass action.

@@ -1,4 +1,4 @@
-module github.com/kemal-labs/quadman/e2e
+module github.com/fahmikemal/quadman/e2e
 
 go 1.25.0
 

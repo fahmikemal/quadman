@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kemal-labs/quadman/internal/remote"
+	"github.com/fahmikemal/quadman/internal/remote"
 )
 
 // DiscoverRemote lists Quadlet units on a remote host. It prefers

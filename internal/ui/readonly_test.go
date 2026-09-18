@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/kemal-labs/quadman/internal/config"
+	"github.com/fahmikemal/quadman/internal/config"
 )
 
 func readonlyModel() Model {

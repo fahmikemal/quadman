@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kemal-labs/quadman/internal/remote"
+	"github.com/fahmikemal/quadman/internal/remote"
 )
 
 // DefaultTimeout bounds podlet calls (it is a local converter, no network).

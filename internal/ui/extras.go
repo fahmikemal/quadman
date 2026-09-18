@@ -10,10 +10,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/kemal-labs/quadman/internal/podlet"
-	"github.com/kemal-labs/quadman/internal/podman"
-	"github.com/kemal-labs/quadman/internal/quadlet"
-	"github.com/kemal-labs/quadman/internal/shellwords"
+	"github.com/fahmikemal/quadman/internal/podlet"
+	"github.com/fahmikemal/quadman/internal/podman"
+	"github.com/fahmikemal/quadman/internal/quadlet"
+	"github.com/fahmikemal/quadman/internal/shellwords"
 )
 
 // --- Storage screen (g) ---------------------------------------------------
