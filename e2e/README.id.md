@@ -4,7 +4,7 @@
   <a href="README.md"><b>English</b></a> | <a href="README.id.md"><b>Bahasa Indonesia</b></a>
 </p>
 
-Menjalankan TUI asli di dalam pseudo-terminal (PTY): mengirimkan penekanan tombol nyata dan memverifikasi apa yang dirender di layar terminal, mencakup penemuan unit (discovery), filter fuzzy, start/stop, healthcheck, follow logs, enable/disable saat boot, layar auto-update, banner file usang (stale banner), daemon-reload, toggle linger pengguna, help overlay, dan tampilan berkas.
+Menjalankan TUI asli di dalam pseudo-terminal (PTY): mengirimkan penekanan tombol nyata dan memverifikasi apa yang dirender di layar terminal, mencakup penemuan unit (discovery), filter fuzzy, start/stop, healthcheck, follow logs, enable/disable saat boot, layar auto-update, banner file usang (stale banner), daemon-reload, toggle linger pengguna, help overlay, tampilan berkas, jadwal systemd timers, inspeksi dan validasi pre-flight podman secrets, serta ekspor skill agen AI.
 
 Modul ini sengaja dipisahkan (memiliki `go.mod` tersendiri) agar modul utama tetap bebas dari dependensi yang hanya dibutuhkan untuk tes, dan alur CI tidak menjalankannya secara default — modul ini memerlukan sesi pengguna (*user session*) systemd aktif, podman, dan unit-unit Quadlet di host.
 

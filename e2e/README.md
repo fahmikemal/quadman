@@ -7,7 +7,9 @@
 Drives the real TUI in a pseudo-terminal: sends actual keystrokes and
 asserts what the screen renders, covering discovery, filter, start/stop,
 healthcheck, follow logs, enable/disable at boot, the auto-update screen,
-the stale banner, daemon-reload, linger toggling, help, and file view.
+the stale banner, daemon-reload, linger toggling, help, file view,
+systemd timers schedules, podman secrets inspection and pre-flight validation,
+and AI agent skill export.
 
 This module is intentionally separate (its own go.mod) so the main module
 stays free of test-only dependencies, and CI does not run it — it needs a

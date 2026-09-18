@@ -445,6 +445,9 @@ func runExtraScenarios() {
 	scenarioCommandPalette()
 	scenarioLogExportAndFilter()
 	scenarioSystemMode()
+	scenarioTimersAndSecrets()
+	scenarioSecretValidation(quadletDir)
+	scenarioAgentSkill()
 }
 
 // scenarioStorage: g opens the storage screen with podman system df output.
@@ -1229,6 +1232,99 @@ func scenarioSystemMode() {
 	out := runOut("./quadman", "--system", "list")
 	listOk := strings.Contains(out, "QUADLET") || strings.Contains(out, "/etc/containers/systemd")
 	check("system cli list", listOk, "perintah list --system jalan dan mencari di path system")
+}
+
+// scenarioTimersAndSecrets tests the Timers view (T), Secrets view (K), and Command Palette actions.
+func scenarioTimersAndSecrets() {
+	drain()
+	cmd, f := launch(120, 42)
+	defer quit(cmd, f)
+	ok := waitFor("QUADLET", 12*time.Second)
+	check("timers/secrets launch", ok, "daftar utama muncul")
+
+	// 1. Timers view via 'T'
+	send(f, "T")
+	ok = waitFor("TIMERS", 8*time.Second)
+	check("timers view T", ok, "tombol T membuka layar SYSTEMD TIMERS")
+	time.Sleep(300 * time.Millisecond)
+	hasTimerContent := strings.Contains(last(), "UNIT") || strings.Contains(last(), "No systemd timers found")
+	check("timers content", hasTimerContent, "tabel timer merender kolom UNIT atau pesan kosong")
+	// Test refresh 'r'
+	send(f, "r")
+	time.Sleep(300 * time.Millisecond)
+	// Exit timers view with 'q'
+	send(f, "q")
+	time.Sleep(400 * time.Millisecond)
+	ok = waitFor("QUADLET", 4*time.Second)
+	check("timers exit", ok, "tombol q menutup layar timers")
+
+	// 2. Secrets view via 'K'
+	drain()
+	send(f, "K")
+	ok = waitFor("SECRETS", 8*time.Second)
+	check("secrets view K", ok, "tombol K membuka layar PODMAN SECRETS")
+	time.Sleep(300 * time.Millisecond)
+	hasSecretContent := strings.Contains(last(), "NAME") || strings.Contains(last(), "No Podman secrets found")
+	check("secrets content", hasSecretContent, "tabel secret merender kolom NAME atau petunjuk podman secret create")
+	// Exit secrets view with 'q'
+	send(f, "q")
+	time.Sleep(400 * time.Millisecond)
+	ok = waitFor("QUADLET", 4*time.Second)
+	check("secrets exit", ok, "tombol q menutup layar secrets")
+
+	// 3. Command palette shortcuts for Timers and Secrets
+	send(f, "\x10") // Ctrl+P
+	ok = waitFor("COMMAND PALETTE", 4*time.Second)
+	send(f, "timers")
+	time.Sleep(300 * time.Millisecond)
+	ok = waitFor("Systemd Timers", 3*time.Second)
+	check("palette timers action", ok, "palette fuzzy search menemukan aksi Timers")
+	send(f, "\x1b")
+	time.Sleep(300 * time.Millisecond)
+
+	send(f, "\x10") // Ctrl+P
+	ok = waitFor("COMMAND PALETTE", 4*time.Second)
+	send(f, "secrets")
+	time.Sleep(300 * time.Millisecond)
+	ok = waitFor("Podman Secret Store", 3*time.Second)
+	check("palette secrets action", ok, "palette fuzzy search menemukan aksi Secrets")
+	send(f, "\x1b")
+	time.Sleep(300 * time.Millisecond)
+}
+
+// scenarioSecretValidation tests pre-flight validation of Secret= directives in .container files.
+func scenarioSecretValidation(quadletDir string) {
+	writeUnit(quadletDir, "e2e-sec.container", "[Container]\nImage=docker.io/library/busybox:latest\nSecret=e2e_missing_secret_xyz,type=env\n")
+	reload()
+	defer removeUnit(quadletDir, "e2e-sec.container")
+	defer reload()
+
+	drain()
+	cmd, f := launch(120, 42)
+	defer quit(cmd, f)
+	if !waitFor("e2e-sec", 12*time.Second) {
+		check("secret validation launch", false, "unit e2e-sec tidak muncul di daftar")
+		return
+	}
+	send(f, "R") // daemon-reload -> enrichFull -> ValidateSecrets
+	time.Sleep(1 * time.Second)
+	drain()
+	send(f, "v")
+	ok := waitFor("e2e_missing_secret_xyz", 8*time.Second)
+	check("secret validation v", ok, "layar problems (v) mendeteksi dan menampilkan peringatan missing secret")
+	send(f, "\x1b")
+	time.Sleep(300 * time.Millisecond)
+}
+
+// scenarioAgentSkill tests CLI flags and subcommands for exporting AI agent skills.
+func scenarioAgentSkill() {
+	outSkill := runOut("./quadman", "--skill")
+	skillOk := strings.Contains(outSkill, "# Agent Skill: quadman") && strings.Contains(outSkill, "quadman --skill")
+	check("cli --skill export", skillOk, "flag --skill mencetak definisi Agent Skill dalam format Markdown")
+
+	outSkillJSON := runOut("./quadman", "skill", "--format", "json")
+	jsonOk := strings.Contains(outSkillJSON, `"name": "quadman"`) && strings.Contains(outSkillJSON, `"tools"`)
+	check("cli skill --format json", jsonOk, "subcommand skill --format json mencetak schema JSON yang valid")
 }
 
 func logPumpErr(err error) {

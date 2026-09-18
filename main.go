@@ -82,8 +82,16 @@ func main() {
 			serve(args[1:], *readonly, *mouse, *theme, quadletDirs, system)
 		case "skill":
 			format := "markdown"
-			if len(args) > 1 && (args[1] == "json" || args[1] == "--json") {
-				format = "json"
+			for i := 1; i < len(args); i++ {
+				arg := args[i]
+				if arg == "json" || arg == "--json" || arg == "-json" {
+					format = "json"
+				} else if strings.HasPrefix(arg, "--format=") || strings.HasPrefix(arg, "-format=") {
+					format = strings.SplitN(arg, "=", 2)[1]
+				} else if (arg == "--format" || arg == "-format") && i+1 < len(args) {
+					format = args[i+1]
+					i++
+				}
 			}
 			printSkill(format)
 		default:
