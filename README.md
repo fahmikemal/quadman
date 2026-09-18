@@ -136,6 +136,8 @@ quadman --mouse                  # opt-in click-to-select
 quadman --quadlet-dir ~/quadlets # extra Quadlet source dir (repeatable)
 quadman list                     # non-interactive overview for scripts and pipes
 quadman list --system            # list system-wide quadlets
+quadman --skill                  # export AI Agent Skill specification (markdown)
+quadman --skill --skill-format=json # export AI Agent Skill specification in JSON format
 quadman -version
 ```
 
@@ -163,6 +165,8 @@ quadman -version
 | `[` / `]` | cycle detail tabs: source / status / journal / inspect |
 | `I`   | install a `.quadlets` bundle (`podman quadlet install`) |
 | `g`   | storage screen (`podman system df --verbose`, `r` refresh) |
+| `T`   | systemd timers screen (view scheduled timers, countdowns, and triggers) |
+| `K`   | secrets screen (view Podman secret store, drivers, and metadata) |
 | `w`   | live podman events stream (`f` pause) |
 | `n`   | generate a quadlet via podlet (`podman run ...`, `docker run ...`, `run ...` shorthand, or `compose <path>`) |
 | `A`   | recent-actions log (what ran, when, and whether it worked) |
@@ -315,11 +319,11 @@ feature tiers, patch bumps for accumulated fixes.
 - [x] **Log Export & Live Filtering** — export journal logs to timestamped `.log` (plain text) and `.jsonl` (structured journal format) files (`S`), OSC52 clipboard copy (`c`), live grep filtering (`F`), and log priority cycling (`p`: err, warning, info, all).
 - [x] **Native Rootful / System Mode (`--system`)** — first-class support for system-wide Quadlet units (`/etc/containers/systemd`, `/run/containers/systemd`, `/usr/share/containers/systemd`), auto-detection when executed as root (UID 0 / `sudo quadman`), dynamic `--user` CLI switching, and system linger safeguards.
 
-### Next Horizon
+### v0.5.0 — Tier 5: Secrets, Timers & Agent Tooling (✅ shipped)
 
-- [ ] Secret management integration (Podman secret units, `Secret=` keys inspection)
-- [ ] Standalone systemd timer entities view (`*.timer` and calendar schedules)
-- [ ] Export Agent Skill / CLI definition (`quadman --skill` for AI agent tooling)
+- [x] **Podman Secrets Integration** — inspect Podman secrets store (`K`), and automatic pre-flight reference validation for `Secret=` directives in `.container` files with warnings in the Problems (`v`) view.
+- [x] **Standalone Systemd Timers View (`T`)** — inspect all active and scheduled calendar timers (`systemctl list-timers`), execution triggers, and countdowns directly in the TUI.
+- [x] **AI Agent Skill Export (`quadman --skill`)** — export machine-readable JSON tool schemas and comprehensive Markdown documentation for LLM coding agents.
 
 ### Notable ecosystem notes (Sep 2026)
 

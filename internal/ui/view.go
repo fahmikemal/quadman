@@ -116,6 +116,14 @@ func (m Model) View() tea.View {
 		b.WriteString(headerStyle.Render(" ACTIONS — recent results this session "))
 		b.WriteString("\n")
 		b.WriteString(m.viewport.View())
+	case modeTimers:
+		b.WriteString(headerStyle.Render(" TIMERS — systemd active & scheduled calendar timers "))
+		b.WriteString("\n")
+		b.WriteString(m.viewport.View())
+	case modeSecrets:
+		b.WriteString(headerStyle.Render(" SECRETS — podman secret store "))
+		b.WriteString("\n")
+		b.WriteString(m.viewport.View())
 	case modePalette:
 		b.WriteString(m.paletteView())
 	}

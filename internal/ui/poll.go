@@ -132,6 +132,21 @@ func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, cache *quadlet.Insp
 			}
 			if !runner.IsRemote() {
 				issues, _ = quadlet.ValidateMode(ctx, quadlet.SearchDirsMode(system), system)
+				if secList, serr := podman.SecretList(ctx); serr == nil {
+					secNames := make([]string, len(secList))
+					for i, s := range secList {
+						secNames[i] = s.Name
+					}
+					var parsedFiles []*quadlet.File
+					for _, u := range units {
+						if u.Kind == quadlet.KindContainer && u.Path != "" {
+							if pf, perr := quadlet.Parse(u.Path); perr == nil {
+								parsedFiles = append(parsedFiles, pf)
+							}
+						}
+					}
+					issues = append(issues, quadlet.ValidateSecrets(parsedFiles, secNames)...)
+				}
 			}
 			if ver, verr := podman.Version(ctx); verr == nil {
 				version = ver

@@ -252,3 +252,25 @@ func Version(ctx context.Context) (string, error) {
 func VersionAtLeast(have, want string) bool {
 	return vercmp.AtLeast(have, want)
 }
+
+// SecretEntry represents one secret reported by `podman secret ls --format json`.
+type SecretEntry struct {
+	ID        string `json:"ID"`
+	Name      string `json:"Name"`
+	CreatedAt string `json:"CreatedAt"`
+	UpdatedAt string `json:"UpdatedAt"`
+	Driver    string `json:"Driver"`
+}
+
+// SecretList runs `podman secret ls --format json` and returns all configured secrets.
+func SecretList(ctx context.Context) ([]SecretEntry, error) {
+	out, err := runPodman(ctx, "secret", "ls", "--format", "json")
+	if err != nil {
+		return nil, err
+	}
+	var entries []SecretEntry
+	if err := json.Unmarshal(out, &entries); err != nil {
+		return nil, fmt.Errorf("podman secret ls: %w", err)
+	}
+	return entries, nil
+}

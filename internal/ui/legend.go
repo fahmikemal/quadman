@@ -12,7 +12,7 @@ func (m Model) keys() keyMap {
 		return detailKeys()
 	case modeEvents:
 		return detailKeys()
-	case modeUpdates, modeValidate, modeTree, modeStorage, modeGenerate, modeRecent:
+	case modeUpdates, modeValidate, modeTree, modeStorage, modeGenerate, modeRecent, modeTimers, modeSecrets:
 		return updatesKeys()
 	}
 	return listKeys()
@@ -87,6 +87,10 @@ func (m Model) legend() []string {
 		return []string{"U toggle timer · r refresh · esc/q back"}
 	case modeRecent:
 		return []string{"esc/q back"}
+	case modeTimers:
+		return []string{"r refresh · ↑/↓ scroll · esc/q back"}
+	case modeSecrets:
+		return []string{"r refresh · ↑/↓ scroll · esc/q back"}
 	}
 	w := m.help.Width()
 	keys := legendKeys()

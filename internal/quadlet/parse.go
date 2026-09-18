@@ -51,6 +51,51 @@ func (f *File) Image() string {
 	return f.Section("Container").Get("Image")
 }
 
+// SecretRef represents one secret reference from a Secret= directive in [Container].
+type SecretRef struct {
+	Name   string
+	Type   string // "mount" (default) or "env"
+	Target string
+}
+
+// Secrets returns all Secret= directives declared in the [Container] section.
+func (f *File) Secrets() []SecretRef {
+	sec := f.Section("Container")
+	if sec == nil {
+		return nil
+	}
+	raw := sec.GetAll("Secret")
+	if len(raw) == 0 {
+		return nil
+	}
+	var refs []SecretRef
+	for _, r := range raw {
+		r = strings.TrimSpace(r)
+		if r == "" {
+			continue
+		}
+		parts := strings.Split(r, ",")
+		ref := SecretRef{
+			Name: strings.TrimSpace(parts[0]),
+			Type: "mount",
+		}
+		for _, p := range parts[1:] {
+			k, v, ok := strings.Cut(p, "=")
+			if !ok {
+				continue
+			}
+			switch strings.ToLower(strings.TrimSpace(k)) {
+			case "type":
+				ref.Type = strings.TrimSpace(v)
+			case "target":
+				ref.Target = strings.TrimSpace(v)
+			}
+		}
+		refs = append(refs, ref)
+	}
+	return refs
+}
+
 // Parse reads and parses a Quadlet unit file. Lines outside any section,
 // comments, and malformed lines are ignored, like systemd's parser does for
 // well-formed generators. A trailing backslash continues the value on the

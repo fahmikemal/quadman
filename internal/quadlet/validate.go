@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -117,4 +118,35 @@ func ValidateError(issues []Issue) string {
 		}
 	}
 	return fmt.Sprintf("%d error(s), %d warning(s)", errs, warns)
+}
+
+// ValidateSecrets checks if any Quadlet file references a secret that is not
+// present in availableSecrets. If availableSecrets is nil, validation is skipped.
+func ValidateSecrets(files []*File, availableSecrets []string) []Issue {
+	if availableSecrets == nil {
+		return nil
+	}
+	known := make(map[string]bool, len(availableSecrets))
+	for _, s := range availableSecrets {
+		known[s] = true
+	}
+
+	var issues []Issue
+	for _, f := range files {
+		if f == nil {
+			continue
+		}
+		base := filepath.Base(f.Path)
+		for _, sec := range f.Secrets() {
+			if !known[sec.Name] {
+				issues = append(issues, Issue{
+					File:     base,
+					Path:     f.Path,
+					Severity: SeverityWarning,
+					Message:  fmt.Sprintf("secret %q not found in podman secret store (run: podman secret create %s <file>)", sec.Name, sec.Name),
+				})
+			}
+		}
+	}
+	return issues
 }
