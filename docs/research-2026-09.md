@@ -1,5 +1,9 @@
 # Riset & Katalog Fitur quadman
 
+<p align="left">
+  <a href="research-2026-09.en.md"><b>English</b></a> | <a href="research-2026-09.md"><b>Bahasa Indonesia</b></a>
+</p>
+
 Kompilasi riset ekosistem (Podman/Quadlet, TUI pembanding, Charm stack) untuk
 menyusun arah pengembangan quadman. Disusun 2026-09-12 dari sumber primer
 (dokumentasi resmi, source code generator Podman, GitHub, Context7).
