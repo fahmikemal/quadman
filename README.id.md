@@ -93,6 +93,8 @@ quadman --mouse                  # Aktifkan navigasi klik mouse
 quadman --quadlet-dir ~/quadlets # Direktori sumber Quadlet tambahan (dapat diulang)
 quadman list                     # Output daftar non-interaktif untuk integrasi script/piping
 quadman list --system            # Tampilkan daftar quadlet tingkat sistem
+quadman --skill                  # Ekspor spesifikasi Agent Skill untuk AI (markdown)
+quadman --skill --skill-format=json # Ekspor spesifikasi Agent Skill dalam format JSON
 quadman -version
 ```
 
@@ -120,6 +122,8 @@ quadman -version
 | `[` / `]` | Berpindah tab detail: source / status / journal / inspect |
 | `I` | Pasang bundel `.quadlets` (`podman quadlet install`) |
 | `g` | Layar penyimpanan (*storage*: `podman system df --verbose`, `r` untuk refresh) |
+| `T` | Layar timer systemd (melihat jadwal aktif, pemicu service, dan hitung mundur kalender) |
+| `K` | Layar secret Podman (melihat penyimpanan secret Podman, driver, dan metadata) |
 | `w` | Live streaming event podman (`f` untuk jeda) |
 | `n` | Generator quadlet via podlet (`podman run ...`, `docker run ...`, singkatan `run ...`, atau `compose <path>`) |
 | `A` | Log aksi terakhir (melihat perintah apa yang dijalankan, waktu, dan hasilnya) |
@@ -243,11 +247,11 @@ quadman dirilis secara terstruktur dalam kelompok fitur (lihat [CONTRIBUTING.id.
 - [x] **Ekspor Log & Filter Interaktif** — ekspor log journal ke berkas terstempel waktu `.log` (teks biasa) dan `.jsonl` (format journal terstruktur) (`S`), salin ke clipboard OSC52 (`c`), live grep filter (`F`), dan toggle prioritas log (`p`: err, warning, info, all).
 - [x] **Mode Native Sistem / Rootful (`--system`)** — dukungan kelas satu untuk unit Quadlet tingkat sistem (`/etc/containers/systemd`, `/run/containers/systemd`, `/usr/share/containers/systemd`), deteksi otomatis hak akses root (UID 0 / `sudo quadman`), penyesuaian dinamis argumen CLI `--user`, serta proteksi status linger sistem.
 
-### Rencana Selanjutnya (Next Horizon)
+### v0.5.0 — Tier 5: Secrets, Timers & Agent Tooling (✅ Telah Dirilis)
 
-- [ ] Integrasi manajemen rahasia Podman (inspeksi direktif `Secret=` dan validasi keberadaan secret di host)
-- [ ] Tampilan entitas timer systemd independen (`*.timer` dan jadwal kalender)
-- [ ] Ekspor Definisi / Agent Skill CLI (`quadman --skill` untuk perkakas otomasi AI coding agent)
+- [x] **Integrasi Rahasia Podman (Secrets)** — inspeksi penyimpanan rahasia Podman (`K`), dan validasi referensi *pre-flight* otomatis untuk direktif `Secret=` pada berkas `.container` dengan peringatan dini di layar masalah (`v`).
+- [x] **Tampilan Entitas Timer Systemd (`T`)** — inspeksi seluruh timer kalender yang aktif dan terjadwal (`systemctl list-timers`), pemicu eksekusi, serta hitung mundur waktu langsung di dalam TUI.
+- [x] **Ekspor Agent Skill AI (`quadman --skill`)** — ekspor skema perkakas JSON yang dapat dibaca mesin dan dokumentasi Markdown komprehensif untuk LLM coding agents.
 
 ### Catatan Ekosistem (Sep 2026)
 

@@ -17,7 +17,20 @@ func (m Model) storageKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, false
 	}
 	return m, tea.Batch(m.setBusy("system df"), storageCmd()), true
+}
 
+func (m Model) timersKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
+	if msg.String() != "T" {
+		return m, nil, false
+	}
+	return m, tea.Batch(m.setBusy("systemd timers"), timersCmd(m.sys)), true
+}
+
+func (m Model) secretsKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
+	if msg.String() != "K" {
+		return m, nil, false
+	}
+	return m, tea.Batch(m.setBusy("podman secrets"), secretsCmd()), true
 }
 
 func (m Model) eventsKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {

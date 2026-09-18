@@ -36,6 +36,8 @@ const (
 	modeEvents
 	modeGenerate
 	modeRecent  // recent-actions log (A)
+	modeTimers  // systemd timer entities (T)
+	modeSecrets // podman secret store (K)
 	modePalette // command palette (Ctrl+P)
 )
 
@@ -586,6 +588,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resize()
 		return m, nil
 
+	case timersMsg:
+		m.busy = false
+		if msg.err != nil {
+			m.setStatus("timers: "+msg.err.Error(), true)
+			return m, nil
+		}
+		m.mode = modeTimers
+		m.viewport.SetContent(msg.content)
+		m.viewport.GotoTop()
+		m.resize()
+		return m, nil
+
+	case secretsMsg:
+		m.busy = false
+		if msg.err != nil {
+			m.setStatus("secrets: "+msg.err.Error(), true)
+			return m, nil
+		}
+		m.mode = modeSecrets
+		m.viewport.SetContent(msg.content)
+		m.viewport.GotoTop()
+		m.resize()
+		return m, nil
+
 	case generateMsg:
 		m.busy = false
 		if msg.err != nil {
@@ -750,6 +776,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if mm, cmd, ok := m.modeRecentKeys(msg); ok {
 		return mm, cmd
 	}
+	if mm, cmd, ok := m.modeTimersKeys(msg); ok {
+		return mm, cmd
+	}
+	if mm, cmd, ok := m.modeSecretsKeys(msg); ok {
+		return mm, cmd
+	}
 
 	// .quadlets bundles get their own small action set: preview + install.
 	if mm, cmd, ok := m.bundleKeys(msg); ok {
@@ -791,6 +823,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return mm, cmd
 	}
 	if mm, cmd, ok := m.storageKeys(msg); ok {
+		return mm, cmd
+	}
+	if mm, cmd, ok := m.timersKeys(msg); ok {
+		return mm, cmd
+	}
+	if mm, cmd, ok := m.secretsKeys(msg); ok {
 		return mm, cmd
 	}
 	if mm, cmd, ok := m.eventsKeys(msg); ok {

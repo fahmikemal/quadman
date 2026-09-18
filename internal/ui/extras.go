@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"text/tabwriter"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/fahmikemal/quadman/internal/podman"
 	"github.com/fahmikemal/quadman/internal/quadlet"
 	"github.com/fahmikemal/quadman/internal/shellwords"
+	"github.com/fahmikemal/quadman/internal/systemd"
 )
 
 // --- Storage screen (g) ---------------------------------------------------
@@ -27,6 +29,60 @@ func storageCmd() tea.Cmd {
 	return func() tea.Msg {
 		text, err := podman.SystemDf(context.Background())
 		return storageMsg{content: text, err: err}
+	}
+}
+
+// --- Timers screen (T) ----------------------------------------------------
+
+type timersMsg struct {
+	content string
+	err     error
+}
+
+func timersCmd(sys *systemd.Systemd) tea.Cmd {
+	return func() tea.Msg {
+		timers, err := sys.ListTimers(context.Background())
+		if err != nil {
+			return timersMsg{err: err}
+		}
+		if len(timers) == 0 {
+			return timersMsg{content: "No systemd timers found."}
+		}
+		var b strings.Builder
+		w := tabwriter.NewWriter(&b, 0, 0, 3, ' ', 0)
+		fmt.Fprintln(w, "UNIT\tACTIVATES\tNEXT\tLEFT\tLAST\tPASSED")
+		for _, t := range timers {
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", t.Unit, t.Activates, t.Next, t.Left, t.Last, t.Passed)
+		}
+		_ = w.Flush()
+		return timersMsg{content: b.String()}
+	}
+}
+
+// --- Secrets screen (K) ---------------------------------------------------
+
+type secretsMsg struct {
+	content string
+	err     error
+}
+
+func secretsCmd() tea.Cmd {
+	return func() tea.Msg {
+		secrets, err := podman.SecretList(context.Background())
+		if err != nil {
+			return secretsMsg{err: err}
+		}
+		if len(secrets) == 0 {
+			return secretsMsg{content: "No Podman secrets found.\nCreate one with: podman secret create <name> <file>"}
+		}
+		var b strings.Builder
+		w := tabwriter.NewWriter(&b, 0, 0, 3, ' ', 0)
+		fmt.Fprintln(w, "NAME\tID\tDRIVER\tCREATED\tUPDATED")
+		for _, s := range secrets {
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", s.Name, s.ID, s.Driver, s.CreatedAt, s.UpdatedAt)
+		}
+		_ = w.Flush()
+		return secretsMsg{content: b.String()}
 	}
 }
 
