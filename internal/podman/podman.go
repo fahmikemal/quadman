@@ -4,6 +4,7 @@
 package podman
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -267,6 +268,9 @@ func SecretList(ctx context.Context) ([]SecretEntry, error) {
 	out, err := runPodman(ctx, "secret", "ls", "--format", "json")
 	if err != nil {
 		return nil, err
+	}
+	if len(bytes.TrimSpace(out)) == 0 {
+		return nil, nil
 	}
 	var entries []SecretEntry
 	if err := json.Unmarshal(out, &entries); err != nil {
