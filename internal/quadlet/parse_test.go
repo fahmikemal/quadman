@@ -174,3 +174,30 @@ func TestInspectAutoUpdateAndImageVolume(t *testing.T) {
 		t.Errorf("ImageVolume = %q, want tmpfs", got.ImageVolume)
 	}
 }
+
+func TestSecretsParsing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "db.container")
+	content := `[Container]
+Image=postgres:16
+Secret=db_password,type=env,target=POSTGRES_PASSWORD
+Secret=ssl_cert
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := Parse(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secrets := f.Secrets()
+	if len(secrets) != 2 {
+		t.Fatalf("len(secrets) = %d, want 2", len(secrets))
+	}
+	if secrets[0].Name != "db_password" || secrets[0].Type != "env" || secrets[0].Target != "POSTGRES_PASSWORD" {
+		t.Errorf("secret[0] = %+v", secrets[0])
+	}
+	if secrets[1].Name != "ssl_cert" || secrets[1].Type != "mount" {
+		t.Errorf("secret[1] = %+v", secrets[1])
+	}
+}

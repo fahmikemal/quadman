@@ -22,6 +22,7 @@ import (
 	"github.com/fahmikemal/quadman/internal/config"
 	"github.com/fahmikemal/quadman/internal/quadlet"
 	"github.com/fahmikemal/quadman/internal/server"
+	"github.com/fahmikemal/quadman/internal/skill"
 	"github.com/fahmikemal/quadman/internal/systemd"
 	"github.com/fahmikemal/quadman/internal/ui"
 )
@@ -45,12 +46,19 @@ func main() {
 	mouse := flag.Bool("mouse", false, "enable click-to-select (off by default so text selection keeps working)")
 	theme := flag.String("theme", "", "color scheme: auto, dark, light, or colorblind (default from config.yaml)")
 	systemFlag := flag.Bool("system", false, "manage system-wide (rootful) Quadlet units instead of user units")
+	showSkill := flag.Bool("skill", false, "export AI agent skill definition (markdown or json) and exit")
+	skillFormat := flag.String("skill-format", "markdown", "output format for --skill: markdown or json")
 	var quadletDirs quadletDirList
 	flag.Var(&quadletDirs, "quadlet-dir", "extra Quadlet source directory (repeatable; listed after the generator search path)")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Println("quadman", moduleVersion())
+		return
+	}
+
+	if *showSkill {
+		printSkill(*skillFormat)
 		return
 	}
 
@@ -72,8 +80,14 @@ func main() {
 			fmt.Println("quadman", moduleVersion())
 		case "serve":
 			serve(args[1:], *readonly, *mouse, *theme, quadletDirs, system)
+		case "skill":
+			format := "markdown"
+			if len(args) > 1 && (args[1] == "json" || args[1] == "--json") {
+				format = "json"
+			}
+			printSkill(format)
 		default:
-			fmt.Fprintf(os.Stderr, "unknown command %q (available: list, serve, version)\n", args[0])
+			fmt.Fprintf(os.Stderr, "unknown command %q (available: list, serve, skill, version)\n", args[0])
 			os.Exit(2)
 		}
 		return
@@ -314,4 +328,18 @@ func formatConnectHint(addr string) string {
 		return "<host>"
 	}
 	return "-p " + port + " <host>"
+}
+
+func printSkill(format string) {
+	s := skill.Get(moduleVersion())
+	if format == "json" {
+		out, err := s.JSON()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error formatting skill json:", err)
+			os.Exit(1)
+		}
+		fmt.Println(out)
+		return
+	}
+	fmt.Print(s.Markdown())
 }

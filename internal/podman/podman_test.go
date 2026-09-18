@@ -174,3 +174,39 @@ func TestAvailable(t *testing.T) {
 		t.Error("Available should be false with no podman on PATH")
 	}
 }
+
+func TestSecretList(t *testing.T) {
+	fakePodman(t, `cat <<'EOF'
+[
+  {
+    "ID": "sec12345",
+    "Name": "db_password",
+    "CreatedAt": "2026-09-18T10:00:00Z",
+    "UpdatedAt": "2026-09-18T10:00:00Z",
+    "Driver": "file"
+  }
+]
+EOF
+`)
+	entries, err := SecretList(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("len(entries) = %d, want 1", len(entries))
+	}
+	if entries[0].Name != "db_password" || entries[0].ID != "sec12345" || entries[0].Driver != "file" {
+		t.Errorf("unexpected entry: %+v", entries[0])
+	}
+}
+
+func TestSecretListEmpty(t *testing.T) {
+	fakePodman(t, "echo '[]'\n")
+	entries, err := SecretList(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("len(entries) = %d, want 0", len(entries))
+	}
+}

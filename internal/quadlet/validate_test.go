@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -84,5 +85,45 @@ func TestValidateModeSystem(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected error issue for bad.container in system mode, got: %+v", issues)
+	}
+}
+
+func TestValidateSecrets(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "app.container")
+	content := `[Container]
+Image=alpine
+Secret=existing_secret
+Secret=missing_secret
+`
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := Parse(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Available secrets nil -> skipped
+	if issues := ValidateSecrets([]*File{f}, nil); len(issues) != 0 {
+		t.Errorf("expected nil/empty issues when available is nil, got %v", issues)
+	}
+
+	// 2. Secret missing -> warning
+	issues := ValidateSecrets([]*File{f}, []string{"existing_secret"})
+	if len(issues) != 1 {
+		t.Fatalf("expected 1 issue, got %d (%+v)", len(issues), issues)
+	}
+	if issues[0].File != "app.container" || issues[0].Severity != SeverityWarning {
+		t.Errorf("unexpected issue: %+v", issues[0])
+	}
+	if !strings.Contains(issues[0].Message, "missing_secret") {
+		t.Errorf("expected missing_secret in message, got: %s", issues[0].Message)
+	}
+
+	// 3. All secrets present -> clean
+	cleanIssues := ValidateSecrets([]*File{f}, []string{"existing_secret", "missing_secret"})
+	if len(cleanIssues) != 0 {
+		t.Errorf("expected 0 issues when all secrets present, got %v", cleanIssues)
 	}
 }

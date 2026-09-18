@@ -497,6 +497,28 @@ func (m Model) buildPaletteActions() []paletteAction {
 	})
 
 	actions = append(actions, paletteAction{
+		id:          "timers",
+		title:       "Systemd Timers & Calendar Schedules",
+		shortcut:    "T",
+		category:    "Systemd",
+		description: "View systemd timers, triggers, and calendar schedules",
+		run: func(m Model) (tea.Model, tea.Cmd, bool) {
+			return m.timersKeys(tea.KeyPressMsg{Code: 'T', Text: "T"})
+		},
+	})
+
+	actions = append(actions, paletteAction{
+		id:          "secrets",
+		title:       "Podman Secret Store",
+		shortcut:    "K",
+		category:    "Podman",
+		description: "Inspect configured Podman secrets and drivers",
+		run: func(m Model) (tea.Model, tea.Cmd, bool) {
+			return m.secretsKeys(tea.KeyPressMsg{Code: 'K', Text: "K"})
+		},
+	})
+
+	actions = append(actions, paletteAction{
 		id:          "generate",
 		title:       "Generate from Run/Compose",
 		shortcut:    "n",
