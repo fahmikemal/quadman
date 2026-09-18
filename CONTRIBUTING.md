@@ -1,5 +1,9 @@
 # Contributing
 
+<p align="left">
+  <a href="CONTRIBUTING.md"><b>English</b></a> | <a href="CONTRIBUTING.id.md"><b>Bahasa Indonesia</b></a>
+</p>
+
 ## Release policy
 
 quadman batches changes into meaningful releases — no version bump for every

@@ -1,5 +1,9 @@
 # e2e — PTY end-to-end test for the quadman TUI
 
+<p align="left">
+  <a href="README.md"><b>English</b></a> | <a href="README.id.md"><b>Bahasa Indonesia</b></a>
+</p>
+
 Drives the real TUI in a pseudo-terminal: sends actual keystrokes and
 asserts what the screen renders, covering discovery, filter, start/stop,
 healthcheck, follow logs, enable/disable at boot, the auto-update screen,
