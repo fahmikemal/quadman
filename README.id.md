@@ -60,8 +60,8 @@ Memilih unit akan langsung melakukan streaming journal secara real-time (`journa
 Unduh binary siap pakai (Linux amd64/arm64) dari halaman [Releases](https://github.com/fahmikemal/quadman/releases):
 
 ```sh
-curl -LO https://github.com/fahmikemal/quadman/releases/latest/download/quadman_0.4.4_linux_amd64.tar.gz
-tar -xzf quadman_0.4.4_linux_amd64.tar.gz && sudo install quadman /usr/local/bin/
+curl -LO https://github.com/fahmikemal/quadman/releases/latest/download/quadman_0.5.0_linux_amd64.tar.gz
+tar -xzf quadman_0.5.0_linux_amd64.tar.gz && sudo install quadman /usr/local/bin/
 ```
 
 Atau menggunakan Go:
