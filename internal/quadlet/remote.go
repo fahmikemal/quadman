@@ -38,6 +38,34 @@ func DiscoverRemoteMode(ctx context.Context, r remote.Runner, system bool) ([]Un
 	return parseListUnits(out), nil
 }
 
+// InspectRemote resolves one unit's Info by catting its source file through
+// the session runner (SSH or sudo compartment). Failures keep the default
+// generated name, matching the uncached local fallback.
+func InspectRemote(ctx context.Context, r remote.Runner, u Unit) Info {
+	info := Info{UnitName: UnitFileName(u.Name, u.Kind)}
+	if u.Path == "" {
+		return info
+	}
+	data, err := r.Cat(ctx, u.Path)
+	if err != nil {
+		return info
+	}
+	f, err := ParseBytes(u.Path, data)
+	if err != nil {
+		return info
+	}
+	sec := f.Section(string(u.Kind))
+	if sn := sec.Get("ServiceName"); sn != "" {
+		info.UnitName = sn + ".service"
+	}
+	if u.Kind == KindBuild {
+		info.Image = sec.Get("ImageTag")
+	} else {
+		info.Image = sec.Get("Image")
+	}
+	return info
+}
+
 func parseQuadletList(out []byte) []Unit {
 	var units []Unit
 	for _, line := range strings.Split(string(out), "\n") {

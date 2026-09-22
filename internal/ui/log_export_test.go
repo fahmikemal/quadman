@@ -217,3 +217,23 @@ func TestCycleLogPriority(t *testing.T) {
 		}
 	}
 }
+
+func TestUniqueExportPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	first := filepath.Join(tmpDir, "web-20260101-000000.log")
+	if got := uniqueExportPath(first); got != first {
+		t.Fatalf("missing path rewritten: %q", got)
+	}
+	if err := os.WriteFile(first, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := uniqueExportPath(first), filepath.Join(tmpDir, "web-20260101-000000-1.log"); got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "web-20260101-000000-1.log"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := uniqueExportPath(first), filepath.Join(tmpDir, "web-20260101-000000-2.log"); got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}

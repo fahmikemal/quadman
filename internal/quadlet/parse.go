@@ -51,6 +51,12 @@ func (f *File) Image() string {
 	return f.Section("Container").Get("Image")
 }
 
+// KubeYaml returns the Yaml= path declared in the [Kube] section, or ""
+// when the file is not a .kube unit or declares none.
+func (f *File) KubeYaml() string {
+	return f.Section("Kube").Get("Yaml")
+}
+
 // SecretRef represents one secret reference from a Secret= directive in [Container].
 type SecretRef struct {
 	Name   string

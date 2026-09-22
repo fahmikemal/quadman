@@ -19,6 +19,9 @@ type keyMap struct {
 	Edit         key.Binding
 	Updates      key.Binding
 	Health       key.Binding
+	Exec         key.Binding
+	Stats        key.Binding
+	Prune        key.Binding
 	DaemonReload key.Binding
 	Linger       key.Binding
 	Follow       key.Binding
@@ -44,6 +47,9 @@ func listKeys() keyMap {
 		Edit:         key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "edit")),
 		Updates:      key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "updates")),
 		Health:       key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "healthcheck")),
+		Exec:         key.NewBinding(key.WithKeys("X"), key.WithHelp("X", "exec shell")),
+		Stats:        key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "stats")),
+		Prune:        key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "system prune")),
 		DaemonReload: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "daemon-reload")),
 		Linger:       key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "linger")),
 		Help:         key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
@@ -118,6 +124,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.Up, k.Down, k.Enter, k.Logs, k.Filter},
 		{k.Start, k.Stop, k.Restart, k.Enable, k.Disable},
 		{k.Edit, k.Updates, k.Health, k.DaemonReload, k.Linger, k.Help, k.Quit},
+		{k.Exec, k.Stats, k.Prune},
 		{
 			key.NewBinding(key.WithKeys("ctrl+p"), key.WithHelp("^P", "command palette")),
 			key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "problems")),

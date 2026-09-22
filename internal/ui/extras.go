@@ -130,17 +130,16 @@ func generateCmd(input string) tea.Cmd {
 	}
 }
 
-// generatePodlet routes trimmed user input to podlet compose or run. A
-// "compose <path>" prefix forces compose mode; otherwise a path to an
-// existing .yml/.yaml file (or any existing file) is compose input, and
-// anything else must parse as a run command: the first word has to be
-// podman, docker, or run (so `podlet` never receives a bare image name or
-// shell metacharacters by accident). Words split quote-aware so quoted
+// generatePodlet routes trimmed user input to podlet compose, live-object
+// generate ("container <name>" and friends), or run. A "compose <path>"
+// prefix forces compose mode; otherwise a path to an existing .yml/.yaml
+// file (or any existing file) is compose input; "<kind> <name>" for a
+// convertible kind (container|pod|network|volume|image) converts that live
+// object; anything else must parse as a run command: the first word has to
+// be podman, docker, or run (so `podlet` never receives a bare image name
+// or shell metacharacters by accident). Words split quote-aware so quoted
 // values with spaces survive intact.
 func generatePodlet(ctx context.Context, trimmed string) (string, error) {
-	if trimmed == "" {
-		return "", fmt.Errorf("empty input: paste a `podman run ...` command or a compose file path")
-	}
 	rest, ok := strings.CutPrefix(trimmed, "compose ")
 	if ok {
 		path := strings.TrimSpace(rest)
@@ -157,18 +156,21 @@ func generatePodlet(ctx context.Context, trimmed string) (string, error) {
 		return "", fmt.Errorf("cannot parse command: %w", err)
 	}
 	if len(args) == 0 {
-		return "", fmt.Errorf("empty input: paste a `podman run ...` command or a compose file path")
+		return "", fmt.Errorf("empty input: paste a `podman run ...` command, a compose file path, or `<kind> <name>` (container|pod|network|volume|image)")
+	}
+	if len(args) == 2 && podlet.IsObjectKind(args[0]) {
+		return podlet.GenerateObject(ctx, args[0], args[1])
 	}
 	switch args[0] {
 	case "podman", "docker":
 		if len(args) < 2 || args[1] != "run" {
-			return "", fmt.Errorf("podlet converts `podman run ...` commands (got %q); for compose files use: compose <path>", args[0])
+			return "", fmt.Errorf("podlet converts `podman run ...` commands (got %q); for compose files use: compose <path>; for live objects use: <kind> <name>", args[0])
 		}
 	case "run":
 		// bare `run ...` is accepted as shorthand for `podman run ...`
 		args = append([]string{"podman"}, args...)
 	default:
-		return "", fmt.Errorf("not a run command (starts with %q): use `podman run ...`, `docker run ...`, or `compose <path>`", args[0])
+		return "", fmt.Errorf("not a run command (starts with %q): use `podman run ...`, `docker run ...`, `compose <path>`, or `<kind> <name>`", args[0])
 	}
 	return podlet.Generate(ctx, args)
 }
@@ -176,6 +178,35 @@ func generatePodlet(ctx context.Context, trimmed string) (string, error) {
 func fileExists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
+}
+
+// kubeYamlExists reports whether a .kube unit's Yaml= path resolves to a
+// file. Relative paths resolve against the unit file's own directory, like
+// the generator does. Remote sessions skip the check (no cheap remote
+// stat); the caller gates on !IsRemote.
+func kubeYamlExists(u quadlet.Unit, yml string) bool {
+	if filepath.IsAbs(yml) {
+		_, err := os.Stat(yml)
+		return err == nil
+	}
+	_, err := os.Stat(filepath.Join(filepath.Dir(u.Path), yml))
+	return err == nil
+}
+
+// kubeYamlExists reports whether a .kube unit's Yaml= path exists. Remote
+// and compartment sessions read through the session runner (Cat errors
+// when the file is missing); local sessions stat the resolved path
+// directly.
+func (m Model) kubeYamlExists(u quadlet.Unit, yml string) bool {
+	if m.ssh.Isolated() {
+		p := yml
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(filepath.Dir(u.Path), yml)
+		}
+		_, err := m.ssh.Cat(context.Background(), p)
+		return err == nil
+	}
+	return kubeYamlExists(u, yml)
 }
 
 // installGenerated writes the generated quadlet into the user's config
@@ -230,12 +261,21 @@ func (m Model) smartHints() []string {
 				"%s: restart crash-loop (start-limit hit) — read the journal (l) for the root cause before lowering RestartSec= or changing Restart=.",
 				u.UnitName))
 		}
-		if u.Kind == quadlet.KindContainer && m.timerEnabled != "enabled" {
+		if (u.Kind == quadlet.KindContainer || u.Kind == quadlet.KindKube) && m.timerEnabled != "enabled" {
 			if f, err := m.parseUnitFile(u); err == nil {
-				if f.Section("Container").Get("AutoUpdate") == "registry" {
+				if pol := f.Section(string(u.Kind)).Get("AutoUpdate"); pol == "registry" || pol == "local" {
 					hints = append(hints, fmt.Sprintf(
-						"%s: AutoUpdate=registry is set but podman-auto-update.timer is disabled — enable it from the updates screen (u, then U).",
-						u.UnitName))
+						"%s: AutoUpdate=%s is set but podman-auto-update.timer is disabled — enable it from the updates screen (u, then U).",
+						u.UnitName, pol))
+				}
+			}
+		}
+		if u.Kind == quadlet.KindKube {
+			if f, err := m.parseUnitFile(u); err == nil {
+				if yml := f.KubeYaml(); yml != "" && !m.kubeYamlExists(u, yml) {
+					hints = append(hints, fmt.Sprintf(
+						"%s: [Kube] Yaml=%s does not exist — kube play will fail at start; fix the path or restore the file.",
+						u.UnitName, yml))
 				}
 			}
 		}

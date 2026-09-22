@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fahmikemal/quadman/internal/quadlet"
 	"github.com/fahmikemal/quadman/internal/systemd"
 )
 
@@ -55,7 +56,7 @@ func TestRunList(t *testing.T) {
 
 	var buf bytes.Buffer
 	sys := &systemd.Systemd{User: true, Bin: fakeSystemctl(t)}
-	if err := runList(&buf, sys, false); err != nil {
+	if err := runList(&buf, sys, false, []string{quadDir}); err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()
@@ -72,7 +73,7 @@ func TestRunListEmpty(t *testing.T) {
 
 	var buf bytes.Buffer
 	sys := &systemd.Systemd{User: true, Bin: fakeSystemctl(t)}
-	if err := runList(&buf, sys, false); err != nil {
+	if err := runList(&buf, sys, false, quadlet.SearchDirsMode(false)); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(buf.String(), "no quadlet units found") {
@@ -100,7 +101,7 @@ func TestRunListShowFailure(t *testing.T) {
 
 	var buf bytes.Buffer
 	sys := &systemd.Systemd{User: true, Bin: broken}
-	if err := runList(&buf, sys, false); err != nil {
+	if err := runList(&buf, sys, false, []string{quadDir}); err != nil {
 		t.Fatal(err) // a broken systemctl must degrade to "-" states, not fail
 	}
 	if !strings.Contains(buf.String(), "webapp") {
@@ -123,6 +124,25 @@ func TestFormatConnectHint(t *testing.T) {
 		got := formatConnectHint(tc.addr)
 		if got != tc.want {
 			t.Errorf("formatConnectHint(%q) = %q, want %q", tc.addr, got, tc.want)
+		}
+	}
+}
+
+func TestCompSetupUnknownUser(t *testing.T) {
+	if _, err := compSetup("quadman-nosuch-user-xyz"); err == nil {
+		t.Error("unknown compartment user must fail setup")
+	}
+}
+
+func TestMisplacedAsFlag(t *testing.T) {
+	for _, a := range [][]string{{"--as", "x"}, {"-as=x"}, {"list", "--as"}} {
+		if !misplacedAsFlag(a) {
+			t.Errorf("%v should count as misplaced", a)
+		}
+	}
+	for _, a := range [][]string{nil, {}, {"list"}, {"--readonly"}} {
+		if misplacedAsFlag(a) {
+			t.Errorf("%v should be fine", a)
 		}
 	}
 }

@@ -93,6 +93,7 @@ quadman --mouse                  # Aktifkan navigasi klik mouse
 quadman --quadlet-dir ~/quadlets # Direktori sumber Quadlet tambahan (dapat diulang)
 quadman list                     # Output daftar non-interaktif untuk integrasi script/piping
 quadman list --system            # Tampilkan daftar quadlet tingkat sistem
+quadman --as svc-web list        # Daftar unit milik user lain via sudo (flag ditulis sebelum perintah)
 quadman --skill                  # Ekspor spesifikasi Agent Skill untuk AI (markdown)
 quadman --skill --skill-format=json # Ekspor spesifikasi Agent Skill dalam format JSON
 quadman -version
@@ -104,7 +105,7 @@ quadman -version
 | ----- | --------------------------------------------- |
 | `↑/↓` `j/k` | Berpindah navigasi pada daftar baris |
 | `enter` | Melihat isi berkas sumber Quadlet |
-| `Ctrl+P` | Command Palette (pencarian fuzzy dan eksekusi aksi unit atau perintah kustom) |
+| `Ctrl+P` | Command Palette (pencarian fuzzy dan eksekusi aksi unit, termasuk pull image, atau perintah kustom) |
 | `/` | Filter fuzzy daftar unit (ketik untuk menyaring, `esc` untuk menghapus filter) |
 | `l` | Live journal tail (`f` jeda, `/` cari, `F` grep filter, `p` prioritas, `S` ekspor, `c` salin) |
 | `s` / `x` / `r` | Start / stop (dengan konfirmasi) / restart unit — atau seluruh unit yang ditandai dengan `space` |
@@ -112,6 +113,7 @@ quadman -version
 | `e` | Aktifkan saat boot (*enable*, menyisipkan blok `[Install]` ke berkas dengan konfirmasi) |
 | `d` | Nonaktifkan saat boot (*disable*, menghapus blok `[Install]` dengan konfirmasi) |
 | `E` | Mengedit berkas Quadlet menggunakan `$EDITOR` |
+| `X` | Buka `/bin/sh` di kontainer unit (`podman exec`, pencocokan nama persis) |
 | `u` | Layar auto-update (`U` untuk toggle status timer otomatis) |
 | `h` | Menjalankan `podman healthcheck` pada unit yang dipilih |
 | `v` | Layar diagnosa masalah — validasi generator terhadap seluruh berkas Quadlet |
@@ -122,10 +124,12 @@ quadman -version
 | `[` / `]` | Berpindah tab detail: source / status / journal / inspect |
 | `I` | Pasang bundel `.quadlets` (`podman quadlet install`) |
 | `g` | Layar penyimpanan (*storage*: `podman system df --verbose`, `r` untuk refresh) |
+| `o` | Layar statistik resource (`podman stats`, `r` untuk refresh) |
+| `P` | `podman system prune` (konfirmasi dulu, peringatan untuk unit Quadlet nonaktif) |
 | `T` | Layar timer systemd (melihat jadwal aktif, pemicu service, dan hitung mundur kalender) |
 | `K` | Layar secret Podman (melihat penyimpanan secret Podman, driver, dan metadata) |
 | `w` | Live streaming event podman (`f` untuk jeda) |
-| `n` | Generator quadlet via podlet (`podman run ...`, `docker run ...`, singkatan `run ...`, atau `compose <path>`) |
+| `n` | Generator quadlet via podlet (`podman run ...`, `docker run ...`, singkatan `run ...`, `compose <path>`, atau `<kind> <name>` untuk container\|pod\|network\|volume\|image) |
 | `A` | Log aksi terakhir (melihat perintah apa yang dijalankan, waktu, dan hasilnya) |
 | `R` | `systemctl --user daemon-reload` (regenerasi unit setelah berkas Quadlet diedit) |
 | `L` | Toggle linger pengguna (`loginctl enable-linger`) |
@@ -151,9 +155,12 @@ custom_commands:
     key: S
     run: systemctl --user status {{.UnitName}}
   - name: image
-    key: P
+    key: G
     run: podman image inspect {{.Image}}
 ```
+
+Tombol kustom tidak boleh memakai tombol bawaan mode daftar (`s x r e d E u h v t i I D y Y g o P T K w n A R L ? q l X` dan sejenisnya):
+quadman memberi peringatan saat startup bila ada perintah kustom yang tertutup (*shadowed*) karena tombol bawaan selalu menang.
 
 Perintah kustom (*custom commands*) dijalankan secara aman tanpa perantara shell: string `run` diekspansi sebagai template Go (`{{.Name}}`, `{{.UnitName}}`, `{{.Kind}}`, `{{.Image}}`), dipecah dengan tokenizer pemisah tanda kutip, dan dieksekusi langsung. Hasil eksekusi tampil di bar status bawah dan tercatat di log aksi terakhir (`A`). Preferensi editor teks saat pertama kali dipilih disimpan pada berkas `config.json` di direktori yang sama.
 
@@ -165,7 +172,35 @@ quadman --ssh user@host
 
 Setiap pemanggilan CLI (`systemctl`, `journalctl`, `loginctl`, `podman`) diteruskan melalui binary `ssh` lokal Anda — SSH key, ssh-agent, `known_hosts`, dan konfigurasi `~/.ssh/config` langsung bekerja otomatis tanpa perlu setup tambahan. Jika `ssh user@host true` berhasil, quadman dipastikan langsung bekerja.
 
-Mode remote mempertahankan kendali penuh untuk operasi baca dan siklus hidup: daftar unit, status live, start / stop / restart, journal logs, storage, events, auto-update, healthcheck, linger, dan pohon dependensi (berkas dibaca via `cat` sesuai kebutuhan, tanpa sinkronisasi disk). Aksi yang memodifikasi berkas di host (seperti edit, enable/disable saat boot, instansiasi template, generate berkas, install bundel, dan delete) dibatasi dengan pesan penjelasan — kelola berkas secara langsung dengan menjalankan quadman di server target.
+Mode remote mempertahankan kendali penuh untuk operasi baca dan siklus hidup: daftar unit, status live, start / stop / restart, journal logs, storage, stats, events, auto-update, healthcheck, linger, dan pohon dependensi (berkas dibaca via `cat` sesuai kebutuhan, tanpa sinkronisasi disk). Aksi yang memodifikasi berkas di host (seperti edit, enable/disable saat boot, instansiasi template, generate berkas, install bundel, dan delete) dibatasi dengan pesan penjelasan — kelola berkas secara langsung dengan menjalankan quadman di server target. Aksi interaktif/destruktif host juga ditolak dari remote: `podman exec` (`X`) butuh TTY lokal dan `system prune` (`P`) harus dijalankan di host. Drop-in tidak dienumerasi dari remote; layar berkas menjelaskannya.
+
+## Kompartemen (banyak OS user, satu TUI)
+
+Kompartemen adalah OS user biasa yang workload Quadlet-nya Anda kelola tanpa
+keluar dari quadman. `quadman --as svc-web` mengarahkan seluruh pemanggilan
+CLI (`systemctl`, `journalctl`, `loginctl`, `podman`) melalui sudo
+non-interaktif (`sudo -n -u svc-web`), terlingkup ke search path Quadlet,
+systemd user instance, storage podman, dan secret store milik user tersebut.
+Title bar menampilkan `[svc-web]`; edit berkas tetap dinonaktifkan seperti
+mode SSH.
+
+Syarat: `sudo -n -u <user> true` harus berhasil (entri sudoers NOPASSWD atau
+operator root), dan target butuh runtime dir (`/run/user/<uid>` — linger
+user tersebut atau login sekali). Bila salah satunya hilang, quadman
+menjelaskan sebabnya dan tetap menampilkan sesi Anda sendiri, bukan
+setengah beralih.
+
+Kompartemen yang dikonfigurasi (`compartments: [svc-web, svc-db]` di
+config.yaml) muncul di Command Palette (`Ctrl+P`) sebagai aksi
+"Use Compartment ...", plus "Use Own Session" untuk kembali. Berpindah
+kompartemen di atas sesi SSH ditolak (tanpa sudo hop bersarang).
+Script non-interaktif memakai `quadman --as <user> list`.
+
+```yaml
+compartments:
+  - svc-web
+  - svc-db
+```
 
 ## SSH Server (Wish Daemon)
 
@@ -185,7 +220,7 @@ ssh -p 2222 user@host
 Fitur utama SSH Server:
 - **Nol dependensi klien**: Komputer yang menghubung hanya memerlukan terminal client standar `ssh`.
 - **Host Key Otomatis**: Membuat kunci host ED25519 otomatis di `~/.config/quadman/host_ed25519` jika belum ditentukan.
-- **Opsi Autentikasi**: Mendukung akses terbuka (default), verifikasi berkas `authorized_keys`, atau perlindungan kata sandi.
+- **Opsi Autentikasi**: Mendukung verifikasi berkas `authorized_keys` atau perlindungan kata sandi. Tanpa keduanya, server tetap berjalan tetapi **memaksa semua sesi ke mode readonly** dengan peringatan jelas — akses tulis anonim tidak pernah aktif secara default.
 - **Mode Dashboard Readonly**: Tambahkan flag `--readonly` untuk membagikan akses pemantauan kepada rekan tim dengan aman tanpa risiko salah mematikan atau mengubah unit produksi.
 - **Eksekusi Aman**: Pembukaan editor lokal `$EDITOR` dinonaktifkan secara aman pada sesi server SSH.
 
@@ -247,11 +282,22 @@ quadman dirilis secara terstruktur dalam kelompok fitur (lihat [CONTRIBUTING.id.
 - [x] **Ekspor Log & Filter Interaktif** — ekspor log journal ke berkas terstempel waktu `.log` (teks biasa) dan `.jsonl` (format journal terstruktur) (`S`), salin ke clipboard OSC52 (`c`), live grep filter (`F`), dan toggle prioritas log (`p`: err, warning, info, all).
 - [x] **Mode Native Sistem / Rootful (`--system`)** — dukungan kelas satu untuk unit Quadlet tingkat sistem (`/etc/containers/systemd`, `/run/containers/systemd`, `/usr/share/containers/systemd`), deteksi otomatis hak akses root (UID 0 / `sudo quadman`), penyesuaian dinamis argumen CLI `--user`, serta proteksi status linger sistem.
 
-### v0.5.0 — Tier 5: Secrets, Timers & Agent Tooling (✅ Telah Dirilis)
+### Tier 5: Secrets, Timers & Agent Tooling (✅ Dirilis di v0.5.0)
 
 - [x] **Integrasi Rahasia Podman (Secrets)** — inspeksi penyimpanan rahasia Podman (`K`), dan validasi referensi *pre-flight* otomatis untuk direktif `Secret=` pada berkas `.container` dengan peringatan dini di layar masalah (`v`).
 - [x] **Tampilan Entitas Timer Systemd (`T`)** — inspeksi seluruh timer kalender yang aktif dan terjadwal (`systemctl list-timers`), pemicu eksekusi, serta hitung mundur waktu langsung di dalam TUI.
 - [x] **Ekspor Agent Skill AI (`quadman --skill`)** — ekspor skema perkakas JSON yang dapat dibaca mesin dan dokumentasi Markdown komprehensif untuk LLM coding agents.
+
+### v0.5.0 — Tier 6: Operasi, Hardening & Kompartemen (✅ Dirilis)
+
+- [x] **Exec shell (`X`)** — buka `/bin/sh` di kontainer unit (cocok nama persis, prefill `systemd-<name>`), ditolak via SSH/sesi serve dengan penjelasan.
+- [x] **Statistik resource (`o`)** — tabel `podman stats --no-stream --all` (CPU/MEM/NET/BLOCK/PIDS), read-only dan aman via remote.
+- [x] **System prune (`P`)** — `podman system prune -f` di balik konfirmasi yang menyebut unit Quadlet nonaktif yang berisiko.
+- [x] **Generate dari objek hidup** — `n` menerima `container|pod|network|volume|image <name>` via `podlet generate`, plus aksi palette **Pull Unit Image** dengan fast-path bila image sudah ada.
+- [x] **Kedalaman problems** — deteksi `[Kube] Yaml=` hilang (lokal + remote), hint timer `AutoUpdate=local` dan `.kube`, `Upholds=`/`Conflicts=` di dependency tree.
+- [x] **Hardening serve** — akses terbuka (tanpa key/password) memaksa readonly + peringatan keras; perbandingan password constant-time; peringatan YAML password terbaca-publik; export log tak pernah menimpa (`-1`, `-2`…).
+- [x] **Kompartemen (`--as <user>`, `quadman --as <user> list`)** — kelola Quadlet milik OS user lain via sudo non-interaktif dengan search path, systemd instance, storage, dan secret miliknya; switcher palette, chip title `[user]`, guard sesi terisolasi di semua jalur.
+- [x] **Guard custom-key** — peringatan startup bila tombol `custom_commands` tertutup binding bawaan (bawaan selalu menang).
 
 ### Catatan Ekosistem (Sep 2026)
 

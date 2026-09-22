@@ -551,12 +551,12 @@ func TestLegendWrapsByWidth(t *testing.T) {
 		t.Errorf("wide legend should contain the full sorted key set: %q", wide)
 	}
 
-	// Very wide terminal: one line.
+	// Very wide terminal: one line (threshold grows with the key set).
 	m3 := New()
-	model, _ = m3.Update(tea.WindowSizeMsg{Width: 320, Height: 24})
+	model, _ = m3.Update(tea.WindowSizeMsg{Width: 360, Height: 24})
 	oneline := model.(Model).helpBar()
 	if strings.Contains(oneline, "\n") {
-		t.Errorf("legend should fit on one line at 320 cols: %q", oneline)
+		t.Errorf("legend should fit on one line at 360 cols: %q", oneline)
 	}
 }
 

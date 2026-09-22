@@ -26,6 +26,7 @@ var (
 type result struct {
 	name string
 	ok   bool
+	skip bool
 	note string
 }
 
@@ -36,7 +37,8 @@ func check(name string, ok bool, note string) {
 	if !ok {
 		mark = "FAIL"
 	}
-	results = append(results, result{name, ok, note})
+	results = append(results, result{name: name, ok: ok, note: note})
+
 	mu.Lock()
 	nb := screen.Len()
 	age := time.Since(lastWrite).Round(100 * time.Millisecond)
@@ -52,6 +54,13 @@ func check(name string, ok bool, note string) {
 		fmt.Printf("----- screen dump -----\n%s\n-----------------------\n", s)
 
 	}
+}
+
+// skip records an environment-gated scenario that did not run. It prints
+// [SKIP], never [PASS]: a skipped check must not inflate the pass count.
+func skip(name string, note string) {
+	results = append(results, result{name: name, ok: true, skip: true, note: note})
+	fmt.Printf("[SKIP] %s — %s\n", name, note)
 }
 
 func send(f *os.File, s string) {
@@ -334,13 +343,15 @@ func main() {
 	runExtraScenarios()
 
 	fmt.Println()
-	fail := 0
+	fail, skipped := 0, 0
 	for _, r := range results {
-		if !r.ok {
+		if r.skip {
+			skipped++
+		} else if !r.ok {
 			fail++
 		}
 	}
-	fmt.Printf("E2E: %d/%d passed\n", len(results)-fail, len(results))
+	fmt.Printf("E2E: %d passed, %d skipped, %d failed of %d\n", len(results)-fail-skipped, skipped, fail, len(results))
 	if fail > 0 {
 		os.Exit(1)
 	}
@@ -417,37 +428,118 @@ func quit(cmd *exec.Cmd, f *os.File) {
 	drain()
 }
 
+// onlyFilter optionally limits extra scenarios to those whose name
+// contains it (QE2E_ONLY=stats ./qe2e...). The main flow always runs;
+// this only trims the long tail for quick iteration.
+var onlyFilter = os.Getenv("QE2E_ONLY")
+
+func wantScenario(name string) bool {
+	return onlyFilter == "" || strings.Contains(name, onlyFilter)
+}
+
 // runExtraScenarios covers live-follow streaming, unhealthy display, the
 // responsive layout matrix, and the empty state — each in a fresh process.
 func runExtraScenarios() {
 	quadletDir := os.ExpandEnv("$HOME/.config/containers/systemd")
-	scenarioLiveFollow(quadletDir)
-	scenarioUnhealthy(quadletDir)
-	scenarioResponsive()
-	scenarioEmptyState()
-	scenarioValidation(quadletDir)
-	scenarioTreeDropinCopy(quadletDir)
-	scenarioTemplate(quadletDir)
-	scenarioDelete(quadletDir)
-	scenarioTabs(quadletDir)
-	scenarioQuadletsBundle(quadletDir)
-	scenarioStorage()
-	scenarioEvents(quadletDir)
-	scenarioGenerate(quadletDir)
-	scenarioReadonly(quadletDir)
-	scenarioRecentActions(quadletDir)
-	scenarioCustomCommand(quadletDir)
-	scenarioYAMLConfig()
-	scenarioGenerateStrict(quadletDir)
-	scenarioBulk(quadletDir)
-	scenarioThemeMouse()
-	scenarioServeSSH()
-	scenarioCommandPalette()
-	scenarioLogExportAndFilter()
-	scenarioSystemMode()
-	scenarioTimersAndSecrets()
-	scenarioSecretValidation(quadletDir)
-	scenarioAgentSkill()
+	if wantScenario("scenarioLiveFollow") {
+		scenarioLiveFollow(quadletDir)
+	}
+	if wantScenario("scenarioUnhealthy") {
+		scenarioUnhealthy(quadletDir)
+	}
+	if wantScenario("scenarioResponsive") {
+		scenarioResponsive()
+	}
+	if wantScenario("scenarioEmptyState") {
+		scenarioEmptyState()
+	}
+	if wantScenario("scenarioValidation") {
+		scenarioValidation(quadletDir)
+	}
+	if wantScenario("scenarioTreeDropinCopy") {
+		scenarioTreeDropinCopy(quadletDir)
+	}
+	if wantScenario("scenarioTemplate") {
+		scenarioTemplate(quadletDir)
+	}
+	if wantScenario("scenarioDelete") {
+		scenarioDelete(quadletDir)
+	}
+	if wantScenario("scenarioTabs") {
+		scenarioTabs(quadletDir)
+	}
+	if wantScenario("scenarioQuadletsBundle") {
+		scenarioQuadletsBundle(quadletDir)
+	}
+	if wantScenario("scenarioStorage") {
+		scenarioStorage()
+	}
+	if wantScenario("scenarioEvents") {
+		scenarioEvents(quadletDir)
+	}
+	if wantScenario("scenarioGenerate") {
+		scenarioGenerate(quadletDir)
+	}
+	if wantScenario("scenarioReadonly") {
+		scenarioReadonly(quadletDir)
+	}
+	if wantScenario("scenarioRecentActions") {
+		scenarioRecentActions(quadletDir)
+	}
+	if wantScenario("scenarioCustomCommand") {
+		scenarioCustomCommand(quadletDir)
+	}
+	if wantScenario("scenarioYAMLConfig") {
+		scenarioYAMLConfig()
+	}
+	if wantScenario("scenarioGenerateStrict") {
+		scenarioGenerateStrict(quadletDir)
+	}
+	if wantScenario("scenarioBulk") {
+		scenarioBulk(quadletDir)
+	}
+	if wantScenario("scenarioThemeMouse") {
+		scenarioThemeMouse()
+	}
+	if wantScenario("scenarioServeSSH") {
+		scenarioServeSSH()
+	}
+	if wantScenario("scenarioCommandPalette") {
+		scenarioCommandPalette()
+	}
+	if wantScenario("scenarioLogExportAndFilter") {
+		scenarioLogExportAndFilter()
+	}
+	if wantScenario("scenarioSystemMode") {
+		scenarioSystemMode()
+	}
+	if wantScenario("scenarioTimersAndSecrets") {
+		scenarioTimersAndSecrets()
+	}
+	if wantScenario("scenarioSecretValidation") {
+		scenarioSecretValidation(quadletDir)
+	}
+	if wantScenario("scenarioAgentSkill") {
+		scenarioAgentSkill()
+	}
+	if wantScenario("scenarioStats") {
+		scenarioStats()
+	}
+	if wantScenario("scenarioPruneCancel") {
+		scenarioPruneCancel()
+	}
+	if wantScenario("scenarioExecPrompt") {
+		scenarioExecPrompt()
+	}
+	if wantScenario("scenarioGenerateLive") {
+		scenarioGenerateLive()
+	}
+	if wantScenario("scenarioCompartmentDenied") {
+		scenarioCompartmentDenied()
+	}
+	if wantScenario("scenarioCompartmentLive") {
+		scenarioCompartmentLive()
+	}
 }
 
 // scenarioStorage: g opens the storage screen with podman system df output.
@@ -1333,6 +1425,11 @@ func logPumpErr(err error) {
 	mu.Unlock()
 }
 
+// runOK reports whether a command exits zero (output discarded).
+func runOK(name string, args ...string) bool {
+	return exec.Command(name, args...).Run() == nil
+}
+
 // runOut runs a command and returns its trimmed stdout ("" on error).
 func runOut(name string, args ...string) string {
 	out, err := exec.Command(name, args...).Output()
@@ -1340,4 +1437,109 @@ func runOut(name string, args ...string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// scenarioStats: o opens the resource screen, or reports the stats error
+// when podman is unreachable. Either way the key must produce feedback.
+func scenarioStats() {
+	drain()
+	cmd, f := launch(120, 42)
+	defer quit(cmd, f)
+	waitFor("QUADLET", 12*time.Second)
+	send(f, "o")
+	ok := waitForAny([]string{" STATS ", "stats:"}, 12*time.Second)
+	check("stats screen", ok, "layar stats terbuka, atau error podman dilaporkan di status")
+	send(f, "q")
+	time.Sleep(300 * time.Millisecond)
+}
+
+// scenarioPruneCancel: P arms the prune confirmation (naming inactive
+// units when any are known); n cancels so storage is never touched.
+func scenarioPruneCancel() {
+	drain()
+	cmd, f := launch(120, 42)
+	defer quit(cmd, f)
+	waitFor("QUADLET", 12*time.Second)
+	send(f, "P")
+	ok := waitForAny([]string{"system prune", "podman not found", "readonly", "unavailable over SSH"}, 8*time.Second)
+	if !ok {
+		check("prune confirm", false, "P tidak memberi umpan balik")
+		return
+	}
+	if strings.Contains(last(), "[y/N]") {
+		send(f, "n")
+		ok = waitFor("prune cancelled", 5*time.Second)
+		check("prune cancel", ok, "konfirmasi prune dibatalkan tanpa menghapus apapun")
+		return
+	}
+	check("prune refused", true, "prune ditolak aman (tanpa podman / readonly / remote)")
+}
+
+// scenarioExecPrompt: X opens the container-name prompt prefilled from the
+// unit (or explains why exec is unavailable); esc cancels.
+func scenarioExecPrompt() {
+	drain()
+	cmd, f := launch(120, 42)
+	defer quit(cmd, f)
+	waitFor("QUADLET", 12*time.Second)
+	send(f, "X")
+	ok := waitForAny([]string{"exec shell in container", "no unit selected", "readonly", "unavailable"}, 8*time.Second)
+	check("exec prompt", ok, "prompt exec muncul, atau alasan penolakan ditampilkan")
+	send(f, "\x1b")
+	time.Sleep(300 * time.Millisecond)
+}
+
+// scenarioGenerateLive: n + "container <missing>" must surface a podlet
+// error (or a missing-podlet hint) instead of hanging or crashing.
+func scenarioGenerateLive() {
+	drain()
+	cmd, f := launch(120, 42)
+	defer quit(cmd, f)
+	if !waitFor("QUADLET", 12*time.Second) {
+		check("generate live", false, "daftar tidak muncul")
+		return
+	}
+	send(f, "n")
+	if !waitFor("generate from", 3*time.Second) {
+		check("generate live", false, "input generate tidak muncul")
+		return
+	}
+	send(f, "container e2e-nosuch-xyz")
+	send(f, "\r")
+	ok := waitFor("podlet", 20*time.Second)
+	check("generate live", ok, "objek hilang menghasilkan error podlet yang jelas")
+	send(f, "\x1b")
+	time.Sleep(300 * time.Millisecond)
+}
+
+// scenarioCompartmentDenied: --as with an unreachable user must explain
+// sudo failure in the status instead of switching or hanging.
+func scenarioCompartmentDenied() {
+	drain()
+	cmd, f := launchArgs(120, 42, []string{"--as", "quadman-nosuch-xyz"})
+	defer quit(cmd, f)
+	ok := waitFor("sudo -n -u quadman-nosuch-xyz", 15*time.Second)
+	check("compartment denied", ok, "sudo yang gagal dilaporkan jelas tanpa hang")
+}
+
+// scenarioCompartmentLive exercises a real sudo compartment when the
+// svc-test fixture exists (see e2e/README.md); otherwise it records a
+// skip so default runs stay green without the fixture.
+func scenarioCompartmentLive() {
+	if !runOK("sudo", "-n", "-u", "svc-test", "true") {
+		skip("compartment live", "no svc-test fixture (see e2e/README.md)")
+		return
+	}
+	drain()
+	cmd, f := launchArgs(120, 42, []string{"--as", "svc-test"})
+	defer quit(cmd, f)
+	// Cold sudo + cold podman on a loaded CI worker can take a while;
+	// 45s keeps this honest without flaking. Split asserts pinpoint
+	// which leg (switch vs discovery) fails.
+	if !waitFor("[svc-test]", 45*time.Second) {
+		check("compartment live", false, "title [svc-test] tidak muncul (gagal switch)")
+		return
+	}
+	ok := waitFor("e2e-comp", 30*time.Second)
+	check("compartment live", ok, "TUI [svc-test] menampilkan unit milik target via sudo")
 }

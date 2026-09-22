@@ -91,6 +91,25 @@ func SearchDirsMode(system bool) []string {
 	return append(dirs, ExtraDirs...)
 }
 
+// SearchDirsFor returns the Quadlet source directories for an arbitrary
+// (not necessarily current) user: the compartment-aware mirror of the
+// user branch above. home is the user's $HOME, uid their numeric id, and
+// runtimeDir their XDG_RUNTIME_DIR ("" when unknown — runtime entries are
+// skipped, like an unknown runtime dir for the current user).
+func SearchDirsFor(home, uid, runtimeDir string) []string {
+	var dirs []string
+	if runtimeDir != "" {
+		dirs = append(dirs, filepath.Join(runtimeDir, "containers", "systemd"))
+	}
+	if home != "" {
+		dirs = append(dirs, filepath.Join(home, ".config", "containers", "systemd"))
+	}
+	for _, base := range []string{"/etc/containers/systemd", "/usr/share/containers/systemd"} {
+		dirs = append(dirs, userDirs(base, uid)...)
+	}
+	return append(dirs, ExtraDirs...)
+}
+
 // userDirs lists the per-user directories below one generator base dir, in
 // lookup order: the users dir itself, its non-numeric subdirectories (shared
 // units), then the invoking user's own UID dir. Numeric subdirectories that

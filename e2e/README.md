@@ -36,3 +36,24 @@ The test expects three units in `~/.config/containers/systemd/`:
 `demo-data.volume`, and `demo-net.network`. It mutates them (start/stop,
 [Install] add/remove) and restores boot state at the end; linger is
 toggled twice and restored.
+
+### Compartment fixture (optional)
+
+`scenarioCompartmentLive` needs a second local user with passwordless sudo
+and skips gracefully without it:
+
+```sh
+sudo useradd -m svc-test
+sudo loginctl enable-linger svc-test
+cat <<'SUDO' | sudo tee /etc/sudoers.d/quadman-svc-test >/dev/null
+tesseract ALL=(svc-test) NOPASSWD:SETENV: /usr/bin/env, /usr/bin/systemctl, /usr/bin/journalctl, /usr/bin/loginctl, /usr/bin/podman, /usr/bin/podlet, /usr/bin/cat, /usr/bin/true
+SUDO
+sudo chmod 440 /etc/sudoers.d/quadman-svc-test
+sudo -u svc-test mkdir -p /home/svc-test/.config/containers/systemd
+printf '[Container]\nImage=docker.io/library/busybox:latest\nExec=sleep infinity\n' | sudo -u svc-test tee /home/svc-test/.config/containers/systemd/e2e-comp.container >/dev/null
+```
+
+(Replace `tesseract` with the operator username. `sleep infinity` keeps the
+fixture runnable for exec tests; the scenario itself only asserts listing.)
+
+Set `QE2E_ONLY=<substr>` to run only matching extra scenarios (the main flow always runs).

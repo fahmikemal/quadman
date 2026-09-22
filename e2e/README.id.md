@@ -25,3 +25,11 @@ Harness pengujian mengeksekusi `./quadman` dari direktori kerjanya, jadi jalanka
 Pengujian membutuhkan tiga unit di `~/.config/containers/systemd/`:
 `demo-web.container` (busybox dengan healthcheck dan `AutoUpdate=registry`),
 `demo-data.volume`, dan `demo-net.network`. Harness akan memutasi statusnya (start/stop, menambah/menghapus `[Install]`) dan mengembalikan status boot ke kondisi semula di akhir pengujian; linger di-toggle dua kali dan dikembalikan seperti semula.
+
+### Fixture kompartemen (opsional)
+
+`scenarioCompartmentLive` membutuhkan OS user kedua dengan sudo tanpa
+password, dan akan skip dengan anggun bila tidak ada (lihat versi Inggris
+di atas untuk perintah setup).
+
+Set `QE2E_ONLY=<substr>` untuk menjalankan hanya skenario tambahan yang cocok (alur utama selalu jalan).

@@ -42,6 +42,7 @@ type Settings struct {
 	Mouse           bool            `yaml:"mouse,omitempty"`
 	QuadletDirs     []string        `yaml:"quadlet_dirs,omitempty"`
 	CustomCommands  []CustomCommand `yaml:"custom_commands,omitempty"`
+	Compartments    []string        `yaml:"compartments,omitempty"`
 	Serve           ServeSettings   `yaml:"serve,omitempty"`
 }
 

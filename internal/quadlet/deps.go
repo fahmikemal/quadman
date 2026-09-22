@@ -49,7 +49,7 @@ func Deps(u Unit, f *File) []string {
 
 	// [Unit] keys reference generated unit names.
 	unit := f.Section("Unit")
-	for _, key := range []string{"Requires", "Wants", "After", "Before", "BindsTo", "PartOf"} {
+	for _, key := range []string{"Requires", "Wants", "After", "Before", "BindsTo", "PartOf", "Upholds", "Conflicts"} {
 		for _, val := range unit.GetAll(key) {
 			for _, ref := range strings.Fields(val) {
 				if name := unitToQuadletName(ref); name != "" {

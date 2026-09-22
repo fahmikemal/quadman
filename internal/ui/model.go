@@ -15,6 +15,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/fahmikemal/quadman/internal/compartment"
 	"github.com/fahmikemal/quadman/internal/config"
 	"github.com/fahmikemal/quadman/internal/loginctl"
 	"github.com/fahmikemal/quadman/internal/podlet"
@@ -39,6 +40,7 @@ const (
 	modeTimers  // systemd timer entities (T)
 	modeSecrets // podman secret store (K)
 	modePalette // command palette (Ctrl+P)
+	modeStats   // podman stats resource screen (o)
 )
 
 // Detail tabs, cycled with [ and ].
@@ -157,6 +159,10 @@ type Model struct {
 	genIn      textinput.Model
 	genContent string
 
+	// interactive exec (X): container-name prompt before terminal handover
+	execing bool
+	execIn  textinput.Model
+
 	// validation + environment info
 	issues        unitIssues
 	generator     string
@@ -207,8 +213,14 @@ type Model struct {
 	custom []config.CustomCommand
 
 	// ssh runs all CLI calls on a remote host (--ssh user@host). Zero value
-	// means local execution.
+	// means local execution. Compartments reuse it with a sudo runner.
 	ssh remote.Runner
+
+	// comp is the active compartment (sudo target user); compOn reports it.
+	// compList holds configured compartment names for the palette switcher.
+	comp     compartment.Compartment
+	compOn   bool
+	compList []string
 
 	// mouse enables click-to-select (opt-in via config or --mouse; off by
 	// default so text selection keeps working).
@@ -270,6 +282,8 @@ func New() Model {
 	ii.Prompt = ""
 	gi := textinput.New()
 	gi.Prompt = ""
+	ei := textinput.New()
+	ei.Prompt = ""
 	pi := textinput.New()
 	pi.Prompt = ""
 	lfi := textinput.New()
@@ -290,6 +304,7 @@ func New() Model {
 		generator:   quadlet.GeneratorBinary(),
 		instanceIn:  ii,
 		genIn:       gi,
+		execIn:      ei,
 		inspect:     &quadlet.InspectCache{},
 		status:      map[string]systemd.Status{},
 		images:      map[string]string{},
@@ -315,6 +330,10 @@ func New() Model {
 	if cfgErr != nil {
 		m.setStatus("config: "+cfgErr.Error(), true)
 	}
+	if bad := customKeyConflicts(m.custom); len(bad) > 0 {
+		m.setStatus("custom command(s) shadowed by built-in keys (never fire): "+strings.Join(bad, ", "), true)
+	}
+	m.compList = cfg.Settings.Compartments
 	return m
 }
 
@@ -322,6 +341,7 @@ func New() Model {
 type Options struct {
 	Readonly    bool
 	SSH         string
+	Compartment string
 	Mouse       bool
 	Theme       string
 	QuadletDirs []string
@@ -346,6 +366,9 @@ func NewWithOptions(o Options) Model {
 	m := New()
 	if o.SSH != "" {
 		m.applySSH(o.SSH)
+	}
+	if o.Compartment != "" {
+		m.applyCompartment(o.Compartment)
 	}
 	if o.Readonly {
 		m.readonly = true
@@ -373,7 +396,13 @@ func NewWithOptions(o Options) Model {
 }
 
 func (m Model) searchDirs() []string {
-	return quadlet.SearchDirsMode(m.system)
+	if m.system {
+		return quadlet.SearchDirsMode(true)
+	}
+	if m.compOn {
+		return m.compDirs()
+	}
+	return quadlet.SearchDirsMode(false)
 }
 
 // RunWithOptions starts the quadman TUI with CLI overrides.
@@ -588,6 +617,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resize()
 		return m, nil
 
+	case statsMsg:
+		m.busy = false
+		if msg.err != nil {
+			m.setStatus("stats: "+msg.err.Error(), true)
+			return m, nil
+		}
+		m.mode = modeStats
+		m.viewport.SetContent(msg.content)
+		m.viewport.GotoTop()
+		m.resize()
+		return m, nil
+
 	case timersMsg:
 		m.busy = false
 		if msg.err != nil {
@@ -671,6 +712,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.refresh(enrichNone)
 
+	case execResolveMsg:
+		if msg.err != nil {
+			m.setStatus("exec: "+msg.err.Error(), true)
+			return m, nil
+		}
+		if !msg.found {
+			m.execing = true
+			m.execIn.Focus()
+			m.setStatus(fmt.Sprintf("container %q not found — is the unit running? (edit name, enter)", msg.name), true)
+			return m, nil
+		}
+		m.setStatus("exec in "+msg.name+" (/bin/sh) — exit the shell to return", false)
+		return m, m.execShell(msg.name)
+
+	case execFinishedMsg:
+		if msg.err != nil {
+			m.setStatus("exec: "+msg.err.Error(), true)
+			return m, nil
+		}
+		m.setStatus("exec session ended", false)
+		return m, m.refresh(enrichNone)
+
 	case healthMsg:
 		m.busy = false
 		if msg.err != nil {
@@ -738,6 +801,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if mm, cmd, ok := m.generateKeys(msg); ok {
 		return mm, cmd
 	}
+	if mm, cmd, ok := m.execKeys(msg); ok {
+		return mm, cmd
+	}
 	if mm, cmd, ok := m.filterKeys(msg); ok {
 		return mm, cmd
 	}
@@ -780,6 +846,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return mm, cmd
 	}
 	if mm, cmd, ok := m.modeSecretsKeys(msg); ok {
+		return mm, cmd
+	}
+	if mm, cmd, ok := m.modeStatsKeys(msg); ok {
 		return mm, cmd
 	}
 
@@ -871,6 +940,15 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return mm, cmd
 	}
 	if mm, cmd, ok := m.markKeys(msg); ok {
+		return mm, cmd
+	}
+	if mm, cmd, ok := m.execOpenKeys(msg); ok {
+		return mm, cmd
+	}
+	if mm, cmd, ok := m.statsOpenKeys(msg); ok {
+		return mm, cmd
+	}
+	if mm, cmd, ok := m.pruneKeys(msg); ok {
 		return mm, cmd
 	}
 

@@ -42,6 +42,32 @@ func customDataOf(u quadlet.Unit, images map[string]string) customData {
 	}
 }
 
+// builtinKeys are the single-char list-mode keys owned by quadman itself.
+// A custom command bound to one of them never fires (built-ins dispatch
+// first), so New() warns instead of letting the config rot silently.
+var builtinKeys = map[string]bool{
+	"/": true, "?": true, " ": true,
+	"A": true, "d": true, "D": true,
+	"e": true, "E": true, "g": true, "h": true,
+	"i": true, "I": true, "l": true, "L": true,
+	"n": true, "o": true, "P": true, "q": true,
+	"r": true, "R": true, "s": true, "t": true,
+	"T": true, "K": true, "u": true, "v": true,
+	"w": true, "x": true, "X": true, "y": true, "Y": true,
+}
+
+// customKeyConflicts returns "name (key)" labels for custom commands whose
+// key is shadowed by a built-in binding.
+func customKeyConflicts(custom []config.CustomCommand) []string {
+	var out []string
+	for _, cc := range custom {
+		if builtinKeys[cc.Key] {
+			out = append(out, fmt.Sprintf("%s (%s)", cc.Name, cc.Key))
+		}
+	}
+	return out
+}
+
 // customCmd expands cc.Run as a Go template over the selected unit, splits
 // it quote-aware into argv, and runs it without a shell.
 func customCmd(cc config.CustomCommand, u quadlet.Unit, images map[string]string) tea.Cmd {

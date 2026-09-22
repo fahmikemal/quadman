@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/fahmikemal/quadman/internal/podman"
 	"github.com/fahmikemal/quadman/internal/quadlet"
 )
 
@@ -145,6 +146,97 @@ func (m Model) buildPaletteActions() []paletteAction {
 		},
 	})
 
+	actions = append(actions, paletteAction{
+		id:          "exec",
+		title:       "Exec Shell in Container",
+		shortcut:    "X",
+		category:    "Lifecycle",
+		description: "Open /bin/sh in the selected unit's container",
+		enabled: func(m Model) (bool, string) {
+			if m.readonly {
+				return false, "readonly"
+			}
+			if bad, reason := m.isolatedReason(); bad {
+				return false, reason
+			}
+			if m.noEditor {
+				return false, "unavailable in served sessions"
+			}
+			if _, ok := m.selected(); !ok {
+				return false, "no selection"
+			}
+			return true, ""
+		},
+		run: func(m Model) (tea.Model, tea.Cmd, bool) {
+			return m.execOpenKeys(tea.KeyPressMsg{Code: 'X', Text: "X"})
+		},
+	})
+
+	actions = append(actions, paletteAction{
+		id:          "stats",
+		title:       "Resource Stats",
+		shortcut:    "o",
+		category:    "Views",
+		description: "Live CPU/memory/network per container (podman stats)",
+		enabled: func(m Model) (bool, string) {
+			return true, ""
+		},
+		run: func(m Model) (tea.Model, tea.Cmd, bool) {
+			return m.statsOpenKeys(tea.KeyPressMsg{Code: 'o', Text: "o"})
+		},
+	})
+
+	actions = append(actions, paletteAction{
+		id:          "prune",
+		title:       "System Prune",
+		shortcut:    "P",
+		category:    "Host",
+		description: "Remove stopped containers + unused data, warning for inactive Quadlet units",
+		enabled: func(m Model) (bool, string) {
+			if m.readonly {
+				return false, "readonly"
+			}
+			if bad, reason := m.isolatedReason(); bad {
+				return false, reason
+			}
+			if !podman.Available() {
+				return false, "podman not found"
+			}
+			return true, ""
+		},
+		run: func(m Model) (tea.Model, tea.Cmd, bool) {
+			return m.pruneKeys(tea.KeyPressMsg{Code: 'P', Text: "P"})
+		},
+	})
+
+	actions = append(actions, paletteAction{
+		id:          "pull-image",
+		title:       "Pull Unit Image",
+		shortcut:    "",
+		category:    "Lifecycle",
+		description: "Pull the selected unit's image now (avoids a cold pull at start)",
+		enabled: func(m Model) (bool, string) {
+			if m.readonly {
+				return false, "readonly"
+			}
+			img := m.unitImage()
+			if img == "" {
+				return false, "unknown image"
+			}
+			if podman.IsLocalImage(img) {
+				return false, "locally built"
+			}
+			return true, img
+		},
+		run: func(m Model) (tea.Model, tea.Cmd, bool) {
+			img := m.unitImage()
+			if img == "" {
+				return m, nil, true
+			}
+			return m, tea.Batch(m.setBusy("pull "+img), pullImageCmd(img)), true
+		},
+	})
+
 	// 2. Navigation & Logs
 	actions = append(actions, paletteAction{
 		id:          "logs",
@@ -179,8 +271,8 @@ func (m Model) buildPaletteActions() []paletteAction {
 			if m.readonly {
 				return false, "readonly"
 			}
-			if m.ssh.IsRemote() {
-				return false, "unavailable over SSH"
+			if bad, reason := m.isolatedReason(); bad {
+				return false, reason
 			}
 			_, ok := m.selected()
 			if !ok {
@@ -204,8 +296,8 @@ func (m Model) buildPaletteActions() []paletteAction {
 			if m.readonly {
 				return false, "readonly"
 			}
-			if m.ssh.IsRemote() {
-				return false, "unavailable over SSH"
+			if bad, reason := m.isolatedReason(); bad {
+				return false, reason
 			}
 			_, ok := m.selected()
 			if !ok {
@@ -310,8 +402,8 @@ func (m Model) buildPaletteActions() []paletteAction {
 			if m.noEditor {
 				return false, "disabled in SSH server"
 			}
-			if m.ssh.IsRemote() {
-				return false, "unavailable over SSH"
+			if bad, reason := m.isolatedReason(); bad {
+				return false, reason
 			}
 			_, ok := m.selected()
 			if !ok {
@@ -334,8 +426,8 @@ func (m Model) buildPaletteActions() []paletteAction {
 			if m.readonly {
 				return false, "readonly"
 			}
-			if m.ssh.IsRemote() {
-				return false, "unavailable over SSH"
+			if bad, reason := m.isolatedReason(); bad {
+				return false, reason
 			}
 			u, ok := m.selected()
 			if !ok {
@@ -361,8 +453,8 @@ func (m Model) buildPaletteActions() []paletteAction {
 			if m.readonly {
 				return false, "readonly"
 			}
-			if m.ssh.IsRemote() {
-				return false, "unavailable over SSH"
+			if bad, reason := m.isolatedReason(); bad {
+				return false, reason
 			}
 			u, ok := m.selected()
 			if !ok {
@@ -604,6 +696,7 @@ func (m Model) buildPaletteActions() []paletteAction {
 			},
 		})
 	}
+	actions = append(actions, m.compartmentPaletteActions()...)
 
 	return actions
 }
