@@ -11,6 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/fahmikemal/quadman/internal/podman"
 	"github.com/fahmikemal/quadman/internal/quadlet"
 	"github.com/fahmikemal/quadman/internal/systemd"
 )
@@ -34,6 +35,18 @@ func TestGenerateScreenshots(t *testing.T) {
 	logModel = model.(Model)
 	logsSVG := ansiToSVG(logModel.View().Content, "quadman - journal: webapp.service")
 	writeScreenshot(t, filepath.Join("..", "..", "docs", "screenshot-logs.svg"), logsSVG)
+
+	statModel := demoModel(t)
+	model, _ = statModel.Update(tea.WindowSizeMsg{Width: 124, Height: 16})
+	statModel = model.(Model)
+	model, _ = statModel.Update(statsMsg{content: renderStats([]podman.StatEntry{
+		{Name: "webapp", CPU: "0.08%", Mem: "12.58MB / 16.6GB", MemPerc: "0.08%", Net: "1.2kB / 0B", Block: "0B / 0B", PIDs: "12"},
+		{Name: "api", CPU: "1.21%", Mem: "84.11MB / 16.6GB", MemPerc: "0.51%", Net: "12.4kB / 8.1kB", Block: "0B / 0B", PIDs: "18"},
+		{Name: "db", CPU: "0.00%", Mem: "0B / 0B", MemPerc: "0.00%", Net: "0B / 0B", Block: "0B / 0B", PIDs: "0"},
+	})})
+	statModel = model.(Model)
+	statsSVG := ansiToSVG(statModel.View().Content, "quadman - resource stats")
+	writeScreenshot(t, filepath.Join("..", "..", "docs", "screenshot-stats.svg"), statsSVG)
 }
 
 func writeScreenshot(t *testing.T, path, svg string) {
