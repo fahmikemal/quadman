@@ -53,6 +53,9 @@ func (m *Model) resize() {
 	if m.generating {
 		chrome++ // generate input
 	}
+	if m.execing {
+		chrome++ // exec container-name input
+	}
 	body := h - chrome
 	if body < 3 {
 		body = 3

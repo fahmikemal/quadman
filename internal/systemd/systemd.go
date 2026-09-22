@@ -28,9 +28,13 @@ type Systemd struct {
 	JournalBin string
 	// Timeout bounds each call; 0 means DefaultTimeout.
 	Timeout time.Duration
-	// Remote runs the CLI over SSH when set (--ssh user@host). The zero
-	// value runs everything locally.
+	// Remote runs the CLI over SSH (or sudo compartment) when set. The
+	// zero value runs everything locally.
 	Remote remote.Runner
+	// GenDir overrides the generator output directory (stale detection).
+	// Empty means GeneratorDir() derives it from the session; compartments
+	// set it to the target user's runtime generator dir.
+	GenDir string
 }
 
 // New returns a Systemd targeting the current user's session.
@@ -227,10 +231,13 @@ func SystemGeneratorDir() string {
 	return "/run/systemd/generator"
 }
 
-// GeneratorDir returns the generator directory for this Systemd instance.
-// For system instances (!User), it returns SystemGeneratorDir() (/run/systemd/generator).
-// For user instances (User), it returns UserGeneratorDir().
+// GeneratorDir returns the generator directory for this Systemd instance:
+// the GenDir override when set (compartments), SystemGeneratorDir() for
+// system instances, or UserGeneratorDir() for user sessions.
 func (s *Systemd) GeneratorDir() string {
+	if s.GenDir != "" {
+		return s.GenDir
+	}
 	if !s.User {
 		return SystemGeneratorDir()
 	}

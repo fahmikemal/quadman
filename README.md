@@ -136,6 +136,7 @@ quadman --mouse                  # opt-in click-to-select
 quadman --quadlet-dir ~/quadlets # extra Quadlet source dir (repeatable)
 quadman list                     # non-interactive overview for scripts and pipes
 quadman list --system            # list system-wide quadlets
+quadman --as svc-web list        # list another user's units via sudo (flags go before the command)
 quadman --skill                  # export AI Agent Skill specification (markdown)
 quadman --skill --skill-format=json # export AI Agent Skill specification in JSON format
 quadman -version
@@ -147,7 +148,7 @@ quadman -version
 | ----- | --------------------------------------------- |
 | `↑/↓` `j/k` | move in the list                       |
 | `enter` | view the Quadlet source file               |
-| `Ctrl+P` | command palette (fuzzy search and run any action or custom command) |
+| `Ctrl+P` | command palette (fuzzy search and run any action, incl. pull image, or custom command) |
 | `/`   | fuzzy-filter the list (type to narrow, `esc` clears) |
 | `l`   | live journal tail (`f` pause, `/` search, `F` grep filter, `p` priority, `S` export, `c` copy) |
 | `s` / `x` / `r` | start / stop (confirms) / restart the unit — or all `space`-marked units at once |
@@ -155,6 +156,7 @@ quadman -version
 | `e`   | enable at boot (appends `[Install]` to the file, asks first) |
 | `d`   | disable from boot (removes `[Install]`, asks first) |
 | `E`   | edit the Quadlet file in `$EDITOR`            |
+| `X`   | open `/bin/sh` in the unit's container (`podman exec`, exact name match) |
 | `u`   | auto-update screen (`U` toggles the timer)    |
 | `h`   | run `podman healthcheck` on the unit          |
 | `v`   | problems view — generator validation of every Quadlet file |
@@ -165,10 +167,12 @@ quadman -version
 | `[` / `]` | cycle detail tabs: source / status / journal / inspect |
 | `I`   | install a `.quadlets` bundle (`podman quadlet install`) |
 | `g`   | storage screen (`podman system df --verbose`, `r` refresh) |
+| `o`   | resource stats screen (`podman stats`, `r` refresh) |
+| `P`   | `podman system prune` (asks first, warns about inactive Quadlet units) |
 | `T`   | systemd timers screen (view scheduled timers, countdowns, and triggers) |
 | `K`   | secrets screen (view Podman secret store, drivers, and metadata) |
 | `w`   | live podman events stream (`f` pause) |
-| `n`   | generate a quadlet via podlet (`podman run ...`, `docker run ...`, `run ...` shorthand, or `compose <path>`) |
+| `n`   | generate a quadlet via podlet (`podman run ...`, `docker run ...`, `run ...` shorthand, `compose <path>`, or `<kind> <name>` for container\|pod\|network\|volume\|image) |
 | `A`   | recent-actions log (what ran, when, and whether it worked) |
 | `R`   | `systemctl --user daemon-reload` (regenerate after editing Quadlet files) |
 | `L`   | toggle user linger (`loginctl enable-linger`) |
@@ -196,9 +200,13 @@ custom_commands:
     key: S
     run: systemctl --user status {{.UnitName}}
   - name: image
-    key: P
+    key: G
     run: podman image inspect {{.Image}}
 ```
+
+Custom keys must avoid the built-in list-mode keys (`s x r e d E u h v t i I D y Y g o P T K w n A R L ? q l X` and friends):
+quadman warns at startup when a custom command is shadowed and the built-in
+always wins.
 
 Custom commands run without a shell: the `run` string is expanded as a Go
 template (`{{.Name}}`, `{{.UnitName}}`, `{{.Kind}}`, `{{.Image}}`), split
@@ -218,12 +226,40 @@ keep working, and nothing new needs configuring. If `ssh user@host true`
 works, quadman works.
 
 Remote mode keeps full read and lifecycle control: list, live state, start /
-stop / restart, journals, storage, events, updates, health, linger, and the
+stop / restart, journals, storage, stats, events, updates, health, linger, and the
 dependency tree (files are read with `cat` on demand, never synced). Actions
 that edit files on the host (edit, enable/disable at boot, instantiate,
 generate-write, install, delete) are refused with an explanation — manage
-files by running quadman on that host directly. Drop-ins are not enumerated
+files by running quadman on that host directly. Interactive or destructive
+host actions are also refused remotely: `podman exec` (`X`) needs a local
+TTY and `system prune` (`P`) must run on the host. Drop-ins are not enumerated
 remotely; the file view says so.
+
+## Compartments (many OS users, one TUI)
+
+A compartment is an ordinary Linux user whose Quadlet workloads you administer
+without leaving quadman. `quadman --as svc-web` re-points every CLI call
+(`systemctl`, `journalctl`, `loginctl`, `podman`) through non-interactive sudo
+(`sudo -n -u svc-web`), scoped to that user's own Quadlet search path,
+systemd user instance, podman storage, and secret store. The title bar shows
+`[svc-web]`; file edits stay disabled, like SSH mode.
+
+Requirements: `sudo -n -u <user> true` must succeed (NOPASSWD sudoers entry
+or a root operator), and the target needs a runtime dir (`/run/user/<uid>` —
+linger the user or log in once). When either is missing, quadman explains
+why and keeps showing your own session instead of half-switching.
+
+Configured compartments (`compartments: [svc-web, svc-db]` in config.yaml)
+appear in the Command Palette (`Ctrl+P`) as "Use Compartment ..." actions,
+plus "Use Own Session" to go back. Switching compartments over an SSH
+session is refused (no nested sudo hops).
+Non-interactive scripts use `quadman --as <user> list`.
+
+```yaml
+compartments:
+  - svc-web
+  - svc-db
+```
 
 ## SSH Server (Wish daemon)
 
@@ -240,10 +276,7 @@ quadman includes a native SSH server powered by [Charm Wish](https://github.com/
 ssh -p 2222 user@host
 ```
 
-Key features of the SSH server:
-- **Zero local dependency**: Connecting clients only need a standard `ssh` terminal client.
-- **Auto-generated Host Key**: Generates an ED25519 host key automatically in `~/.config/quadman/host_ed25519` if none is specified.
-- **Authentication Options**: Supports open access (default), `authorized_keys` file verification, or password protection.
+- **Authentication Options**: Supports `authorized_keys` file verification or password protection. With neither configured, the server still starts but **forces all sessions into readonly mode** and says so loudly — anonymous write access is never on by default.
 - **Readonly Dashboard Mode**: Pass `--readonly` to safely expose quadman as an observability dashboard for teammates without granting permission to start/stop units.
 - **Safe Execution**: Local `$EDITOR` process hijacking is safely disabled in SSH server sessions.
 
@@ -319,11 +352,22 @@ feature tiers, patch bumps for accumulated fixes.
 - [x] **Log Export & Live Filtering** — export journal logs to timestamped `.log` (plain text) and `.jsonl` (structured journal format) files (`S`), OSC52 clipboard copy (`c`), live grep filtering (`F`), and log priority cycling (`p`: err, warning, info, all).
 - [x] **Native Rootful / System Mode (`--system`)** — first-class support for system-wide Quadlet units (`/etc/containers/systemd`, `/run/containers/systemd`, `/usr/share/containers/systemd`), auto-detection when executed as root (UID 0 / `sudo quadman`), dynamic `--user` CLI switching, and system linger safeguards.
 
-### v0.5.0 — Tier 5: Secrets, Timers & Agent Tooling (✅ shipped)
+### Tier 5: Secrets, Timers & Agent Tooling (✅ shipped in v0.5.0)
 
 - [x] **Podman Secrets Integration** — inspect Podman secrets store (`K`), and automatic pre-flight reference validation for `Secret=` directives in `.container` files with warnings in the Problems (`v`) view.
 - [x] **Standalone Systemd Timers View (`T`)** — inspect all active and scheduled calendar timers (`systemctl list-timers`), execution triggers, and countdowns directly in the TUI.
 - [x] **AI Agent Skill Export (`quadman --skill`)** — export machine-readable JSON tool schemas and comprehensive Markdown documentation for LLM coding agents.
+
+### v0.5.0 — Tier 6: Operate, Harden & Compartments (✅ shipped)
+
+- [x] **Exec shell (`X`)** — open `/bin/sh` in the unit's container (exact name match, `systemd-<name>` prefill), refused over SSH/served sessions with an explanation.
+- [x] **Resource stats (`o`)** — `podman stats --no-stream --all` table (CPU/MEM/NET/BLOCK/PIDS), read-only and remote-safe.
+- [x] **System prune (`P`)** — `podman system prune -f` behind a confirmation naming inactive Quadlet units at risk.
+- [x] **Generate from live objects** — `n` accepts `container|pod|network|volume|image <name>` via `podlet generate`, plus **Pull Unit Image** palette action with an already-present fast-path.
+- [x] **Problems depth** — missing `[Kube] Yaml=` detection (local + remote), `AutoUpdate=local` and `.kube` timer hints, `Upholds=`/`Conflicts=` in the dependency tree.
+- [x] **Serve hardening** — open access (no keys/password) forces readonly + loud warnings; constant-time password compare; YAML password world-readable warning; log export never clobbers (`-1`, `-2`…).
+- [x] **Compartments (`--as <user>`, `quadman --as <user> list`)** — manage another OS user's Quadlets through non-interactive sudo with that user's own search path, systemd instance, storage, and secrets; palette switcher, `[user]` title chip, isolated-session guards throughout.
+- [x] **Custom-key guard** — startup warning when a `custom_commands` key is shadowed by a built-in binding (built-ins always win).
 
 ### Notable ecosystem notes (Sep 2026)
 

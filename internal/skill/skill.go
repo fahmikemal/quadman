@@ -52,10 +52,11 @@ func Get(ver string) Definition {
 			{Usage: "sudo quadman", Description: "Auto-detects root (UID 0) and switches to system-wide mode."},
 			{Usage: "quadman list", Description: "Non-interactive tab-delimited overview of all Quadlet source files and systemd states (for scripts/pipes)."},
 			{Usage: "quadman list --system", Description: "List system-wide Quadlet units non-interactively."},
-			{Usage: "quadman serve [-p 2222] [--readonly]", Description: "Run embedded Wish v2 SSH daemon to serve TUI over network."},
+			{Usage: "quadman serve [-p 2222] [--readonly]", Description: "Run embedded Wish v2 SSH daemon to serve TUI over network. With no keys/password it forces readonly sessions."},
 			{Usage: "quadman --ssh user@host", Description: "Transparently manage remote rootless Quadlets over SSH client."},
+			{Usage: "quadman --as <user>", Description: "Manage another local user's Quadlets via non-interactive sudo (compartment); file edits stay disabled."},
+			{Usage: "quadman --as <user> list", Description: "Non-interactive compartment overview for scripts (flags go before the command)."},
 			{Usage: "quadman --readonly", Description: "Launch TUI with all state-changing actions disabled (monitoring mode)."},
-			{Usage: "quadman --skill [format]", Description: "Export Agent Skill definition (format: markdown or json)."},
 		},
 		QuadletInfo: QuadletDoc{
 			FileExtensions: []string{
@@ -97,6 +98,10 @@ func Get(ver string) Definition {
 						"system": map[string]interface{}{
 							"type":        "boolean",
 							"description": "Set to true to query system-wide units instead of user rootless units.",
+						},
+						"as": map[string]interface{}{
+							"type":        "string",
+							"description": "Manage another local user's units via sudo compartment (e.g. svc-web).",
 						},
 					},
 				},

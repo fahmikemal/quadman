@@ -75,6 +75,22 @@ func defaultExportFilename(unit string, ext string) string {
 	return fmt.Sprintf("%s-%s.%s", safeUnit, timestamp, ext)
 }
 
+// uniqueExportPath appends -1, -2, ... when path already exists, so two
+// exports in the same second never silently clobber each other.
+func uniqueExportPath(path string) string {
+	if _, err := os.Lstat(path); os.IsNotExist(err) {
+		return path
+	}
+	ext := filepath.Ext(path)
+	base := strings.TrimSuffix(path, ext)
+	for i := 1; ; i++ {
+		cand := fmt.Sprintf("%s-%d%s", base, i, ext)
+		if _, err := os.Lstat(cand); os.IsNotExist(err) {
+			return cand
+		}
+	}
+}
+
 // exportLogsText writes log lines as plain text to path.
 func exportLogsText(path string, unit string, lines []string) error {
 	cleanPath := filepath.Clean(path)

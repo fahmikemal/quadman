@@ -42,7 +42,7 @@ func buildTreeWith(units []quadlet.Unit, parse func(path string) (*quadlet.File,
 // buildTreeModel builds the tree for the model's units, parsing files
 // locally or over SSH depending on the mode.
 func (m Model) buildTreeModel() *tree.Node {
-	if !m.ssh.IsRemote() {
+	if !m.ssh.Isolated() {
 		return buildTree(m.units, nil)
 	}
 	return buildTreeWith(m.units, func(path string) (*quadlet.File, error) {

@@ -78,3 +78,27 @@ func TestUnitToQuadletName(t *testing.T) {
 		}
 	}
 }
+
+func TestDepsUnitKeysExtended(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "webapp.container")
+	content := "[Unit]\nUpholds=sidecar.service\nConflicts=legacy.service\n\n[Container]\nImage=busybox\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Section() needs a parseable file; add the kind section.
+	f, err := Parse(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deps := Deps(Unit{Name: "webapp", Kind: KindContainer, Path: path}, f)
+	want := map[string]bool{"sidecar": true, "legacy": true}
+	if len(deps) != len(want) {
+		t.Fatalf("deps = %v, want %v", deps, want)
+	}
+	for _, d := range deps {
+		if !want[d] {
+			t.Errorf("unexpected dep %q", d)
+		}
+	}
+}

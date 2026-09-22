@@ -4,6 +4,7 @@ package server
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"net"
@@ -132,8 +133,9 @@ func New(opts Options) (*ssh.Server, error) {
 	}
 
 	if opts.Password != "" {
+		want := []byte(opts.Password)
 		serverOpts = append(serverOpts, wish.WithPasswordAuth(func(ctx ssh.Context, password string) bool {
-			return password == opts.Password
+			return subtle.ConstantTimeCompare([]byte(password), want) == 1
 		}))
 	}
 

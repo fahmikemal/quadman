@@ -19,6 +19,8 @@ func (m Model) View() tea.View {
 		} else {
 			title = " quadman @ " + m.ssh.Target + " "
 		}
+	} else if m.compOn {
+		title = " quadman [" + m.comp.User + "] "
 	} else if m.clientInfo != "" {
 		if m.system {
 			title = " quadman [SSH: " + m.clientInfo + "] [SYSTEM] "
@@ -37,6 +39,10 @@ func (m Model) View() tea.View {
 		}
 		if m.instancing {
 			b.WriteString(filterStyle.Render("instance name for " + m.selectedName() + " @: " + m.instanceIn.View()))
+			b.WriteString("\n")
+		}
+		if m.execing {
+			b.WriteString(filterStyle.Render("exec shell in container: " + m.execIn.View() + "  (enter / esc)"))
 			b.WriteString("\n")
 		}
 		if m.filtering || m.filterStr != "" {
@@ -122,6 +128,10 @@ func (m Model) View() tea.View {
 		b.WriteString(m.viewport.View())
 	case modeSecrets:
 		b.WriteString(headerStyle.Render(" SECRETS — podman secret store "))
+		b.WriteString("\n")
+		b.WriteString(m.viewport.View())
+	case modeStats:
+		b.WriteString(headerStyle.Render(" STATS — podman stats (r refresh, q back) "))
 		b.WriteString("\n")
 		b.WriteString(m.viewport.View())
 	case modePalette:

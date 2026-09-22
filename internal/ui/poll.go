@@ -62,7 +62,7 @@ func (m Model) refresh(level enrichLevel) tea.Cmd {
 	if cache == nil {
 		cache = &quadlet.InspectCache{}
 	}
-	return refreshCmd(m.sys, m.lc, cache, m.ssh, level, m.system)
+	return refreshCmd(m.sys, m.lc, cache, m.ssh, level, m.system, m.searchDirs())
 }
 
 // pollTick schedules the next poll using the model's configured interval
@@ -71,7 +71,7 @@ func (m Model) pollTick() tea.Cmd {
 	return pollCmd(m.pollInterval)
 }
 
-func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, cache *quadlet.InspectCache, runner remote.Runner, level enrichLevel, system bool) tea.Cmd {
+func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, cache *quadlet.InspectCache, runner remote.Runner, level enrichLevel, system bool, dirs []string) tea.Cmd {
 	if cache == nil {
 		cache = &quadlet.InspectCache{}
 	}
@@ -79,14 +79,14 @@ func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, cache *quadlet.Insp
 		ctx := context.Background()
 		var units []quadlet.Unit
 		var images []string
-		if runner.IsRemote() {
+		if runner.Isolated() {
 			var err error
 			units, err = quadlet.DiscoverRemoteMode(ctx, runner, system)
 			if err != nil {
 				return refreshMsg{err: err}
 			}
-			// Remote files have no cheap mtime: read and parse each unit
-			// once per refresh through the SSH runner.
+			// Isolated files have no cheap local mtime: read and parse
+			// each unit once per refresh through the session runner.
 			images = make([]string, len(units))
 			for i := range units {
 				info := inspectRemote(ctx, runner, units[i])
@@ -95,7 +95,7 @@ func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, cache *quadlet.Insp
 			}
 		} else {
 			var err error
-			units, err = quadlet.DiscoverMode(system)
+			units, err = quadlet.DiscoverDirs(dirs)
 			if err != nil {
 				return refreshMsg{err: err}
 			}
@@ -131,7 +131,7 @@ func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, cache *quadlet.Insp
 				}
 			}
 			if !runner.IsRemote() {
-				issues, _ = quadlet.ValidateMode(ctx, quadlet.SearchDirsMode(system), system)
+				issues, _ = quadlet.ValidateMode(ctx, dirs, system)
 				if secList, serr := podman.SecretList(ctx); serr == nil {
 					secNames := make([]string, len(secList))
 					for i, s := range secList {
@@ -197,7 +197,7 @@ func unitNames(units []quadlet.Unit) []string {
 // podmanAvailable reports whether podman answers, locally via PATH or
 // remotely through the runner.
 func podmanAvailable(ctx context.Context, runner remote.Runner) bool {
-	if !runner.IsRemote() {
+	if !runner.Isolated() {
 		return podman.Available()
 	}
 	ctx, cancel := context.WithTimeout(ctx, remote.DialTimeout)
@@ -206,32 +206,9 @@ func podmanAvailable(ctx context.Context, runner remote.Runner) bool {
 	return err == nil
 }
 
-// inspectRemote resolves one remote unit's Info by catting its source file
-// through the SSH runner. Failures keep the default generated name,
-// matching the uncached local fallback.
+// inspectRemote resolves one remote unit's Info through the session runner.
 func inspectRemote(ctx context.Context, runner remote.Runner, u quadlet.Unit) quadlet.Info {
-	info := quadlet.Info{UnitName: quadlet.UnitFileName(u.Name, u.Kind)}
-	if u.Path == "" {
-		return info
-	}
-	data, err := runner.Cat(ctx, u.Path)
-	if err != nil {
-		return info
-	}
-	f, err := quadlet.ParseBytes(u.Path, data)
-	if err != nil {
-		return info
-	}
-	sec := f.Section(string(u.Kind))
-	if sn := sec.Get("ServiceName"); sn != "" {
-		info.UnitName = sn + ".service"
-	}
-	if u.Kind == quadlet.KindBuild {
-		info.Image = sec.Get("ImageTag")
-	} else {
-		info.Image = sec.Get("Image")
-	}
-	return info
+	return quadlet.InspectRemote(ctx, runner, u)
 }
 
 // applyRefresh merges a finished refresh into the model, keeping the cursor

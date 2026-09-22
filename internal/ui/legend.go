@@ -91,6 +91,8 @@ func (m Model) legend() []string {
 		return []string{"r refresh · ↑/↓ scroll · esc/q back"}
 	case modeSecrets:
 		return []string{"r refresh · ↑/↓ scroll · esc/q back"}
+	case modeStats:
+		return []string{"r refresh · ↑/↓ scroll · esc/q back"}
 	}
 	w := m.help.Width()
 	keys := legendKeys()
@@ -123,6 +125,8 @@ func legendKeys() []string {
 		"i instantiate", "I install",
 		"l logs", "L linger",
 		"n generate",
+		"o stats",
+		"P prune",
 		"q quit",
 		"r restart", "R reload",
 		"s start", "space mark",
@@ -131,6 +135,7 @@ func legendKeys() []string {
 		"v problems",
 		"w events",
 		"x stop",
+		"X exec",
 		"y/Y copy",
 		"enter file",
 	}

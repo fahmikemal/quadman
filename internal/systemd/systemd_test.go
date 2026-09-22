@@ -442,3 +442,14 @@ func TestLoaded(t *testing.T) {
 		t.Error("empty state must not count as loaded")
 	}
 }
+
+func TestGeneratorDirOverride(t *testing.T) {
+	s := &Systemd{User: true, GenDir: "/run/user/1001/systemd/generator"}
+	if got := s.GeneratorDir(); got != "/run/user/1001/systemd/generator" {
+		t.Errorf("GeneratorDir = %q", got)
+	}
+	s2 := &Systemd{User: true}
+	if got := s2.GeneratorDir(); got != UserGeneratorDir() {
+		t.Errorf("empty override must derive: %q", got)
+	}
+}

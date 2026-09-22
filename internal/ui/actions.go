@@ -118,6 +118,8 @@ func (m Model) runPending(p *pendingAction) (tea.Model, tea.Cmd) {
 			}))
 	case "install":
 		return m.installBundle(p.unit)
+	case "prune":
+		return m, tea.Batch(m.setBusy("system prune"), pruneCmd())
 	case "delete":
 		return m.deleteUnit(p.unit)
 	default: // "stop"

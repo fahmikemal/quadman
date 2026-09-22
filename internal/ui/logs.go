@@ -172,8 +172,8 @@ func (m Model) exportLogs(format string) (tea.Model, tea.Cmd) {
 		m.setStatus("export logs refused: readonly", true)
 		return m, nil
 	}
-	if m.ssh.IsRemote() {
-		m.setStatus("export to local file unavailable over SSH (use 'c' to copy)", true)
+	if bad, reason := m.isolatedReason(); bad {
+		m.setStatus("export to local file "+reason+" (use 'c' to copy)", true)
 		return m, nil
 	}
 
@@ -181,7 +181,7 @@ func (m Model) exportLogs(format string) (tea.Model, tea.Cmd) {
 	if format == "json" {
 		ext = "jsonl"
 	}
-	filename := defaultExportFilename(u.UnitName, ext)
+	filename := uniqueExportPath(defaultExportFilename(u.UnitName, ext))
 	var err error
 	if format == "json" {
 		err = exportLogsJSONL(filename, u.UnitName, lines)

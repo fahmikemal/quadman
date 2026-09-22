@@ -286,3 +286,32 @@ func TestDiscoverDirsPermissionDenied(t *testing.T) {
 		t.Errorf("expected 1 unit 'good', got %v", units)
 	}
 }
+
+func TestSearchDirsFor(t *testing.T) {
+	dirs := SearchDirsFor("/home/svc", "1001", "/run/user/1001")
+	if len(dirs) < 2 {
+		t.Fatalf("SearchDirsFor = %v", dirs)
+	}
+	if dirs[0] != "/run/user/1001/containers/systemd" {
+		t.Errorf("dirs[0] = %q, want runtime dir first", dirs[0])
+	}
+	if dirs[1] != "/home/svc/.config/containers/systemd" {
+		t.Errorf("dirs[1] = %q, want config dir second", dirs[1])
+	}
+	found := false
+	for _, d := range dirs {
+		if d == "/etc/containers/systemd/users/1001" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("missing UID dir: %v", dirs)
+	}
+}
+
+func TestSearchDirsForNoRuntime(t *testing.T) {
+	dirs := SearchDirsFor("/home/svc", "1001", "")
+	if len(dirs) == 0 || dirs[0] != "/home/svc/.config/containers/systemd" {
+		t.Errorf("without runtime, config dir first: %v", dirs)
+	}
+}

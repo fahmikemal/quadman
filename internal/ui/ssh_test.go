@@ -108,7 +108,7 @@ func TestSSHTitleShowsTarget(t *testing.T) {
 
 func TestSSHRefreshCmd(t *testing.T) {
 	m := sshModel(t)
-	cmd := refreshCmd(m.sys, m.lc, nil, m.ssh, enrichNone, false)
+	cmd := refreshCmd(m.sys, m.lc, nil, m.ssh, enrichNone, false, nil)
 	msg := cmd()
 	rm, ok := msg.(refreshMsg)
 	if !ok {

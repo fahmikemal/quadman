@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"text/tabwriter"
 
+	"github.com/fahmikemal/quadman/internal/compartment"
 	"github.com/fahmikemal/quadman/internal/config"
 	"github.com/fahmikemal/quadman/internal/quadlet"
 	"github.com/fahmikemal/quadman/internal/server"
@@ -43,6 +44,7 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	readonly := flag.Bool("readonly", false, "disable all state-changing actions (view, logs, and screens only)")
 	sshTarget := flag.String("ssh", "", "run against a remote host over SSH (e.g. user@host); file edits are disabled in this mode")
+	asUser := flag.String("as", "", "manage another local user's Quadlet units via sudo (compartment, e.g. --as svc-web); file edits are disabled in this mode")
 	mouse := flag.Bool("mouse", false, "enable click-to-select (off by default so text selection keeps working)")
 	theme := flag.String("theme", "", "color scheme: auto, dark, light, or colorblind (default from config.yaml)")
 	systemFlag := flag.Bool("system", false, "manage system-wide (rootful) Quadlet units instead of user units")
@@ -75,10 +77,18 @@ func main() {
 	if len(args) > 0 {
 		switch args[0] {
 		case "list":
-			listCmd(system)
+			if misplacedAsFlag(args[1:]) {
+				fmt.Fprintln(os.Stderr, "error: place --as before the command (quadman --as <user> list)")
+				os.Exit(2)
+			}
+			listCmd(system, *asUser)
 		case "version":
 			fmt.Println("quadman", moduleVersion())
 		case "serve":
+			if *asUser != "" {
+				fmt.Fprintln(os.Stderr, "error: serve --as is not supported (the daemon serves the operator's own session)")
+				os.Exit(2)
+			}
 			serve(args[1:], *readonly, *mouse, *theme, quadletDirs, system)
 		case "skill":
 			format := "markdown"
@@ -109,10 +119,30 @@ func main() {
 		return
 	}
 
+	if *asUser != "" {
+		if err := ui.RunWithOptions(ui.Options{Compartment: *asUser, Readonly: *readonly, Mouse: *mouse, Theme: *theme, QuadletDirs: quadletDirs, System: system}); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	if err := ui.RunWithOptions(ui.Options{Readonly: *readonly, Mouse: *mouse, Theme: *theme, QuadletDirs: quadletDirs, System: system}); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+// misplacedAsFlag reports whether --as appears after the subcommand, where
+// Go's flag package would silently ignore it (and list the wrong user's
+// units). Callers reject this explicitly instead.
+func misplacedAsFlag(args []string) bool {
+	for _, a := range args {
+		if a == "--as" || a == "-as" || strings.HasPrefix(a, "--as=") || strings.HasPrefix(a, "-as=") {
+			return true
+		}
+	}
+	return false
 }
 
 // applyQuadletDirs appends user-configured Quadlet source directories to
@@ -154,37 +184,86 @@ func moduleVersion() string {
 }
 
 // listCmd prints a non-interactive overview of quadlet units and their state.
-func listCmd(system bool) {
+func listCmd(system bool, asUser string) {
 	sys := systemd.New()
 	if system {
 		sys = systemd.NewSystem()
 	}
-	if err := runList(os.Stdout, sys, system); err != nil {
+	dirs := quadlet.SearchDirsMode(system)
+	if asUser != "" {
+		c, err := compSetup(asUser)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		sys.Remote = c.Runner()
+		sys.GenDir = c.GeneratorDir()
+		dirs = quadlet.SearchDirsFor(c.Home, c.UID, c.RuntimeDir)
+	}
+	if err := runList(os.Stdout, sys, system, dirs); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 }
 
+// compSetup probes, resolves, and runtime-checks a compartment user for
+// non-interactive commands, sharing the TUI's all-or-nothing rule: any
+// failure aborts before anything runs.
+func compSetup(username string) (compartment.Compartment, error) {
+	var c compartment.Compartment
+	if err := compartment.ProbeSudo(context.Background(), username); err != nil {
+		return c, err
+	}
+	c, err := compartment.Resolve(username)
+	if err != nil {
+		return c, err
+	}
+	if !c.RuntimeReady() {
+		return c, fmt.Errorf("compartment %s: no runtime dir %s (linger the user or log in once)", username, c.RuntimeDir)
+	}
+	return c, nil
+}
+
 // runList renders the overview into w. It is separated from listCmd() so tests
 // can drive it with a fake systemctl and capture the output.
-func runList(w io.Writer, sys *systemd.Systemd, system bool) error {
-	units, err := quadlet.DiscoverMode(system)
-	if err != nil {
-		return err
+func runList(w io.Writer, sys *systemd.Systemd, system bool, dirs []string) error {
+	ctx := context.Background()
+	var units []quadlet.Unit
+	images := []string{}
+	var err error
+	if sys.Remote.Isolated() {
+		// Compartments/SSH: enumerate through the session runner
+		// (`podman quadlet list`, systemctl fallback), never the
+		// operator's own filesystem.
+		units, err = quadlet.DiscoverRemoteMode(ctx, sys.Remote, system)
+		if err != nil {
+			return err
+		}
+		images = make([]string, len(units))
+		for i := range units {
+			info := quadlet.InspectRemote(ctx, sys.Remote, units[i])
+			units[i].UnitName = info.UnitName
+			images[i] = info.Image
+		}
+	} else {
+		units, err = quadlet.DiscoverDirs(dirs)
+		if err != nil {
+			return err
+		}
+		images = make([]string, len(units))
+		for i := range units {
+			info := quadlet.Inspect(units[i]) // resolves ServiceName= and image in one parse
+			units[i].UnitName = info.UnitName
+			images[i] = info.Image
+		}
 	}
+
 	if len(units) == 0 {
 		fmt.Fprintln(w, "no quadlet units found in:")
-		for _, d := range quadlet.SearchDirsMode(system) {
+		for _, d := range dirs {
 			fmt.Fprintln(w, "  "+d)
 		}
 		return nil
-	}
-
-	images := make([]string, len(units))
-	for i := range units {
-		info := quadlet.Inspect(units[i]) // resolves ServiceName= and image in one parse
-		units[i].UnitName = info.UnitName
-		images[i] = info.Image
 	}
 
 	if genDir := sys.GeneratorDir(); genDir != "" {
@@ -196,6 +275,9 @@ func runList(w io.Writer, sys *systemd.Systemd, system bool) error {
 			reloadHint := "run: systemctl --user daemon-reload"
 			if system {
 				reloadHint = "run: systemctl daemon-reload"
+			}
+			if as := sys.Remote.As; as != "" {
+				reloadHint = "run: sudo -u " + as + " systemctl --user daemon-reload"
 			}
 			fmt.Fprintf(os.Stderr, "warning: %d quadlet file(s) changed since last daemon-reload: %s\n",
 				len(stale), strings.Join(names, ", "))
@@ -253,6 +335,13 @@ func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme strin
 	// Load settings from config.yaml if available
 	cfg, _ := config.Load()
 	scfg := cfg.Settings.Serve
+	if scfg.Password != "" && *pass == "" {
+		if yp, err := config.YAMLPath(); err == nil {
+			if st, err := os.Stat(yp); err == nil && st.Mode().Perm()&0o077 != 0 {
+				fmt.Fprintf(os.Stderr, "WARNING: %s holds a password and is readable beyond owner (mode %04o); run: chmod 600 %s\n", yp, st.Mode().Perm(), yp)
+			}
+		}
+	}
 
 	finalAddr := *addr
 	if finalAddr == "" {
@@ -282,7 +371,8 @@ func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme strin
 		finalPass = scfg.Password
 	}
 
-	finalReadonly := *readonly || scfg.Readonly
+	openAuth := finalAuthKeys == "" && finalPass == ""
+	finalReadonly := *readonly || scfg.Readonly || openAuth
 
 	opts := server.Options{
 		Address:            finalAddr,
@@ -314,6 +404,17 @@ func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme strin
 	} else {
 		fmt.Println("Authentication: open (any public key accepted)")
 	}
+	if openAuth {
+		fmt.Println("WARNING: no --authorized-keys or --password: forcing readonly mode.")
+		fmt.Println("WARNING: anyone with any SSH keypair can connect; bind 127.0.0.1 (-a 127.0.0.1:2222) unless LAN access is intended.")
+	}
+	if isWildcardAddr(finalAddr) && !finalReadonly {
+		fmt.Println("WARNING: listening on all interfaces with write access enabled; prefer -a 127.0.0.1:2222 or --readonly.")
+	}
+	if *pass != "" {
+
+		fmt.Println("WARNING: --password is visible in the process list; prefer --authorized-keys or config password_file/env in the future.")
+	}
 	fmt.Println("Press Ctrl+C to stop the server.")
 
 	if err := server.Serve(ctx, opts); err != nil {
@@ -321,6 +422,16 @@ func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme strin
 		os.Exit(1)
 	}
 	fmt.Println("\nquadman SSH daemon stopped gracefully.")
+}
+
+// isWildcardAddr reports whether addr binds all interfaces (":port",
+// "0.0.0.0:port", "[::]:port"): reachable from the LAN, not just localhost.
+func isWildcardAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return strings.HasPrefix(addr, ":")
+	}
+	return host == "" || host == "0.0.0.0" || host == "::"
 }
 
 func formatConnectHint(addr string) string {
