@@ -192,6 +192,51 @@ func openPaletteKeys(m Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	return m, nil, true
 }
 
+// handleKey routes one keypress: global interrupts first, then modal
+// states (editor picker, armed confirmation), then the keyChain table,
+// custom commands, and finally the list widget as fallback.
+func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "ctrl+c" {
+		m.stopLogs()
+		return m, tea.Quit
+	}
+
+	// The first-use editor picker owns all keys until answered or cancelled.
+	if m.pickingEditor {
+		mm, cmd := m.pickEditor(msg)
+		return mm, cmd
+	}
+
+	// An armed confirmation (stop/enable/disable/...) swallows the next key.
+	if m.pending != nil {
+		p := m.pending
+		m.pending = nil
+		if msg.String() != "y" {
+			m.setStatus(p.verb+" cancelled", false)
+			return m, nil
+		}
+		mm, cmd := m.runPending(p)
+		return mm, cmd
+	}
+
+	// Dispatch through the keyChain table: first handler that
+	// consumes the key wins. Table order is the precedence.
+	for _, h := range keyChain {
+		if mm, cmd, ok := h.fn(m, msg); ok {
+			return mm, cmd
+		}
+	}
+
+	// User-defined custom commands from config.yaml (single-char keys).
+	if mm, cmd, ok := m.runCustom(msg.String()); ok {
+		return mm, cmd
+	}
+
+	var cmd tea.Cmd
+	m.table, cmd = m.table.Update(msg)
+	return m, cmd
+}
+
 func (k keyMap) FullHelp() [][]key.Binding {
 	switch {
 	case k.Timer.Enabled():
