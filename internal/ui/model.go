@@ -10,12 +10,10 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/table"
 	"charm.land/bubbles/v2/textinput"
-	"charm.land/bubbles/v2/tree"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/fahmikemal/quadman/internal/compartment"
 	"github.com/fahmikemal/quadman/internal/config"
 	"github.com/fahmikemal/quadman/internal/loginctl"
 	"github.com/fahmikemal/quadman/internal/podlet"
@@ -96,7 +94,9 @@ type pendingAction struct {
 	unit quadlet.Unit
 }
 
-// Model is the quadman Bubble Tea model.
+// Model is the quadman Bubble Tea model. Screen state lives in the
+// per-concern groups in model_state.go, embedded here so m.field keeps
+// working through promotion; mode stays top-level as the discriminator.
 type Model struct {
 	sys      *systemd.Systemd
 	lc       *loginctl.Loginctl
@@ -105,142 +105,27 @@ type Model struct {
 	viewport viewport.Model
 	help     help.Model
 	spinner  spinner.Model
-	filterIn textinput.Model
 
-	units       []quadlet.Unit
-	filtered    []quadlet.Unit
-	images      map[string]string
-	status      map[string]systemd.Status
-	health      map[string]string
+	// linger reports loginctl enable-linger for the target session.
 	linger      bool
 	lingerKnown bool
-	loading     bool
-	// marks holds marked unit names for bulk actions (space toggles).
-	marks       map[string]bool
-	podmanInfo  map[string]podman.Entry
-	podmanTried bool
-	stale       []quadlet.Unit
 
-	// filter
-	filtering bool
-	filterStr string
-
-	// logs search
-	searchIn      textinput.Model
-	searching     bool
-	searchStr     string
-	searchMatches int
-	matchPos      int
-
-	// follow logs
-	sess          *logSession
-	logLines      []string
-	logPriority   string // "", "err", "warning", "info"
-	logFilter     string // live grep filter
-	logFilterIn   textinput.Model
-	filteringLogs bool
-	following     bool
-	pollCount     int
-
-	// updates screen
-	updateEntries []podman.AutoUpdateEntry
-	timerEnabled  string
-	timerActive   string
-
-	// detail view tab state
-	tab int
-
-	// events stream
-	eventSess  *logSession
-	eventLines []string
-
-	// generate via podlet
-	generating bool
-	genIn      textinput.Model
-	genContent string
-
-	// interactive exec (X): container-name prompt before terminal handover
-	execing bool
-	execIn  textinput.Model
-
-	// validation + environment info
-	issues        unitIssues
-	generator     string
-	podmanVersion string
-
-	// dependency tree
-	treeModel tree.Model
-
-	// inspectCache memoizes quadlet.Inspect by file mtime so the 2.5s poll
-	// only re-parses files that changed on disk.
-	inspect *quadlet.InspectCache
-
-	// template instantiation
-	instancing bool
-	instanceIn textinput.Model
-
-	// stop confirmation
-	confirmStop bool
-
-	// pending is an armed confirmation (stop / enable / disable) waiting
-	// for a y/N answer.
-	pending *pendingAction
-
-	// first-use editor picker
-	cfg           config.Config
-	pickingEditor bool
-	editorChoices []editorChoice
-
-	busy     bool
-	busyText string
-
-	width, height int
-	statusLine    string
-	statusErr     bool
-	statusAt      time.Time
-	showHelp      bool
-
-	// pollInterval overrides the default refresh tick (0 = default).
-	pollInterval time.Duration
-
-	// recent-actions log of state-changing results this session.
-	actions []actionRecord
-
-	// readonly refuses every state-changing action with an explanation.
-	readonly bool
-
-	// custom commands from the YAML config (key -> command).
-	custom []config.CustomCommand
-
-	// ssh runs all CLI calls on a remote host (--ssh user@host). Zero value
-	// means local execution. Compartments reuse it with a sudo runner.
-	ssh remote.Runner
-
-	// comp is the active compartment (sudo target user); compOn reports it.
-	// compList holds configured compartment names for the palette switcher.
-	comp     compartment.Compartment
-	compOn   bool
-	compList []string
-
-	// mouse enables click-to-select (opt-in via config or --mouse; off by
-	// default so text selection keeps working).
-	mouse bool
-
-	// clientInfo identifies the connected client when served via Wish SSH.
-	clientInfo string
-
-	// noEditor disables local $EDITOR launching (e.g. in SSH server sessions).
-	noEditor bool
-
-	// system targets the system-wide (rootful) Quadlet session instead of user session.
-	system bool
-
-	// command palette (Ctrl+P)
-	paletteIn       textinput.Model
-	paletteCursor   int
-	paletteActions  []paletteAction
-	paletteFiltered []paletteAction
-	prevMode        mode
+	listState
+	logState
+	detailState
+	updateState
+	eventState
+	generateState
+	execState
+	envState
+	treeState
+	cacheState
+	templateState
+	confirmState
+	sessionState
+	statusBarState
+	paletteState
+	compartmentState
 }
 
 // statusTTL is how long a success notification stays before it fades.
@@ -290,28 +175,28 @@ func New() Model {
 	lfi.Prompt = ""
 	cfg, cfgErr := config.Load()
 	m := Model{
-		sys:         systemd.New(),
-		lc:          loginctl.New(),
-		table:       t,
-		viewport:    vp,
-		help:        help.New(),
-		spinner:     spinner.New(spinner.WithSpinner(spinner.Dot)),
-		filterIn:    fi,
-		searchIn:    si,
-		paletteIn:   pi,
-		logFilterIn: lfi,
-		cfg:         cfg,
-		generator:   quadlet.GeneratorBinary(),
-		instanceIn:  ii,
-		genIn:       gi,
-		execIn:      ei,
-		inspect:     &quadlet.InspectCache{},
-		status:      map[string]systemd.Status{},
-		images:      map[string]string{},
-		health:      map[string]string{},
-		loading:     true,
-		readonly:    cfg.Readonly(),
-		custom:      cfg.Settings.CustomCommands,
+		sys:      systemd.New(),
+		lc:       loginctl.New(),
+		table:    t,
+		viewport: vp,
+		help:     help.New(),
+		spinner:  spinner.New(spinner.WithSpinner(spinner.Dot)),
+		listState: listState{
+			filterIn: fi,
+			status:   map[string]systemd.Status{},
+			images:   map[string]string{},
+			health:   map[string]string{},
+			loading:  true,
+		},
+		logState:       logState{searchIn: si, logFilterIn: lfi},
+		paletteState:   paletteState{paletteIn: pi},
+		templateState:  templateState{instanceIn: ii},
+		generateState:  generateState{genIn: gi},
+		execState:      execState{execIn: ei},
+		cacheState:     cacheState{inspect: &quadlet.InspectCache{}},
+		envState:       envState{generator: quadlet.GeneratorBinary()},
+		sessionState:   sessionState{cfg: cfg},
+		statusBarState: statusBarState{readonly: cfg.Readonly(), custom: cfg.Settings.CustomCommands},
 	}
 	m.pollInterval = cfg.RefreshInterval()
 	m.mouse = cfg.Settings.Mouse
