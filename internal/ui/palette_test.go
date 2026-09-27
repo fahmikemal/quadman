@@ -175,3 +175,36 @@ func TestPaletteDisabledActionRefusal(t *testing.T) {
 		t.Errorf("executing disabled action in palette should report reason: %q", mm.statusLine)
 	}
 }
+
+// TestPaletteActionOrder pins the built-in action sequence produced by the
+// per-section builders: a refactor must not drop, duplicate, or reorder
+// entries. User custom commands and compartment switchers are ignored —
+// only the relative order of built-ins is asserted.
+func TestPaletteActionOrder(t *testing.T) {
+	m := withUnits(New(), "web-app")
+	want := []string{
+		"start", "stop", "restart", "exec", "stats", "prune", "pull-image",
+		"logs", "export-logs-txt", "export-logs-json", "copy-logs", "cycle-log-prio", "source", "detail",
+		"edit", "enable", "disable",
+		"reload", "linger",
+		"health", "updates", "validate", "tree", "storage", "events", "timers", "secrets", "generate", "recent", "copy-name", "copy-image",
+	}
+	inWant := map[string]bool{}
+	for _, id := range want {
+		inWant[id] = true
+	}
+	var got []string
+	for _, a := range m.buildPaletteActions() {
+		if inWant[a.id] {
+			got = append(got, a.id)
+		}
+	}
+	if len(got) != len(want) {
+		t.Fatalf("built-in actions = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("action order mismatch at %d: got %v, want %v", i, got, want)
+		}
+	}
+}
