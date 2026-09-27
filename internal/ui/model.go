@@ -605,53 +605,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setStatus("timer toggled", false)
 		return m, updatesCmd(m.sys)
 
-	case storageMsg:
-		m.busy = false
-		if msg.err != nil {
-			m.setStatus("system df: "+msg.err.Error(), true)
-			return m, nil
-		}
-		m.mode = modeStorage
-		m.viewport.SetContent(msg.content)
-		m.viewport.GotoTop()
-		m.resize()
-		return m, nil
-
-	case statsMsg:
-		m.busy = false
-		if msg.err != nil {
-			m.setStatus("stats: "+msg.err.Error(), true)
-			return m, nil
-		}
-		m.mode = modeStats
-		m.viewport.SetContent(msg.content)
-		m.viewport.GotoTop()
-		m.resize()
-		return m, nil
-
-	case timersMsg:
-		m.busy = false
-		if msg.err != nil {
-			m.setStatus("timers: "+msg.err.Error(), true)
-			return m, nil
-		}
-		m.mode = modeTimers
-		m.viewport.SetContent(msg.content)
-		m.viewport.GotoTop()
-		m.resize()
-		return m, nil
-
-	case secretsMsg:
-		m.busy = false
-		if msg.err != nil {
-			m.setStatus("secrets: "+msg.err.Error(), true)
-			return m, nil
-		}
-		m.mode = modeSecrets
-		m.viewport.SetContent(msg.content)
-		m.viewport.GotoTop()
-		m.resize()
-		return m, nil
+	// One-shot viewport screens (storage, stats, timers, secrets) share
+	// one transition; see screenMsg in screens.go.
+	case screenMsg:
+		return m.applyScreenMsg(msg)
 
 	case generateMsg:
 		m.busy = false
@@ -667,20 +624,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case statusMsg:
-		m.busy = false
-		if m.tab == tabStatus {
-			m.viewport.SetContent(msg.content)
-			m.viewport.GotoTop()
-		}
-		return m, nil
+		return m.applyTabMsg(msg.content, tabStatus)
 
 	case inspectMsg:
-		m.busy = false
-		if m.tab == tabInspect {
-			m.viewport.SetContent(msg.content)
-			m.viewport.GotoTop()
-		}
-		return m, nil
+		return m.applyTabMsg(msg.content, tabInspect)
 
 	case customMsg:
 		m.busy = false
@@ -791,165 +738,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return mm, cmd
 	}
 
-	// Focused text inputs own their keys while open.
-	if mm, cmd, ok := m.searchKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.instanceKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.generateKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.execKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.filterKeys(msg); ok {
-		return mm, cmd
-	}
-
-	// Command Palette modal handler or launcher.
-	if mm, cmd, ok := m.modePaletteKeys(msg); ok {
-		return mm, cmd
-	}
-	if msg.String() == "ctrl+p" {
-		m.openPalette()
-		return m, nil
-	}
-
-	// One small handler per mode.
-	if mm, cmd, ok := m.modeUpdatesKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.modeStorageKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.modeEventsKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.modeGenerateKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.modeValidateKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.modeTreeKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.modeDetailKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.modeRecentKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.modeTimersKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.modeSecretsKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.modeStatsKeys(msg); ok {
-		return mm, cmd
-	}
-
-	// .quadlets bundles get their own small action set: preview + install.
-	if mm, cmd, ok := m.bundleKeys(msg); ok {
-		return mm, cmd
-	}
-
-	// List-mode actions, one handler per key group.
-	if mm, cmd, ok := m.quitKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.escKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.helpKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.filterOpenKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.startRestartKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.stopKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.enableKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.disableKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.editKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.updatesOpenKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.healthKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.storageKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.timersKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.secretsKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.eventsKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.generateOpenKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.problemsKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.openRecentKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.treeKeysOpen(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.instantiateOpenKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.deleteKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.copyNameKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.copyImageKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.reloadKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.lingerKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.openLogsKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.openFileKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.markKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.execOpenKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.statsOpenKeys(msg); ok {
-		return mm, cmd
-	}
-	if mm, cmd, ok := m.pruneKeys(msg); ok {
-		return mm, cmd
+	// Dispatch through the keyChain table (keys.go): first handler that
+	// consumes the key wins. Table order is the precedence.
+	for _, h := range keyChain {
+		if mm, cmd, ok := h.fn(m, msg); ok {
+			return mm, cmd
+		}
 	}
 
 	// User-defined custom commands from config.yaml (single-char keys).

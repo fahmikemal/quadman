@@ -2,6 +2,7 @@ package ui
 
 import (
 	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 )
 
 // keyMap groups the keybindings of one mode; help renders it contextually.
@@ -109,6 +110,86 @@ func (k keyMap) ShortHelp() []key.Binding {
 		k.Help,
 		k.Quit,
 	}
+}
+
+// keyHandler is one link in the handleKey dispatch chain: fn reports
+// whether it consumed the key. Links run in slice order, so the order
+// below is the precedence — focused inputs first, palette before modes,
+// list actions last.
+type keyHandler struct {
+	name string
+	fn   func(Model, tea.KeyPressMsg) (tea.Model, tea.Cmd, bool)
+}
+
+// keyChain lists every key handler in precedence order. It mirrors the
+// old linear if-chain one-to-one; adding a screen means appending one
+// entry here instead of extending handleKey.
+var keyChain = []keyHandler{
+	// Focused text inputs own their keys while open.
+	{"search", Model.searchKeys},
+	{"instance", Model.instanceKeys},
+	{"generate-input", Model.generateKeys},
+	{"exec-input", Model.execKeys},
+	{"filter-input", Model.filterKeys},
+	// Command palette modal handler.
+	{"palette", Model.modePaletteKeys},
+	{"palette-open", openPaletteKeys},
+	// One small handler per mode.
+	{"mode-updates", Model.modeUpdatesKeys},
+	{"mode-storage", Model.modeStorageKeys},
+	{"mode-events", Model.modeEventsKeys},
+	{"mode-generate", Model.modeGenerateKeys},
+	{"mode-validate", Model.modeValidateKeys},
+	{"mode-tree", Model.modeTreeKeys},
+	{"mode-detail", Model.modeDetailKeys},
+	{"mode-recent", Model.modeRecentKeys},
+	{"mode-timers", Model.modeTimersKeys},
+	{"mode-secrets", Model.modeSecretsKeys},
+	{"mode-stats", Model.modeStatsKeys},
+	// .quadlets bundles get their own small action set: preview + install.
+	{"bundle", Model.bundleKeys},
+	// List-mode actions, one handler per key group.
+	{"quit", Model.quitKeys},
+	{"esc", Model.escKeys},
+	{"help", Model.helpKeys},
+	{"filter-open", Model.filterOpenKeys},
+	{"start-restart", Model.startRestartKeys},
+	{"stop", Model.stopKeys},
+	{"enable", Model.enableKeys},
+	{"disable", Model.disableKeys},
+	{"edit", Model.editKeys},
+	{"updates-open", Model.updatesOpenKeys},
+	{"health", Model.healthKeys},
+	{"storage-open", Model.storageKeys},
+	{"timers-open", Model.timersKeys},
+	{"secrets-open", Model.secretsKeys},
+	{"events-open", Model.eventsKeys},
+	{"generate-open", Model.generateOpenKeys},
+	{"problems", Model.problemsKeys},
+	{"recent-open", Model.openRecentKeys},
+	{"tree-open", Model.treeKeysOpen},
+	{"instantiate-open", Model.instantiateOpenKeys},
+	{"delete", Model.deleteKeys},
+	{"copy-name", Model.copyNameKeys},
+	{"copy-image", Model.copyImageKeys},
+	{"reload", Model.reloadKeys},
+	{"linger", Model.lingerKeys},
+	{"logs-open", Model.openLogsKeys},
+	{"file-open", Model.openFileKeys},
+	{"mark", Model.markKeys},
+	{"exec-open", Model.execOpenKeys},
+	{"stats-open", Model.statsOpenKeys},
+	{"prune", Model.pruneKeys},
+}
+
+// openPaletteKeys launches the command palette (Ctrl+P). It is a table
+// entry (not a *Keys method) because it takes no mode/input precondition.
+func openPaletteKeys(m Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
+	if msg.String() != "ctrl+p" {
+		return m, nil, false
+	}
+	m.openPalette()
+	return m, nil, true
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
