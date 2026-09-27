@@ -320,6 +320,11 @@ Moved to [ROADMAP.md](ROADMAP.md).
 
 Not affiliated with the Podman project.
 
+## Security
+
+See [SECURITY.md](SECURITY.md) for supported versions, how to report a
+vulnerability, and the shipped hardening defaults.
+
 ## License
 
 [MIT](LICENSE)

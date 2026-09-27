@@ -252,6 +252,11 @@ Moved to [ROADMAP.id.md](ROADMAP.id.md).
 
 Tidak terafiliasi secara resmi dengan proyek Podman upstream.
 
+## Keamanan
+
+Lihat [SECURITY.id.md](SECURITY.id.md) untuk versi yang didukung, cara
+melaporkan kerentanan, dan default hardening yang sudah tersedia.
+
 ## Lisensi
 
 [MIT](LICENSE)
