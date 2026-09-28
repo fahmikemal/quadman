@@ -88,16 +88,16 @@ never needs the Podman socket or API.
 The main list — every Quadlet source, its systemd unit, live state, and image,
 with a `daemon-reload` warning when files changed on disk:
 
-![quadman unit list](docs/screenshot-list.svg)
+![quadman unit list](docs/screenshot-list.png)
 
 Selecting a unit streams its journal live (`journalctl -f`) without leaving
 the TUI — pause with `f`, search with `/`:
 
-![quadman journal view](docs/screenshot-logs.svg)
+![quadman journal view](docs/screenshot-logs.png)
 
 Resource usage per container (`podman stats`), one keypress away:
 
-![quadman resource stats](docs/screenshot-stats.svg)
+![quadman resource stats](docs/screenshot-stats.png)
 
 ## Install
 
