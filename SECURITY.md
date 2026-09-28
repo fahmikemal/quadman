@@ -6,8 +6,8 @@
 
 | Version | Supported          |
 |---------|--------------------|
-| 0.5.x   | Yes (latest: 0.5.0) |
-| < 0.5.0 | Best effort — please upgrade and re-test first |
+| 0.6.x   | Yes (latest: 0.6.0) |
+| < 0.6.0 | Best effort — please upgrade and re-test first |
 
 Security fixes ship as patch releases on `main` and are published through
 GitHub Releases with checksums (see `.github/workflows/release.yml`).

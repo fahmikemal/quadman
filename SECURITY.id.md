@@ -6,8 +6,8 @@
 
 | Versi   | Didukung            |
 |---------|---------------------|
-| 0.5.x   | Ya (terbaru: 0.5.0) |
-| < 0.5.0 | Best effort — mohon upgrade dan uji ulang dulu |
+| 0.6.x   | Ya (terbaru: 0.6.0) |
+| < 0.6.0 | Best effort — mohon upgrade dan uji ulang dulu |
 
 Perbaikan keamanan dirilis sebagai patch di `main` dan dipublikasikan
 melalui GitHub Releases beserta checksum (lihat `.github/workflows/release.yml`).

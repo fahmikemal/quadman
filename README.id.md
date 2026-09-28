@@ -64,8 +64,8 @@ Penggunaan resource per kontainer (`podman stats`), hanya sejauh satu tombol:
 Unduh binary siap pakai (Linux amd64/arm64) dari halaman [Releases](https://github.com/fahmikemal/quadman/releases):
 
 ```sh
-curl -LO https://github.com/fahmikemal/quadman/releases/latest/download/quadman_0.5.0_linux_amd64.tar.gz
-tar -xzf quadman_0.5.0_linux_amd64.tar.gz && sudo install quadman /usr/local/bin/
+curl -LO https://github.com/fahmikemal/quadman/releases/latest/download/quadman_0.6.0_linux_amd64.tar.gz
+tar -xzf quadman_0.6.0_linux_amd64.tar.gz && sudo install quadman /usr/local/bin/
 ```
 
 Atau menggunakan Go:
@@ -155,7 +155,9 @@ quadlet_dirs:          # Direktori sumber Quadlet tambahan (sama dengan --quadle
   - ~/quadlets
 serve:
   authorized_keys: ~/.ssh/authorized_keys # wajib untuk bind non-loopback
+  # address: 127.0.0.1:2222 # default; 0.0.0.0:2222 untuk LAN (butuh authorized_keys)
   # password_file: /run/secrets/quadman-pass # atau password: ... (salah satu saja)
+  # readonly: false # sajikan sesi read-only
 
 custom_commands:
   - name: status

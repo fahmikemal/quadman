@@ -128,6 +128,20 @@ func TestLoadCustomCommands(t *testing.T) {
 	}
 }
 
+func TestLoadServeSettings(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	writeYAML(t, dir, "serve:\n  address: 127.0.0.1:2222\n  authorized_keys: /home/u/.ssh/authorized_keys\n  password_file: /run/secrets/quadman-pass\n  readonly: true\n")
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := c.Settings.Serve
+	if s.Address != "127.0.0.1:2222" || s.AuthorizedKeys == "" || s.PasswordFile == "" || !s.Readonly {
+		t.Errorf("serve = %+v", s)
+	}
+}
+
 func TestLoadQuadletDirs(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
