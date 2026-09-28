@@ -105,8 +105,8 @@ Download a prebuilt binary (Linux amd64/arm64) from the
 [Releases](https://github.com/fahmikemal/quadman/releases) page:
 
 ```sh
-curl -LO https://github.com/fahmikemal/quadman/releases/latest/download/quadman_0.5.0_linux_amd64.tar.gz
-tar -xzf quadman_0.5.0_linux_amd64.tar.gz && sudo install quadman /usr/local/bin/
+curl -LO https://github.com/fahmikemal/quadman/releases/latest/download/quadman_0.6.0_linux_amd64.tar.gz
+tar -xzf quadman_0.6.0_linux_amd64.tar.gz && sudo install quadman /usr/local/bin/
 ```
 
 Or with Go:
@@ -200,7 +200,9 @@ quadlet_dirs:          # extra Quadlet source dirs (same as --quadlet-dir)
   - ~/quadlets
 serve:
   authorized_keys: ~/.ssh/authorized_keys # required for non-loopback binds
+  # address: 127.0.0.1:2222 # default; 0.0.0.0:2222 for LAN (needs authorized_keys)
   # password_file: /run/secrets/quadman-pass # or password: ... (only one)
+  # readonly: false # serve read-only sessions
 
 custom_commands:
   - name: status
