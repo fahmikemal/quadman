@@ -207,6 +207,60 @@ func TestNewServer(t *testing.T) {
 	}
 }
 
+func TestSSHPasswordAuth(t *testing.T) {
+	tmpDir := t.TempDir()
+	keyPath := filepath.Join(tmpDir, "test_host_key")
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen error: %v", err)
+	}
+	addr := l.Addr().String()
+	l.Close()
+
+	opts := Options{
+		Address:     addr,
+		HostKeyPath: keyPath,
+		Readonly:    true,
+		Password:    "correct-horse",
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		_ = Serve(ctx, opts)
+	}()
+	time.Sleep(200 * time.Millisecond)
+
+	dial := func(password string) error {
+		client, err := cryptossh.Dial("tcp", addr, &cryptossh.ClientConfig{
+			User: "testuser",
+			Auth: []cryptossh.AuthMethod{
+				cryptossh.Password(password),
+			},
+			HostKeyCallback: cryptossh.InsecureIgnoreHostKey(), // #nosec G106 -- test only
+			Timeout:         5 * time.Second,
+		})
+		if err != nil {
+			return err
+		}
+		defer client.Close()
+		sess, err := client.NewSession()
+		if err != nil {
+			return err
+		}
+		defer sess.Close()
+		return nil
+	}
+
+	if err := dial("correct-horse"); err != nil {
+		t.Errorf("correct password must authenticate: %v", err)
+	}
+	if err := dial("wrong-horse"); err == nil {
+		t.Error("wrong password must be rejected")
+	}
+}
+
 func TestServeGracefulShutdown(t *testing.T) {
 	tmpDir := t.TempDir()
 	keyPath := filepath.Join(tmpDir, "test_host_key")

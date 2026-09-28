@@ -10,7 +10,8 @@ healthcheck, follow logs, enable/disable at boot, the auto-update screen,
 the stale banner, daemon-reload, linger toggling, help, file view,
 systemd timers schedules, podman secrets inspection and pre-flight validation,
 exec prompt, stats screen, prune confirmation, live-object generate,
-serve-over-SSH, command palette, log export and filtering, system mode,
+serve-over-SSH, serve password-file auth, serve compartment,
+command palette, log export and filtering, system mode,
 bulk actions, compartment denied/live, and AI agent skill export.
 
 This module is intentionally separate (its own go.mod) so the main module
