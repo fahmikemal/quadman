@@ -201,6 +201,8 @@ quadlet_dirs:          # extra Quadlet source dirs (same as --quadlet-dir)
 serve:
   authorized_keys: ~/.ssh/authorized_keys # required for non-loopback binds
   # address: 127.0.0.1:2222 # default; 0.0.0.0:2222 for LAN (needs authorized_keys)
+  # port: "2222" # shorthand when address is unset (loopback)
+  # host_key: ~/.config/quadman/host_ed25519 # default; generated when missing
   # password_file: /run/secrets/quadman-pass # or password: ... (only one)
   # readonly: false # serve read-only sessions
 

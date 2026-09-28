@@ -12,9 +12,7 @@ Modul ini sengaja dipisahkan (memiliki `go.mod` tersendiri) agar modul utama tet
 
 ```sh
 # dari root repositori, pastikan unit demo sudah terpasang (lihat di bawah)
-go build -o /tmp/qe2e ./e2e
-make build
-cp quadman /tmp/quadman
+make e2e
 cd /tmp && /tmp/qe2e
 ```
 

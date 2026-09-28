@@ -156,6 +156,8 @@ quadlet_dirs:          # Direktori sumber Quadlet tambahan (sama dengan --quadle
 serve:
   authorized_keys: ~/.ssh/authorized_keys # wajib untuk bind non-loopback
   # address: 127.0.0.1:2222 # default; 0.0.0.0:2222 untuk LAN (butuh authorized_keys)
+  # port: "2222" # ringkas bila address kosong (loopback)
+  # host_key: ~/.config/quadman/host_ed25519 # default; dibuat otomatis bila hilang
   # password_file: /run/secrets/quadman-pass # atau password: ... (salah satu saja)
   # readonly: false # sajikan sesi read-only
 

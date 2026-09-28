@@ -22,9 +22,7 @@ live systemd user session, podman, and quadlet units on the host.
 
 ```sh
 # from the repo root, with demo units present (see below)
-go build -o /tmp/qe2e ./e2e
-make build
-cp quadman /tmp/quadman
+make e2e
 cd /tmp && /tmp/qe2e
 ```
 
