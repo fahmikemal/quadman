@@ -25,7 +25,7 @@ Quadlet adalah standar yang direkomendasikan untuk menjalankan container rootles
 - Memberikan peringatan (*warning banner*) jika berkas quadlet mengalami modifikasi setelah `daemon-reload` terakhir, sehingga Anda tidak lagi bingung mengapa perubahan konfigurasi belum aktif.
 - **Follow-mode journals** — streaming live `journalctl -f` per unit dengan fitur auto-scroll ke baris terbawah (*stick-to-tail*), jeda streaming (`f`), live grep filter (`F`), filter prioritas log (`p`), ekspor ke `.log`/`.jsonl` (`S`), dan salin log ke clipboard via OSC52 (`c`).
 - **Command Palette** (`Ctrl+P`) — modal overlay berbasis pencarian fuzzy untuk menemukan dan mengeksekusi semua aksi siklus hidup unit, navigasi layar/view, diagnostik, dan perintah kustom (*custom commands*) dengan validasi status kontekstual secara langsung.
-- **Native Wish SSH Daemon** (`quadman serve`) — menyajikan antarmuka TUI langsung melalui protokol SSH tanpa perlu menginstal quadman di mesin klien penghubung, lengkap dengan autentikasi public key (`authorized_keys`), autentikasi password, pembuatan host key otomatis, dan mode dashboard *read-only*.
+- **Native Wish SSH Daemon** (`quadman serve`) menyajikan antarmuka TUI langsung melalui protokol SSH tanpa perlu menginstal quadman di mesin klien penghubung: bind loopback saja secara default, `authorized_keys` wajib untuk bind non-loopback, lengkap dengan autentikasi public key, autentikasi password, pembuatan host key otomatis, dan mode dashboard *read-only*.
 - **Mode Ganda Rootless & Sistem** (`--system`) — identitas utama tetap memprioritaskan rootless secara bawaan, namun mendukung penuh manajemen unit tingkat sistem (*rootful*) (`/etc/containers/systemd`, `/run/containers/systemd`) serta deteksi otomatis hak akses root (`sudo quadman`).
 - Pencarian fuzzy `/` untuk memfilter daftar unit secara instan saat Anda mengetik.
 - Mengedit berkas quadlet langsung di editor teks `$EDITOR` bawaan Anda dari dalam TUI; otomatis memberikan peringatan untuk me-reload generator setelah berkas disimpan.
@@ -88,7 +88,7 @@ Kebutuhan sistem: Linux dengan systemd, sesi pengguna (*user session* untuk mode
 quadman                          # Buka antarmuka TUI (sesi user rootless secara default)
 quadman --system                 # Mode tingkat sistem / rootful (/etc/containers/systemd)
 sudo quadman                     # Deteksi otomatis root dan mengaktifkan mode sistem
-quadman serve                    # Jalankan TUI sebagai SSH server via Wish daemon (port :2222)
+quadman serve                    # Jalankan TUI sebagai SSH server via Wish daemon (default 127.0.0.1:2222)
 quadman serve -p 2222 --readonly # Dashboard monitoring SSH mode baca-saja
 quadman --readonly               # TUI dengan seluruh aksi pengubah status dinonaktifkan
 quadman --ssh user@host          # Kelola server remote rootless melalui koneksi SSH
@@ -96,7 +96,7 @@ quadman --theme colorblind       # Pilihan tema: auto, dark, light, atau colorbl
 quadman --mouse                  # Aktifkan navigasi klik mouse
 quadman --quadlet-dir ~/quadlets # Direktori sumber Quadlet tambahan (dapat diulang)
 quadman list                     # Output daftar non-interaktif untuk integrasi script/piping
-quadman list --system            # Tampilkan daftar quadlet tingkat sistem
+quadman --system list            # Tampilkan daftar quadlet tingkat sistem (flag ditulis sebelum perintah)
 quadman --as svc-web list        # Daftar unit milik user lain via sudo (flag ditulis sebelum perintah)
 quadman --skill                  # Ekspor spesifikasi Agent Skill untuk AI (markdown)
 quadman --skill --skill-format=json # Ekspor spesifikasi Agent Skill dalam format JSON
@@ -209,22 +209,23 @@ compartments:
 ## SSH Server (Wish Daemon)
 
 ```sh
-quadman serve                                          # Berjalan di port :2222 secara default
-quadman serve -p 2222 --readonly                       # Dashboard pemantauan read-only via SSH
-quadman serve --authorized-keys ~/.ssh/authorized_keys # Batasi akses hanya untuk kunci terdaftar
-quadman serve --password rahasia123                    # Proteksi dengan autentikasi kata sandi
+quadman serve                                          # Berjalan di 127.0.0.1:2222 (loopback saja)
+quadman serve -p 2222 --readonly                       # Dashboard pemantauan read-only via SSH (loopback)
+quadman serve -a 0.0.0.0:2222 --authorized-keys ~/.ssh/authorized_keys # Akses LAN, kunci wajib
+quadman serve --password rahasia123                    # Proteksi kata sandi (loopback saja)
 ```
 
-quadman menyertakan server SSH bawaan yang ditenagai oleh pustaka [Charm Wish](https://github.com/charmbracelet/wish) (`wish/v2`). Ketika dijalankan di server, siapapun di jaringan atau tim Anda dapat mengakses antarmuka TUI quadman dengan satu perintah terminal sederhana tanpa perlu memasang quadman di komputer mereka:
+quadman menyertakan server SSH bawaan yang ditenagai oleh pustaka [Charm Wish](https://github.com/charmbracelet/wish) (`wish/v2`). Secara default server hanya bind loopback. Untuk berbagi ke tim di LAN, bind eksplisit dengan autentikasi public-key, karena bind non-loopback menolak berjalan tanpa `--authorized-keys`:
 
 ```sh
+quadman serve -a 0.0.0.0:2222 --authorized-keys ~/.ssh/authorized_keys
 ssh -p 2222 user@host
 ```
 
 Fitur utama SSH Server:
 - **Nol dependensi klien**: Komputer yang menghubung hanya memerlukan terminal client standar `ssh`.
 - **Host Key Otomatis**: Membuat kunci host ED25519 otomatis di `~/.config/quadman/host_ed25519` jika belum ditentukan.
-- **Opsi Autentikasi**: Mendukung verifikasi berkas `authorized_keys` atau perlindungan kata sandi. Tanpa keduanya, server tetap berjalan tetapi **memaksa semua sesi ke mode readonly** dengan peringatan jelas — akses tulis anonim tidak pernah aktif secara default.
+- **Opsi Autentikasi**: Mendukung verifikasi berkas `authorized_keys` atau perlindungan kata sandi (loopback saja). Tanpa keduanya di loopback, server tetap berjalan tetapi **memaksa semua sesi ke mode readonly** dengan peringatan jelas, dan akses tulis anonim tidak pernah aktif secara default, dan bind open-auth/password-only tidak pernah listen di luar loopback.
 - **Mode Dashboard Readonly**: Tambahkan flag `--readonly` untuk membagikan akses pemantauan kepada rekan tim dengan aman tanpa risiko salah mematikan atau mengubah unit produksi.
 - **Eksekusi Aman**: Pembukaan editor lokal `$EDITOR` dinonaktifkan secara aman pada sesi server SSH.
 
@@ -238,7 +239,7 @@ Unit yang hanya ada di direktori tambahan ditandai dengan simbol `~`: generator 
 
 ## Kompatibilitas
 
-quadman dirancang khusus untuk ekosistem **Podman 6.x** (terbaru: 6.1.1, Sep 2026) dan kompatibel penuh mulai dari Podman 5.3+ — rilis yang pertama kali memperkenalkan sub-perintah `podman quadlet list`. Seluruh komponen pustaka terminal menggunakan versi mutakhir: bubbletea v2.0.9, bubbles v2.2.1, dan lipgloss v2.0.6.
+quadman dirancang khusus untuk ekosistem **Podman 6.x** (terbaru: 6.1.1, Sep 2026) dan kompatibel penuh mulai dari Podman 5.3+, rilis yang pertama kali memperkenalkan sub-perintah `podman quadlet list`. Seluruh komponen pustaka terminal menggunakan versi mutakhir: bubbletea v2.0.10, bubbles v2.2.1, dan lipgloss v2.0.6.
 
 ## Peta Jalan quadman
 

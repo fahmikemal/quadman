@@ -431,3 +431,10 @@ inovasi TUI (k9s/lazygit/yazi/systemctl-tui), stack Charm via Context7.
 - <https://github.com/charmbracelet/wish/releases> (v2.0.4)
 - <https://github.com/charmbracelet/bubbles/releases> (tree v2.2.0)
 - proxy.golang.org @latest (semua Charm libs sudah terbaru)
+
+---
+
+## Refresh #3 (28 September 2026)
+
+- Charm stack: bubbletea v2.0.9 → v2.0.10 diadopsi (`go.mod`); bubbles v2.2.1, lipgloss v2.0.6, wish v2.0.4, dan x/crypto v0.57.0 terkonfirmasi terbaru. `govulncheck` dan `gosec` hijau.
+- Postur serve dikeraskan melampaui baseline Tier 4: default loopback saja, bind non-loopback menolak berjalan tanpa `authorized_keys` (lihat `SECURITY.id.md`).

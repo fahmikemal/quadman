@@ -41,7 +41,7 @@ whole lifecycle in one TUI:
 - **Follow-mode journals** — live `journalctl -f` tail per unit with
   stick-to-tail scrolling, pause (`f`), live grep filter (`F`), priority filter (`p`), export to `.log`/`.jsonl` (`S`), and OSC52 clipboard copy (`c`).
 - **Command Palette** (`Ctrl+P`) — fuzzy-search and execute all unit lifecycle actions, screens, views, diagnostics, and user custom commands with live context-sensitive validation.
-- **Native Wish SSH Daemon** (`quadman serve`) — serve the TUI directly over SSH without installing quadman on the connecting machine, with public key auth (`authorized_keys`), password auth, host key generation, and readonly mode.
+- **Native Wish SSH Daemon** (`quadman serve`) serves the TUI directly over SSH without installing quadman on the connecting machine: loopback-only by default, `authorized_keys` required for non-loopback binds, with password auth, host key generation, and readonly mode.
 - **Dual Rootless / System Mode** (`--system`) — default rootless-first identity, with native rootful system support (`/etc/containers/systemd`, `/run/containers/systemd`) and automatic root detection (`sudo quadman`).
 - `/` fuzzy-filter the unit list as you type.
 - Edit quadlet files in `$EDITOR` from the TUI; get nudged to regenerate
@@ -131,7 +131,7 @@ Config below).
 quadman                          # TUI (rootless user session by default)
 quadman --system                 # native system-wide (rootful) mode (/etc/containers/systemd)
 sudo quadman                     # auto-detects root and activates system mode
-quadman serve                    # serve TUI over SSH via Wish daemon (default :2222)
+quadman serve                    # serve TUI over SSH via Wish daemon (default 127.0.0.1:2222)
 quadman serve -p 2222 --readonly # serve as a read-only monitoring dashboard over SSH
 quadman --readonly               # TUI with all state-changing actions disabled
 quadman --ssh user@host          # manage a remote rootless host over SSH
@@ -139,7 +139,7 @@ quadman --theme colorblind       # auto, dark, light, or colorblind
 quadman --mouse                  # opt-in click-to-select
 quadman --quadlet-dir ~/quadlets # extra Quadlet source dir (repeatable)
 quadman list                     # non-interactive overview for scripts and pipes
-quadman list --system            # list system-wide quadlets
+quadman --system list            # list system-wide quadlets (flags go before the command)
 quadman --as svc-web list        # list another user's units via sudo (flags go before the command)
 quadman --skill                  # export AI Agent Skill specification (markdown)
 quadman --skill --skill-format=json # export AI Agent Skill specification in JSON format
@@ -268,19 +268,20 @@ compartments:
 ## SSH Server (Wish daemon)
 
 ```sh
-quadman serve                                          # listens on :2222 by default
-quadman serve -p 2222 --readonly                       # read-only dashboard over SSH
-quadman serve --authorized-keys ~/.ssh/authorized_keys # restrict to authorized keys
-quadman serve --password secret123                     # password protected
+quadman serve                                          # listens on 127.0.0.1:2222 (loopback only)
+quadman serve -p 2222 --readonly                       # read-only dashboard over SSH (loopback)
+quadman serve -a 0.0.0.0:2222 --authorized-keys ~/.ssh/authorized_keys # LAN access, keys required
+quadman serve --password secret123                     # password protected (loopback only)
 ```
 
-quadman includes a native SSH server powered by [Charm Wish](https://github.com/charmbracelet/wish) (`wish/v2`). When running on a server, anyone on your network or team can access the quadman TUI with a single command without installing quadman locally:
+quadman includes a native SSH server powered by [Charm Wish](https://github.com/charmbracelet/wish) (`wish/v2`). By default it binds loopback only. To share with your team on the LAN, bind explicitly with public-key auth, because non-loopback binds refuse to start without `--authorized-keys`:
 
 ```sh
+quadman serve -a 0.0.0.0:2222 --authorized-keys ~/.ssh/authorized_keys
 ssh -p 2222 user@host
 ```
 
-- **Authentication Options**: Supports `authorized_keys` file verification or password protection. With neither configured, the server still starts but **forces all sessions into readonly mode** and says so loudly — anonymous write access is never on by default.
+- **Authentication Options**: Supports `authorized_keys` file verification or password protection (loopback only). With neither configured on loopback, the server still starts but **forces all sessions into readonly mode** and says so loudly, and anonymous write access is never on by default, and open-auth/password-only binds never listen beyond loopback.
 - **Readonly Dashboard Mode**: Pass `--readonly` to safely expose quadman as an observability dashboard for teammates without granting permission to start/stop units.
 - **Safe Execution**: Local `$EDITOR` process hijacking is safely disabled in SSH server sessions.
 
@@ -303,7 +304,7 @@ Applies to the TUI and `quadman list` alike.
 
 quadman targets **Podman 6.x** (latest: 6.1.1, Sep 2026) and works with Podman
 5.3+ — the release that introduced `podman quadlet list`. It is stack-current:
-bubbletea v2.0.9, bubbles v2.2.1, lipgloss v2.0.6 (all latest as of Sep 2026).
+bubbletea v2.0.10, bubbles v2.2.1, lipgloss v2.0.6 (all latest as of Sep 2026).
 
 ## quadman Roadmap
 

@@ -77,8 +77,8 @@ func main() {
 	if len(args) > 0 {
 		switch args[0] {
 		case "list":
-			if misplacedAsFlag(args[1:]) {
-				fmt.Fprintln(os.Stderr, "error: place --as before the command (quadman --as <user> list)")
+			if bad := misplacedFlag(args[1:]); bad != "" {
+				fmt.Fprintf(os.Stderr, "error: place --%s before the command (quadman --%s ... list)\n", bad, bad)
 				os.Exit(2)
 			}
 			listCmd(system, *asUser)
@@ -133,16 +133,25 @@ func main() {
 	}
 }
 
-// misplacedAsFlag reports whether --as appears after the subcommand, where
-// Go's flag package would silently ignore it (and list the wrong user's
-// units). Callers reject this explicitly instead.
-func misplacedAsFlag(args []string) bool {
+// misplacedFlag returns the name of the first flag found after the
+// subcommand, where Go's flag package would silently ignore it (list takes
+// no flags of its own, so any flag there is a dropped global option).
+// Empty means no misplaced flag. Callers reject this explicitly instead of
+// running with silently dropped options.
+func misplacedFlag(args []string) string {
 	for _, a := range args {
-		if a == "--as" || a == "-as" || strings.HasPrefix(a, "--as=") || strings.HasPrefix(a, "-as=") {
-			return true
+		if a == "--" {
+			return ""
+		}
+		if len(a) > 1 && a[0] == '-' {
+			name := strings.TrimLeft(a, "-")
+			if i := strings.IndexByte(name, '='); i >= 0 {
+				name = name[:i]
+			}
+			return name
 		}
 	}
-	return false
+	return ""
 }
 
 // applyQuadletDirs appends user-configured Quadlet source directories to
@@ -313,9 +322,9 @@ func unitNames(units []quadlet.Unit) []string {
 // serve starts the Wish SSH daemon so remote clients can run quadman over SSH.
 func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme string, extraDirs []string, system bool) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	port := fs.String("port", "", "port to listen on (e.g. 2222, default :2222)")
+	port := fs.String("port", "", "port to listen on loopback (e.g. 2222, default 127.0.0.1:2222)")
 	fs.StringVar(port, "p", "", "shorthand for --port")
-	addr := fs.String("address", "", "listen address (e.g. :2222 or 0.0.0.0:2222)")
+	addr := fs.String("address", "", "listen address (default 127.0.0.1:2222; use -a 0.0.0.0:2222 with --authorized-keys for LAN)")
 	fs.StringVar(addr, "a", "", "shorthand for --address")
 	hostKey := fs.String("host-key", "", "path to private host key (default: auto-generated under ~/.config/quadman)")
 	authKeys := fs.String("authorized-keys", "", "path to authorized_keys file (optional public key auth)")
@@ -343,18 +352,7 @@ func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme strin
 		}
 	}
 
-	finalAddr := *addr
-	if finalAddr == "" {
-		if *port != "" {
-			finalAddr = ":" + *port
-		} else if scfg.Address != "" {
-			finalAddr = scfg.Address
-		} else if scfg.Port != "" {
-			finalAddr = ":" + scfg.Port
-		} else {
-			finalAddr = server.DefaultAddress
-		}
-	}
+	finalAddr := resolveServeAddr(*addr, *port, scfg)
 
 	finalHostKey := *hostKey
 	if finalHostKey == "" && scfg.HostKey != "" {
@@ -389,6 +387,13 @@ func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme strin
 		System:             system,
 	}
 
+	// Fail fast on insecure binds (non-loopback without authorized_keys)
+	// before printing the startup banner.
+	if err := opts.Validate(); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(2)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -400,15 +405,15 @@ func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme strin
 	if finalAuthKeys != "" {
 		fmt.Printf("Authentication: public keys from %s\n", finalAuthKeys)
 	} else if finalPass != "" {
-		fmt.Println("Authentication: password protected")
+		fmt.Println("Authentication: password protected (loopback only)")
 	} else {
-		fmt.Println("Authentication: open (any public key accepted)")
+		fmt.Println("Authentication: open (loopback only, any key accepted, readonly enforced)")
 	}
 	if openAuth {
 		fmt.Println("WARNING: no --authorized-keys or --password: forcing readonly mode.")
-		fmt.Println("WARNING: anyone with any SSH keypair can connect; bind 127.0.0.1 (-a 127.0.0.1:2222) unless LAN access is intended.")
+		fmt.Println("WARNING: non-loopback binds require --authorized-keys; open-auth never listens beyond loopback.")
 	}
-	if isWildcardAddr(finalAddr) && !finalReadonly {
+	if server.IsWildcardAddr(finalAddr) && !finalReadonly {
 		fmt.Println("WARNING: listening on all interfaces with write access enabled; prefer -a 127.0.0.1:2222 or --readonly.")
 	}
 	if *pass != "" {
@@ -424,14 +429,23 @@ func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme strin
 	fmt.Println("\nquadman SSH daemon stopped gracefully.")
 }
 
-// isWildcardAddr reports whether addr binds all interfaces (":port",
-// "0.0.0.0:port", "[::]:port"): reachable from the LAN, not just localhost.
-func isWildcardAddr(addr string) bool {
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		return strings.HasPrefix(addr, ":")
+// resolveServeAddr picks the listen address: explicit --address wins, then
+// --port and config ports (both bound to loopback), then the loopback
+// default. Only an explicit address can ever bind beyond localhost.
+func resolveServeAddr(addrFlag, portFlag string, scfg config.ServeSettings) string {
+	if addrFlag != "" {
+		return addrFlag
 	}
-	return host == "" || host == "0.0.0.0" || host == "::"
+	if portFlag != "" {
+		return net.JoinHostPort(server.DefaultHost, portFlag)
+	}
+	if scfg.Address != "" {
+		return scfg.Address
+	}
+	if scfg.Port != "" {
+		return net.JoinHostPort(server.DefaultHost, scfg.Port)
+	}
+	return server.DefaultAddress
 }
 
 func formatConnectHint(addr string) string {
@@ -443,10 +457,14 @@ func formatConnectHint(addr string) string {
 			return addr
 		}
 	}
-	if port == "22" {
-		return "<host>"
+	host := "<host>"
+	if server.IsLoopbackAddr(addr) {
+		host = "127.0.0.1"
 	}
-	return "-p " + port + " <host>"
+	if port == "22" {
+		return host
+	}
+	return "-p " + port + " " + host
 }
 
 func printSkill(format string) {

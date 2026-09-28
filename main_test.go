@@ -7,7 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fahmikemal/quadman/internal/config"
 	"github.com/fahmikemal/quadman/internal/quadlet"
+	"github.com/fahmikemal/quadman/internal/server"
 	"github.com/fahmikemal/quadman/internal/systemd"
 )
 
@@ -109,6 +111,30 @@ func TestRunListShowFailure(t *testing.T) {
 	}
 }
 
+func TestResolveServeAddr(t *testing.T) {
+	tests := []struct {
+		name     string
+		addrFlag string
+		portFlag string
+		scfg     config.ServeSettings
+		want     string
+	}{
+		{"explicit address wins", "0.0.0.0:2222", "9999", config.ServeSettings{}, "0.0.0.0:2222"},
+		{"port flag binds loopback", "", "2222", config.ServeSettings{}, "127.0.0.1:2222"},
+		{"config address wins", "", "", config.ServeSettings{Address: "192.168.1.9:2022"}, "192.168.1.9:2022"},
+		{"config port binds loopback", "", "", config.ServeSettings{Port: "2022"}, "127.0.0.1:2022"},
+		{"default is loopback", "", "", config.ServeSettings{}, server.DefaultAddress},
+	}
+	for _, tc := range tests {
+		if got := resolveServeAddr(tc.addrFlag, tc.portFlag, tc.scfg); got != tc.want {
+			t.Errorf("%s: resolveServeAddr = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	if !server.IsLoopbackAddr(server.DefaultAddress) {
+		t.Errorf("server.DefaultAddress = %q, must bind loopback only", server.DefaultAddress)
+	}
+}
+
 func TestFormatConnectHint(t *testing.T) {
 	tests := []struct {
 		addr string
@@ -116,7 +142,8 @@ func TestFormatConnectHint(t *testing.T) {
 	}{
 		{":2222", "-p 2222 <host>"},
 		{"0.0.0.0:2222", "-p 2222 <host>"},
-		{"127.0.0.1:22", "<host>"},
+		{"127.0.0.1:2222", "-p 2222 127.0.0.1"},
+		{"127.0.0.1:22", "127.0.0.1"},
 		{":22", "<host>"},
 		{"custom.host:8022", "-p 8022 <host>"},
 	}
@@ -134,15 +161,28 @@ func TestCompSetupUnknownUser(t *testing.T) {
 	}
 }
 
-func TestMisplacedAsFlag(t *testing.T) {
-	for _, a := range [][]string{{"--as", "x"}, {"-as=x"}, {"list", "--as"}} {
-		if !misplacedAsFlag(a) {
-			t.Errorf("%v should count as misplaced", a)
-		}
+func TestMisplacedFlag(t *testing.T) {
+	tests := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--as", "x"}, "as"},
+		{[]string{"-as=x"}, "as"},
+		{[]string{"list", "--as"}, "as"},
+		{[]string{"--system"}, "system"},
+		{[]string{"-system"}, "system"},
+		{[]string{"--system=true"}, "system"},
+		{[]string{"--readonly"}, "readonly"},
+		{[]string{"--quadlet-dir=/tmp/q"}, "quadlet-dir"},
+		{nil, ""},
+		{[]string{}, ""},
+		{[]string{"list"}, ""},
+		{[]string{"--"}, ""},
+		{[]string{"list", "--", "--system"}, ""},
 	}
-	for _, a := range [][]string{nil, {}, {"list"}, {"--readonly"}} {
-		if misplacedAsFlag(a) {
-			t.Errorf("%v should be fine", a)
+	for _, tc := range tests {
+		if got := misplacedFlag(tc.args); got != tc.want {
+			t.Errorf("misplacedFlag(%v) = %q, want %q", tc.args, got, tc.want)
 		}
 	}
 }

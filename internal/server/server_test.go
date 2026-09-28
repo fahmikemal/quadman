@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -38,6 +39,122 @@ func TestSplitHostPort(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("SplitHostPort(%q, %q) = %q, want %q", tc.input, tc.defaultPort, got, tc.want)
 		}
+	}
+}
+
+func TestDefaultAddressIsLoopback(t *testing.T) {
+	if !IsLoopbackAddr(DefaultAddress) {
+		t.Errorf("DefaultAddress = %q, must bind loopback only", DefaultAddress)
+	}
+	if IsWildcardAddr(DefaultAddress) {
+		t.Errorf("DefaultAddress = %q, must not be a wildcard bind", DefaultAddress)
+	}
+}
+
+func TestIsLoopbackAddr(t *testing.T) {
+	tests := []struct {
+		addr string
+		want bool
+	}{
+		{"127.0.0.1:2222", true},
+		{"127.0.0.2:2222", true},
+		{"[::1]:2222", true},
+		{"localhost:2222", true},
+		{":2222", false},
+		{"0.0.0.0:2222", false},
+		{"[::]:2222", false},
+		{"192.168.1.5:2222", false},
+		{"example.com:2222", false},
+		{"", false},
+		{"not-an-addr", false},
+	}
+	for _, tc := range tests {
+		if got := IsLoopbackAddr(tc.addr); got != tc.want {
+			t.Errorf("IsLoopbackAddr(%q) = %v, want %v", tc.addr, got, tc.want)
+		}
+	}
+}
+
+func TestIsWildcardAddr(t *testing.T) {
+	tests := []struct {
+		addr string
+		want bool
+	}{
+		{":2222", true},
+		{"0.0.0.0:2222", true},
+		{"[::]:2222", true},
+		{"127.0.0.1:2222", false},
+		{"[::1]:2222", false},
+		{"192.168.1.1:22", false},
+	}
+	for _, tc := range tests {
+		if got := IsWildcardAddr(tc.addr); got != tc.want {
+			t.Errorf("IsWildcardAddr(%q) = %v, want %v", tc.addr, got, tc.want)
+		}
+	}
+}
+
+func writeAuthKeys(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "authorized_keys")
+	if err := os.WriteFile(path, []byte("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMtest\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestValidateBindPolicy(t *testing.T) {
+	t.Run("loopback open-auth allowed and forced readonly", func(t *testing.T) {
+		opts := Options{Address: "127.0.0.1:2222", HostKeyPath: filepath.Join(t.TempDir(), "k")}
+		if err := opts.Validate(); err != nil {
+			t.Fatalf("Validate() error = %v", err)
+		}
+		if !opts.Readonly {
+			t.Error("open-auth on loopback must force Readonly")
+		}
+	})
+	t.Run("loopback password-only allowed", func(t *testing.T) {
+		opts := Options{Address: "127.0.0.1:2222", HostKeyPath: filepath.Join(t.TempDir(), "k"), Password: "secret123"}
+		if err := opts.Validate(); err != nil {
+			t.Fatalf("Validate() error = %v", err)
+		}
+	})
+	t.Run("wildcard open-auth refused", func(t *testing.T) {
+		opts := Options{Address: ":2222", HostKeyPath: filepath.Join(t.TempDir(), "k")}
+		if err := opts.Validate(); err == nil || !strings.Contains(err.Error(), "authorized-keys") {
+			t.Errorf("wildcard open-auth must demand authorized-keys, got %v", err)
+		}
+	})
+	t.Run("wildcard password-only refused", func(t *testing.T) {
+		opts := Options{Address: "0.0.0.0:2222", HostKeyPath: filepath.Join(t.TempDir(), "k"), Password: "secret123"}
+		if err := opts.Validate(); err == nil || !strings.Contains(err.Error(), "authorized-keys") {
+			t.Errorf("wildcard password-only must demand authorized-keys, got %v", err)
+		}
+	})
+	t.Run("LAN open-auth refused", func(t *testing.T) {
+		opts := Options{Address: "192.168.1.5:2222", HostKeyPath: filepath.Join(t.TempDir(), "k")}
+		if err := opts.Validate(); err == nil {
+			t.Error("LAN bind without authorized-keys must fail")
+		}
+	})
+	t.Run("wildcard with keys allowed", func(t *testing.T) {
+		opts := Options{Address: ":2222", HostKeyPath: filepath.Join(t.TempDir(), "k"), AuthorizedKeysPath: writeAuthKeys(t)}
+		if err := opts.Validate(); err != nil {
+			t.Fatalf("Validate() error = %v", err)
+		}
+	})
+	t.Run("missing keys file refused", func(t *testing.T) {
+		opts := Options{Address: "127.0.0.1:2222", HostKeyPath: filepath.Join(t.TempDir(), "k"), AuthorizedKeysPath: filepath.Join(t.TempDir(), "nope")}
+		if err := opts.Validate(); err == nil {
+			t.Error("missing authorized_keys file must fail")
+		}
+	})
+}
+
+func TestNewRejectsPublicOpenAuth(t *testing.T) {
+	opts := Options{Address: ":2222", HostKeyPath: filepath.Join(t.TempDir(), "k")}
+	if _, err := New(opts); err == nil {
+		t.Error("New() must refuse wildcard bind without authorized-keys")
 	}
 }
 

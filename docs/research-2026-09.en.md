@@ -197,3 +197,10 @@ return m, tea.ExecProcess(exec.Command(editor, u.Path), func(err error) tea.Msg 
 - lazygit: <https://github.com/jesseduffield/lazygit>
 - btop: <https://github.com/aristocratos/btop>
 - Charm stack v2: bubbletea v2.0.9, bubbles v2.2.1, lipgloss v2.0.6, wish v2.0.4
+
+---
+
+## Addendum (28 Sep 2026)
+
+- Charm stack: bubbletea v2.0.9 → v2.0.10 adopted (`go.mod`); bubbles v2.2.1, lipgloss v2.0.6, wish v2.0.4, and x/crypto v0.57.0 confirmed latest. `govulncheck` and `gosec` green.
+- Serve posture hardened past the Tier 4 baseline: loopback-only default, non-loopback binds refuse to start without `authorized_keys` (see `SECURITY.md`).

@@ -23,12 +23,17 @@ import (
 	"github.com/fahmikemal/quadman/internal/ui"
 )
 
-// DefaultAddress is the default network interface and port the server listens on.
-const DefaultAddress = ":2222"
+// DefaultHost is the loopback interface all implicit binds use. The daemon
+// never listens beyond localhost unless an explicit address says so.
+const DefaultHost = "127.0.0.1"
+
+// DefaultAddress is the default loopback interface and port the server listens on.
+const DefaultAddress = "127.0.0.1:2222"
 
 // Options configures the SSH daemon.
 type Options struct {
-	// Address is the host:port or :port to listen on (default :2222).
+	// Address is the host:port to listen on (default 127.0.0.1:2222).
+	// Non-loopback binds require AuthorizedKeysPath (see Validate).
 	Address string
 
 	// HostKeyPath is the file path of the server's private host key.
@@ -105,13 +110,96 @@ func (o *Options) applyDefaults() {
 	}
 }
 
+// IsLoopbackAddr reports whether addr binds loopback only (127/8, ::1, or
+// localhost). Wildcards, LAN/public IPs, hostnames, and unparseable input
+// all return false: fail closed.
+func IsLoopbackAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// IsWildcardAddr reports whether addr binds all interfaces (":port",
+// "0.0.0.0:port", "[::]:port"): reachable from the LAN, not just localhost.
+func IsWildcardAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return strings.HasPrefix(addr, ":")
+	}
+	return host == "" || host == "0.0.0.0" || host == "::"
+}
+
+// Validate applies defaults and enforces the bind policy:
+//
+//   - open-auth (no authorized_keys and no password) always forces readonly,
+//     even on loopback;
+//   - any non-loopback bind requires an existing authorized_keys file, so
+//     open-auth and password-only binds are loopback-only.
+//
+// Validation lives here — not just in the CLI — so every caller fails
+// closed by construction.
+func (o *Options) Validate() error {
+	o.applyDefaults()
+
+	if _, _, err := net.SplitHostPort(o.Address); err != nil {
+		return fmt.Errorf("invalid address %q: %w", o.Address, err)
+	}
+	if o.AuthorizedKeysPath != "" {
+		if err := checkAuthorizedKeys(o.AuthorizedKeysPath); err != nil {
+			return err
+		}
+	}
+	if o.AuthorizedKeysPath == "" && o.Password == "" {
+		o.Readonly = true
+	}
+	if !IsLoopbackAddr(o.Address) && o.AuthorizedKeysPath == "" {
+		_, port, _ := net.SplitHostPort(o.Address)
+		hint := net.JoinHostPort(DefaultHost, port)
+		if o.Password != "" {
+			return fmt.Errorf("refusing password-only bind on non-loopback address %q: password auth alone is loopback-only; provide --authorized-keys or bind loopback (-a %s)", o.Address, hint)
+		}
+		return fmt.Errorf("refusing open-auth bind on non-loopback address %q: provide --authorized-keys or bind loopback (-a %s)", o.Address, hint)
+	}
+	return nil
+}
+
+// checkAuthorizedKeys rejects a missing, unreadable, or empty keys file so a
+// typo fails loudly at startup instead of silently locking everyone out.
+func checkAuthorizedKeys(path string) error {
+	st, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("authorized_keys %q: %w", path, err)
+	}
+	if st.IsDir() {
+		return fmt.Errorf("authorized_keys %q is a directory", path)
+	}
+	if st.Size() == 0 {
+		return fmt.Errorf("authorized_keys %q is empty", path)
+	}
+	return nil
+}
+
 // New creates and configures the Wish SSH server.
 func New(opts Options) (*ssh.Server, error) {
-	opts.applyDefaults()
+	if err := opts.Validate(); err != nil {
+		return nil, err
+	}
 
 	// Ensure parent directory for the host key exists.
 	if err := os.MkdirAll(filepath.Dir(opts.HostKeyPath), 0o700); err != nil {
 		return nil, fmt.Errorf("create host key directory: %w", err)
+	}
+	// An existing host key must never stay group/world-readable.
+	if st, err := os.Stat(opts.HostKeyPath); err == nil && !st.IsDir() {
+		if err := os.Chmod(opts.HostKeyPath, 0o600); err != nil {
+			return nil, fmt.Errorf("secure host key permissions: %w", err)
+		}
 	}
 
 	serverOpts := []ssh.Option{

@@ -63,6 +63,11 @@ quadman dirilis secara terstruktur dalam kelompok fitur (lihat [CONTRIBUTING.id.
 - [x] **Kompartemen (`--as <user>`, `quadman --as <user> list`)** — kelola Quadlet milik OS user lain via sudo non-interaktif dengan search path, systemd instance, storage, dan secret miliknya; switcher palette, chip title `[user]`, guard sesi terisolasi di semua jalur.
 - [x] **Guard custom-key** — peringatan startup bila tombol `custom_commands` tertutup binding bawaan (bawaan selalu menang).
 
+### Batch berikutnya (belum dirilis, dikumpulkan di `main`)
+
+- [x] **Kebijakan bind serve**: default loopback saja (`127.0.0.1:2222`); bind non-loopback menolak berjalan tanpa `--authorized-keys`, sehingga open-auth dan password-only hanya di loopback; open-auth tetap memaksa readonly di mana pun; berkas keys yang hilang atau kosong gagal keras saat startup; host key yang sudah ada dikencangkan ke `0600`.
+- [x] **Refresh Charm stack**: bubbletea v2.0.9 → v2.0.10; `govulncheck` dan `gosec` hijau.
+
 ### Catatan Ekosistem (Sep 2026)
 
 - [podman-tui](https://github.com/containers/podman-tui) v2.0.0 (6 September 2026) mendukung Podman 6 — dan **tetap tidak memiliki manajemen Quadlet**, membuktikan ceruk quadman tetap esensial.

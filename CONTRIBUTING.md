@@ -22,6 +22,8 @@ checksums automatically.
 ## House rules
 
 - `make fmt vet test` must stay green before every push (CI enforces it).
+- Keep the security gates green too: `go run golang.org/x/vuln/cmd/govulncheck@latest ./...`
+  and `go run github.com/securego/gosec/v2/cmd/gosec@latest -quiet ./...` (CI runs both).
 - Commit prefixes `docs:` / `test:` / `ci:` / `chore:` are excluded from the
   generated changelog (see `.goreleaser.yaml`).
 - New behavior should come with tests; wrappers around CLIs are tested with
