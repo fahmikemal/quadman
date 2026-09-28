@@ -15,33 +15,6 @@ import (
 	cryptossh "golang.org/x/crypto/ssh"
 )
 
-func TestSplitHostPort(t *testing.T) {
-	tests := []struct {
-		input       string
-		defaultPort string
-		want        string
-		wantErr     bool
-	}{
-		{"", "2222", ":2222", false},
-		{"2222", "8080", ":2222", false},
-		{":2222", "8080", ":2222", false},
-		{"127.0.0.1:2222", "8080", "127.0.0.1:2222", false},
-		{"0.0.0.0:2222", "8080", "0.0.0.0:2222", false},
-		{"invalid::addr", "2222", "", true},
-	}
-
-	for _, tc := range tests {
-		got, err := SplitHostPort(tc.input, tc.defaultPort)
-		if (err != nil) != tc.wantErr {
-			t.Errorf("SplitHostPort(%q, %q) error = %v, wantErr %v", tc.input, tc.defaultPort, err, tc.wantErr)
-			continue
-		}
-		if got != tc.want {
-			t.Errorf("SplitHostPort(%q, %q) = %q, want %q", tc.input, tc.defaultPort, got, tc.want)
-		}
-	}
-}
-
 func TestDefaultAddressIsLoopback(t *testing.T) {
 	if !IsLoopbackAddr(DefaultAddress) {
 		t.Errorf("DefaultAddress = %q, must bind loopback only", DefaultAddress)

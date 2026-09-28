@@ -291,24 +291,3 @@ func Serve(ctx context.Context, opts Options) error {
 		return err
 	}
 }
-
-// SplitHostPort parses host:port, :port, or a bare port into a valid listen address.
-func SplitHostPort(addr, defaultPort string) (string, error) {
-	if addr == "" {
-		return ":" + defaultPort, nil
-	}
-	if !strings.Contains(addr, ":") {
-		// Bare port or host
-		if _, err := net.LookupPort("tcp", addr); err == nil {
-			return ":" + addr, nil
-		}
-	}
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		return "", err
-	}
-	if port == "" {
-		port = defaultPort
-	}
-	return net.JoinHostPort(host, port), nil
-}
