@@ -53,6 +53,7 @@ type ServeSettings struct {
 	HostKey        string `yaml:"host_key,omitempty"`
 	AuthorizedKeys string `yaml:"authorized_keys,omitempty"`
 	Password       string `yaml:"password,omitempty"`
+	PasswordFile   string `yaml:"password_file,omitempty"`
 	Readonly       bool   `yaml:"readonly,omitempty"`
 }
 

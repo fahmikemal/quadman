@@ -74,6 +74,12 @@ type Options struct {
 
 	// System targets system-wide (rootful) units instead of user units.
 	System bool
+
+	// Compartment serves another local user's Quadlet session through
+	// non-interactive sudo (e.g. svc-web). Empty serves the operator's own
+	// session. Served compartment sessions keep the isolated-session guards
+	// (no file writes, no nested sudo hops).
+	Compartment string
 }
 
 // defaultHostKeyPath returns the path to the auto-generated host key file.
@@ -230,6 +236,20 @@ func New(opts Options) (*ssh.Server, error) {
 	return wish.NewServer(serverOpts...)
 }
 
+// uiOptions builds the TUI options for one incoming session.
+func (opts Options) uiOptions(clientInfo string) ui.Options {
+	return ui.Options{
+		Readonly:    opts.Readonly,
+		Mouse:       opts.Mouse,
+		Theme:       opts.Theme,
+		QuadletDirs: opts.QuadletDirs,
+		ClientInfo:  clientInfo,
+		NoEditor:    true,
+		System:      opts.System,
+		Compartment: opts.Compartment,
+	}
+}
+
 // teaHandler returns the Bubble Tea handler for an incoming SSH session.
 func teaHandler(opts Options) bubbletea.Handler {
 	return func(sess ssh.Session) (tea.Model, []tea.ProgramOption) {
@@ -238,17 +258,7 @@ func teaHandler(opts Options) bubbletea.Handler {
 			clientInfo += "@" + ra.String()
 		}
 
-		uiOpts := ui.Options{
-			Readonly:    opts.Readonly,
-			Mouse:       opts.Mouse,
-			Theme:       opts.Theme,
-			QuadletDirs: opts.QuadletDirs,
-			ClientInfo:  clientInfo,
-			NoEditor:    true,
-			System:      opts.System,
-		}
-
-		m := ui.NewWithOptions(uiOpts)
+		m := ui.NewWithOptions(opts.uiOptions(clientInfo))
 		return m, []tea.ProgramOption{}
 	}
 }

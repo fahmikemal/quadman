@@ -153,6 +153,9 @@ theme: auto            # auto, dark, light, atau colorblind
 mouse: false           # Sama dengan flag quadman --mouse (off menjaga seleksi teks terminal tetap aktif)
 quadlet_dirs:          # Direktori sumber Quadlet tambahan (sama dengan --quadlet-dir)
   - ~/quadlets
+serve:
+  authorized_keys: ~/.ssh/authorized_keys # wajib untuk bind non-loopback
+  # password_file: /run/secrets/quadman-pass # atau password: ... (salah satu saja)
 
 custom_commands:
   - name: status
@@ -176,7 +179,7 @@ quadman --ssh user@host
 
 Setiap pemanggilan CLI (`systemctl`, `journalctl`, `loginctl`, `podman`) diteruskan melalui binary `ssh` lokal Anda — SSH key, ssh-agent, `known_hosts`, dan konfigurasi `~/.ssh/config` langsung bekerja otomatis tanpa perlu setup tambahan. Jika `ssh user@host true` berhasil, quadman dipastikan langsung bekerja.
 
-Mode remote mempertahankan kendali penuh untuk operasi baca dan siklus hidup: daftar unit, status live, start / stop / restart, journal logs, storage, stats, events, auto-update, healthcheck, linger, dan pohon dependensi (berkas dibaca via `cat` sesuai kebutuhan, tanpa sinkronisasi disk). Aksi yang memodifikasi berkas di host (seperti edit, enable/disable saat boot, instansiasi template, generate berkas, install bundel, dan delete) dibatasi dengan pesan penjelasan — kelola berkas secara langsung dengan menjalankan quadman di server target. Aksi interaktif/destruktif host juga ditolak dari remote: `podman exec` (`X`) butuh TTY lokal dan `system prune` (`P`) harus dijalankan di host. Drop-in tidak dienumerasi dari remote; layar berkas menjelaskannya.
+Mode remote mempertahankan kendali penuh untuk operasi baca dan siklus hidup: daftar unit, status live, start / stop / restart, journal logs, storage, stats, events, auto-update, healthcheck, linger, dan pohon dependensi (berkas dibaca via `cat` sesuai kebutuhan, tanpa sinkronisasi disk). Aksi yang memodifikasi berkas di host (seperti edit, enable/disable saat boot, instansiasi template, generate berkas, install bundel, dan delete) dibatasi dengan pesan penjelasan — kelola berkas secara langsung dengan menjalankan quadman di server target. Aksi interaktif/destruktif host juga ditolak dari remote: `podman exec` (`X`) butuh TTY lokal dan `system prune` (`P`) harus dijalankan di host. Drop-in dienumerasi dari remote (read-only) dan digabung di layar berkas.
 
 ## Kompartemen (banyak OS user, satu TUI)
 
@@ -197,7 +200,9 @@ setengah beralih.
 Kompartemen yang dikonfigurasi (`compartments: [svc-web, svc-db]` di
 config.yaml) muncul di Command Palette (`Ctrl+P`) sebagai aksi
 "Use Compartment ...", plus "Use Own Session" untuk kembali. Berpindah
-kompartemen di atas sesi SSH ditolak (tanpa sudo hop bersarang).
+kompartemen di atas sesi SSH ditolak (tanpa sudo hop bersarang), dan
+`--system` tidak bisa digabung dengan `--as` sama sekali (unit sistem
+berada di luar sesi user mana pun).
 Script non-interaktif memakai `quadman --as <user> list`.
 
 ```yaml
@@ -213,6 +218,8 @@ quadman serve                                          # Berjalan di 127.0.0.1:2
 quadman serve -p 2222 --readonly                       # Dashboard pemantauan read-only via SSH (loopback)
 quadman serve -a 0.0.0.0:2222 --authorized-keys ~/.ssh/authorized_keys # Akses LAN, kunci wajib
 quadman serve --password rahasia123                    # Proteksi kata sandi (loopback saja)
+quadman serve --password-file /run/secrets/quadman-pass # Kata sandi dari berkas, aman dari process list (loopback saja)
+quadman --as svc-web serve --readonly                  # Sajikan sesi milik user lain via kompartemen sudo
 ```
 
 quadman menyertakan server SSH bawaan yang ditenagai oleh pustaka [Charm Wish](https://github.com/charmbracelet/wish) (`wish/v2`). Secara default server hanya bind loopback. Untuk berbagi ke tim di LAN, bind eksplisit dengan autentikasi public-key, karena bind non-loopback menolak berjalan tanpa `--authorized-keys`:
@@ -225,7 +232,7 @@ ssh -p 2222 user@host
 Fitur utama SSH Server:
 - **Nol dependensi klien**: Komputer yang menghubung hanya memerlukan terminal client standar `ssh`.
 - **Host Key Otomatis**: Membuat kunci host ED25519 otomatis di `~/.config/quadman/host_ed25519` jika belum ditentukan.
-- **Opsi Autentikasi**: Mendukung verifikasi berkas `authorized_keys` atau perlindungan kata sandi (loopback saja). Tanpa keduanya di loopback, server tetap berjalan tetapi **memaksa semua sesi ke mode readonly** dengan peringatan jelas, dan akses tulis anonim tidak pernah aktif secara default, dan bind open-auth/password-only tidak pernah listen di luar loopback.
+- **Opsi Autentikasi**: Mendukung verifikasi berkas `authorized_keys` atau perlindungan kata sandi (loopback saja). Kata sandi berasal dari tepat satu sumber: `--password`, `--password-file`, `QUADMAN_SERVE_PASSWORD`, atau config `password`/`password_file`; pilih bentuk berkas atau env agar secret tidak muncul di process list. Tanpa keduanya di loopback, server tetap berjalan tetapi **memaksa semua sesi ke mode readonly** dengan peringatan jelas, dan akses tulis anonim tidak pernah aktif secara default, dan bind open-auth/password-only tidak pernah listen di luar loopback.
 - **Mode Dashboard Readonly**: Tambahkan flag `--readonly` untuk membagikan akses pemantauan kepada rekan tim dengan aman tanpa risiko salah mematikan atau mengubah unit produksi.
 - **Eksekusi Aman**: Pembukaan editor lokal `$EDITOR` dinonaktifkan secara aman pada sesi server SSH.
 

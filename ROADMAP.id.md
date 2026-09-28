@@ -63,10 +63,20 @@ quadman dirilis secara terstruktur dalam kelompok fitur (lihat [CONTRIBUTING.id.
 - [x] **Kompartemen (`--as <user>`, `quadman --as <user> list`)** — kelola Quadlet milik OS user lain via sudo non-interaktif dengan search path, systemd instance, storage, dan secret miliknya; switcher palette, chip title `[user]`, guard sesi terisolasi di semua jalur.
 - [x] **Guard custom-key** — peringatan startup bila tombol `custom_commands` tertutup binding bawaan (bawaan selalu menang).
 
-### Batch berikutnya (belum dirilis, dikumpulkan di `main`)
+### v0.5.1 — batch hardening serve (dirilis)
 
 - [x] **Kebijakan bind serve**: default loopback saja (`127.0.0.1:2222`); bind non-loopback menolak berjalan tanpa `--authorized-keys`, sehingga open-auth dan password-only hanya di loopback; open-auth tetap memaksa readonly di mana pun; berkas keys yang hilang atau kosong gagal keras saat startup; host key yang sudah ada dikencangkan ke `0600`.
+- [x] **Guard CLI**: flag salah posisi setelah `list` ditolak; target `e2e` Makefile diperbaiki (path binary plus phony).
+- [x] **Perbaikan skill**: entri ekspor mandiri, header versi satu-v, bentuk `--system list`, deskripsi kebijakan bind serve.
 - [x] **Refresh Charm stack**: bubbletea v2.0.9 → v2.0.10; `govulncheck` dan `gosec` hijau.
+
+### Batch berikutnya (belum dirilis, dikumpulkan di `main`)
+
+- [x] **Sumber password serve**: `--password-file`, `QUADMAN_SERVE_PASSWORD`, config `password_file` (tepat satu); secret tidak pernah muncul di argv.
+- [x] **serve --as**: menyajikan sesi milik user lain via kompartemen sudo dengan validasi startup; guard sesi terisolasi tetap berlaku.
+- [x] **Cakupan guard flag**: `version` dan `skill` menolak flag trailing (`skill` tetap mengizinkan `--format`/`--json` miliknya).
+- [x] **Drop-in remote (read-only)**: dienumerasi via session runner untuk sesi SSH, kompartemen, dan serve.
+- [x] **Guard mode**: `--system` dan `--as` ditolak bila digabung (CLI plus palette), karena unit sistem di luar sesi user mana pun.
 
 ### Catatan Ekosistem (Sep 2026)
 

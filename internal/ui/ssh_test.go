@@ -57,6 +57,70 @@ func TestSSHApplyWiresClients(t *testing.T) {
 	podlet.DefaultRunner.Target = ""
 }
 
+func TestDropinNamesParse(t *testing.T) {
+	got := dropinNames([]byte("zz.conf\nnotes.txt\nsubdir/\n10-a.conf\n"))
+	want := []string{"10-a.conf", "zz.conf"}
+	if len(got) != len(want) {
+		t.Fatalf("dropinNames = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("dropinNames[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+	if len(dropinNames(nil)) != 0 {
+		t.Error("empty listing must yield none")
+	}
+}
+
+func dropinFakeBin(t *testing.T, lsOut, lsExit string) string {
+	t.Helper()
+	script := "#!/bin/sh\n" +
+		"cmd=\"$7\"\n" +
+		"if [ \"$cmd\" = \"ls\" ]; then printf '" + lsOut + "'; exit " + lsExit + "; fi\n" +
+		"if [ \"$cmd\" = \"cat\" ]; then printf '[Container]\\nEnvironment=A=1\\n'; exit 0; fi\n" +
+		"exit 1\n"
+	return fakeSSHBin(t, script)
+}
+
+func TestFileContentRemoteDropins(t *testing.T) {
+	m := New()
+	m.applySSH("user@remote")
+	m.ssh.SSHBin = dropinFakeBin(t, "10-a.conf\\nnotes.txt\\nsubdir/\\n", "0")
+	u := quadlet.Unit{Name: "web-api", Kind: quadlet.KindContainer, Path: "/r/web-api.container"}
+	out := m.fileContent(u, []byte("[Container]\nImage=nginx"))
+	if !strings.Contains(out, "Image=nginx") {
+		t.Errorf("base content lost: %q", out)
+	}
+	if !strings.Contains(out, "drop-in: container.d/10-a.conf") || !strings.Contains(out, "Environment=A=1") {
+		t.Errorf("remote drop-ins not merged: %q", out)
+	}
+	if strings.Contains(out, "notes.txt") || strings.Contains(out, "subdir") {
+		t.Errorf("non-conf entries must be filtered: %q", out)
+	}
+}
+
+func TestFileContentRemoteDropinsNone(t *testing.T) {
+	m := New()
+	m.applySSH("user@remote")
+	m.ssh.SSHBin = dropinFakeBin(t, "", "0")
+	u := quadlet.Unit{Name: "web", Kind: quadlet.KindContainer, Path: "/r/web.container"}
+	if out := m.fileContent(u, []byte("base")); out != "base" {
+		t.Errorf("listed-but-empty must render base only, got %q", out)
+	}
+}
+
+func TestFileContentRemoteDropinsFailure(t *testing.T) {
+	m := New()
+	m.applySSH("user@remote")
+	m.ssh.SSHBin = dropinFakeBin(t, "", "1")
+	u := quadlet.Unit{Name: "web", Kind: quadlet.KindContainer, Path: "/r/web.container"}
+	out := m.fileContent(u, []byte("base"))
+	if !strings.Contains(out, "drop-ins not listed") {
+		t.Errorf("failed enumeration must keep the note, got %q", out)
+	}
+}
+
 func TestSSHRefusesFileWrites(t *testing.T) {
 	m := sshModel(t)
 	m = withUnits(m, "webapp")

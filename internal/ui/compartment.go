@@ -85,6 +85,9 @@ func (m Model) compartmentPaletteActions() []paletteAction {
 				if m.ssh.IsRemote() {
 					return false, "unavailable over SSH"
 				}
+				if m.system {
+					return false, "unavailable in system mode"
+				}
 				return true, ""
 			},
 			run: func(m Model) (tea.Model, tea.Cmd, bool) {

@@ -11,14 +11,19 @@ import (
 // withDropins renders a unit file followed by every drop-in the generator
 // would merge into it, each under its own separator header.
 func withDropins(u quadlet.Unit, base []byte) string {
-	drops := quadlet.Dropins(u)
+	return renderDropins(base, quadlet.Dropins(u), os.ReadFile) // #nosec G304 -- drop-in paths come from quadlet discovery
+}
+
+// renderDropins merges drop-in contents under separator headers; unreadable
+// files are skipped. read abstracts local reads from runner-backed reads.
+func renderDropins(base []byte, drops []quadlet.Dropin, read func(string) ([]byte, error)) string {
 	if len(drops) == 0 {
 		return string(base)
 	}
 	var b strings.Builder
 	b.Write(base)
 	for _, d := range drops {
-		content, err := os.ReadFile(d.Path) // #nosec G304 -- drop-in paths come from quadlet discovery
+		content, err := read(d.Path)
 		if err != nil {
 			continue
 		}

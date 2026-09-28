@@ -21,9 +21,11 @@ type Dropin struct {
 //
 // For web-api.container this yields: container.d/*.conf, web-.container.d/*.conf,
 // web-api.container.d/*.conf — matching the generator's behavior.
-func Dropins(u Unit) []Dropin {
+// DropinDirs returns the candidate drop-in directories for a unit file in
+// merge order, without touching the filesystem: the generic <kind>.d
+// directory, cascading dashed prefixes, then the unit's own dir.
+func DropinDirs(u Unit) []string {
 	dir := filepath.Dir(u.Path)
-	var out []Dropin
 	kind := string(u.Kind)
 
 	dirs := []string{filepath.Join(dir, kind+".d")}
@@ -41,8 +43,12 @@ func Dropins(u Unit) []Dropin {
 		i += j + 1
 	}
 	dirs = append(dirs, filepath.Join(dir, name+"."+kind+".d"))
+	return dirs
+}
 
-	for _, d := range dirs {
+func Dropins(u Unit) []Dropin {
+	var out []Dropin
+	for _, d := range DropinDirs(u) {
 		entries, err := os.ReadDir(d)
 		if err != nil {
 			continue // missing dirs are normal

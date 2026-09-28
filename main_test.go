@@ -135,6 +135,80 @@ func TestResolveServeAddr(t *testing.T) {
 	}
 }
 
+func TestCheckSecretFile(t *testing.T) {
+	write := func(t *testing.T, content string, mode os.FileMode) string {
+		t.Helper()
+		p := filepath.Join(t.TempDir(), "pw")
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(p, mode); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	content, warn, err := checkSecretFile(write(t, "s3cret\n", 0o600))
+	if err != nil || content != "s3cret" || warn != "" {
+		t.Errorf("0600 file = %q, warn %q, err %v", content, warn, err)
+	}
+	_, warn, err = checkSecretFile(write(t, "s3cret", 0o644))
+	if err != nil || warn == "" {
+		t.Errorf("0644 file must warn, warn %q err %v", warn, err)
+	}
+	if _, _, err := checkSecretFile(filepath.Join(t.TempDir(), "nope")); err == nil {
+		t.Error("missing file must fail")
+	}
+	if _, _, err := checkSecretFile(write(t, "\n", 0o600)); err == nil {
+		t.Error("blank file must fail")
+	}
+	if _, _, err := checkSecretFile(t.TempDir()); err == nil {
+		t.Error("directory must fail")
+	}
+}
+
+func TestResolveServePassword(t *testing.T) {
+	pwFile := filepath.Join(t.TempDir(), "pw")
+	if err := os.WriteFile(pwFile, []byte("filepw\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	noEnv := func(string) string { return "" }
+	withEnv := func(string) string { return "envpw" }
+
+	tests := []struct {
+		name     string
+		flag     string
+		fileFlag string
+		scfg     config.ServeSettings
+		getenv   func(string) string
+		want     string
+		source   string
+		wantErr  bool
+	}{
+		{"none", "", "", config.ServeSettings{}, noEnv, "", "", false},
+		{"flag", "flagpw", "", config.ServeSettings{}, noEnv, "flagpw", "--password", false},
+		{"file", "", pwFile, config.ServeSettings{}, noEnv, "filepw", "--password-file", false},
+		{"env", "", "", config.ServeSettings{}, withEnv, "envpw", servePasswordEnv, false},
+		{"config", "", "", config.ServeSettings{Password: "cfgpw"}, noEnv, "cfgpw", "config password", false},
+		{"config file", "", "", config.ServeSettings{PasswordFile: pwFile}, noEnv, "filepw", "config password_file", false},
+		{"flag beats config", "flagpw", "", config.ServeSettings{Password: "cfgpw"}, noEnv, "flagpw", "--password", false},
+		{"conflict flag+file", "a", pwFile, config.ServeSettings{}, noEnv, "", "", true},
+		{"conflict flag+env", "a", "", config.ServeSettings{}, withEnv, "", "", true},
+		{"conflict config pair", "", "", config.ServeSettings{Password: "a", PasswordFile: pwFile}, noEnv, "", "", true},
+		{"missing file", "", filepath.Join(t.TempDir(), "nope"), config.ServeSettings{}, noEnv, "", "", true},
+	}
+	for _, tc := range tests {
+		got, src, _, err := resolveServePassword(tc.flag, tc.fileFlag, tc.scfg, tc.getenv)
+		if (err != nil) != tc.wantErr {
+			t.Errorf("%s: err = %v, wantErr %v", tc.name, err, tc.wantErr)
+			continue
+		}
+		if !tc.wantErr && (got != tc.want || src != tc.source) {
+			t.Errorf("%s: = %q/%q, want %q/%q", tc.name, got, src, tc.want, tc.source)
+		}
+	}
+}
+
 func TestFormatConnectHint(t *testing.T) {
 	tests := []struct {
 		addr string
@@ -183,6 +257,38 @@ func TestMisplacedFlag(t *testing.T) {
 	for _, tc := range tests {
 		if got := misplacedFlag(tc.args); got != tc.want {
 			t.Errorf("misplacedFlag(%v) = %q, want %q", tc.args, got, tc.want)
+		}
+	}
+}
+
+func TestCheckModeConflict(t *testing.T) {
+	if err := checkModeConflict(true, "svc-web"); err == nil {
+		t.Error("--system + --as must be rejected")
+	}
+	for _, tc := range [][2]any{{true, ""}, {false, "svc-web"}, {false, ""}} {
+		if err := checkModeConflict(tc[0].(bool), tc[1].(string)); err != nil {
+			t.Errorf("checkModeConflict(%v, %q) = %v, want nil", tc[0], tc[1], err)
+		}
+	}
+}
+
+func TestMisplacedFlagExcept(t *testing.T) {
+	tests := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--format", "json"}, ""},
+		{[]string{"json"}, ""},
+		{[]string{"--json"}, ""},
+		{[]string{"-format=json"}, ""},
+		{[]string{"--system"}, "system"},
+		{[]string{"--format", "json", "--as", "u"}, "as"},
+		{[]string{"--format=json", "--readonly"}, "readonly"},
+		{nil, ""},
+	}
+	for _, tc := range tests {
+		if got := misplacedFlagExcept(tc.args, "format", "json"); got != tc.want {
+			t.Errorf("misplacedFlagExcept(%v) = %q, want %q", tc.args, got, tc.want)
 		}
 	}
 }

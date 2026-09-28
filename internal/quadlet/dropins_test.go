@@ -59,6 +59,24 @@ func TestDropinsNone(t *testing.T) {
 	}
 }
 
+func TestDropinDirs(t *testing.T) {
+	u := Unit{Name: "web-api", Kind: KindContainer, Path: "/r/web-api.container"}
+	want := []string{"/r/container.d", "/r/web-.container.d", "/r/web-api.container.d"}
+	got := DropinDirs(u)
+	if len(got) != len(want) {
+		t.Fatalf("DropinDirs = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("DropinDirs[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+	simple := Unit{Name: "web", Kind: KindContainer, Path: "/r/web.container"}
+	if got := DropinDirs(simple); len(got) != 2 {
+		t.Errorf("simple name must yield generic + own dir, got %v", got)
+	}
+}
+
 func TestDropinsSimpleName(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "web.container.d", "10-a.conf")

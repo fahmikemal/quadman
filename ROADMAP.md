@@ -68,10 +68,20 @@ feature tiers, patch bumps for accumulated fixes.
 - [x] **Compartments (`--as <user>`, `quadman --as <user> list`)** — manage another OS user's Quadlets through non-interactive sudo with that user's own search path, systemd instance, storage, and secrets; palette switcher, `[user]` title chip, isolated-session guards throughout.
 - [x] **Custom-key guard** — startup warning when a `custom_commands` key is shadowed by a built-in binding (built-ins always win).
 
-### Next batch (unreleased, collecting on `main`)
+### v0.5.1 — serve hardening batch (shipped)
 
 - [x] **Serve bind policy**: loopback-only default (`127.0.0.1:2222`); non-loopback binds refuse to start without `--authorized-keys`, so open-auth and password-only stay loopback-only; open-auth still forces readonly everywhere; a missing or empty keys file fails loudly at startup; an existing host key is tightened to `0600`.
+- [x] **CLI guards**: misplaced flags after `list` rejected; Makefile `e2e` target fixed (binary path plus phony).
+- [x] **Skill fixes**: self-documenting export entries, single-v version header, `--system list` form, serve bind policy description.
 - [x] **Charm stack refresh**: bubbletea v2.0.9 → v2.0.10; `govulncheck` and `gosec` green.
+
+### Next batch (unreleased, collecting on `main`)
+
+- [x] **Serve password sources**: `--password-file`, `QUADMAN_SERVE_PASSWORD`, config `password_file` (exactly one); the secret never appears in argv.
+- [x] **serve --as**: serve another user's session through a sudo compartment with startup validation; isolated-session guards still apply.
+- [x] **Flag guard coverage**: `version` and `skill` reject trailing flags (`skill` keeps its own `--format`/`--json`).
+- [x] **Remote drop-ins (read-only)**: enumerated through the session runner for SSH, compartment, and served sessions.
+- [x] **Mode guard**: `--system` and `--as` rejected together (CLI plus palette), since system units live outside any user's session.
 
 ### Notable ecosystem notes (Sep 2026)
 
