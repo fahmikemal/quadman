@@ -28,5 +28,5 @@ checksums automatically.
   generated changelog (see `.goreleaser.yaml`).
 - New behavior should come with tests; wrappers around CLIs are tested with
   fake binaries (see `internal/systemd/systemd_test.go` for the pattern).
-- Regenerate README screenshots after UI changes:
-  `QUADMAN_SCREENSHOTS=1 go test ./internal/ui -run Screenshots`
+- Refresh README screenshots after UI changes: capture the list, journal,
+  and stats views manually into `docs/screenshot-{list,logs,stats}.png`.
