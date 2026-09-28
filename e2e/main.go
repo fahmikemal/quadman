@@ -504,6 +504,12 @@ func runExtraScenarios() {
 	if wantScenario("scenarioServeSSH") {
 		scenarioServeSSH()
 	}
+	if wantScenario("scenarioServePasswordFile") {
+		scenarioServePasswordFile()
+	}
+	if wantScenario("scenarioServeCompartment") {
+		scenarioServeCompartment()
+	}
 	if wantScenario("scenarioCommandPalette") {
 		scenarioCommandPalette()
 	}
@@ -1129,6 +1135,30 @@ func scenarioThemeMouse() {
 	quit(cmd, f)
 }
 
+// pumpPty streams PTY output into the shared screen buffer (capped at 256K).
+func pumpPty(f *os.File) {
+	go func() {
+		buf := make([]byte, 8192)
+		for {
+			n, err := f.Read(buf)
+			if n > 0 {
+				mu.Lock()
+				lastWrite = time.Now()
+				screen.Write(buf[:n])
+				if screen.Len() > 256*1024 {
+					b := screen.Bytes()
+					screen.Reset()
+					screen.Write(b[len(b)-128*1024:])
+				}
+				mu.Unlock()
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+}
+
 // scenarioServeSSH verifies the built-in Wish SSH server mode end-to-end.
 func scenarioServeSSH() {
 	drain()
@@ -1180,6 +1210,133 @@ func scenarioServeSSH() {
 
 	ok := waitFor("QUADLET", 12*time.Second)
 	check("serve ssh render", ok, "koneksi SSH merender daftar unit quadman")
+	send(f, "q")
+	time.Sleep(300 * time.Millisecond)
+}
+
+// serveClient dials a serve daemon over loopback SSH with password-only
+// auth, returning the PTY the caller pumps and closes.
+func serveClient(port string) (*os.File, *exec.Cmd, error) {
+	sshCmd := exec.Command("ssh", "-tt", "-p", port,
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "LogLevel=ERROR",
+		"-o", "PreferredAuthentications=password",
+		"-o", "PubkeyAuthentication=no",
+		"127.0.0.1")
+	f, err := pty.StartWithSize(sshCmd, &pty.Winsize{Rows: 42, Cols: 120})
+	if err != nil {
+		return nil, nil, err
+	}
+	return f, sshCmd, nil
+}
+
+// scenarioServePasswordFile verifies --password-file auth end-to-end: a
+// wrong password is denied, the file's password renders the unit list.
+func scenarioServePasswordFile() {
+	drain()
+	port := "22389"
+	pwPath := filepath.Join(os.TempDir(), "qe2e-serve-pass")
+	if err := os.WriteFile(pwPath, []byte("qe2e-secret\n"), 0o600); err != nil {
+		check("serve pwfile fixture", false, "gagal menulis berkas password: "+err.Error())
+		return
+	}
+	defer os.Remove(pwPath)
+	srvCmd := exec.Command("./quadman", "serve", "-p", port, "--readonly", "--password-file", pwPath)
+	if err := srvCmd.Start(); err != nil {
+		check("serve pwfile start", false, "gagal menjalankan quadman serve: "+err.Error())
+		return
+	}
+	defer func() {
+		_ = srvCmd.Process.Kill()
+		_ = srvCmd.Wait()
+	}()
+
+	time.Sleep(600 * time.Millisecond)
+
+	f, sshCmd, err := serveClient(port)
+	if err != nil {
+		check("serve pwfile client", false, "ssh client gagal: "+err.Error())
+		return
+	}
+	pumpPty(f)
+	if !waitFor("password", 10*time.Second) {
+		check("serve pwfile prompt", false, "prompt password tidak muncul")
+		_ = sshCmd.Process.Kill()
+		_ = sshCmd.Wait()
+		_ = f.Close()
+		return
+	}
+	send(f, "wrongpw\n")
+	denied := waitFor("denied", 10*time.Second)
+	check("serve pwfile wrong denied", denied, "password salah harus ditolak")
+	_ = sshCmd.Process.Kill()
+	_ = sshCmd.Wait()
+	_ = f.Close()
+
+	drain()
+	f2, sshCmd2, err := serveClient(port)
+	if err != nil {
+		check("serve pwfile client2", false, "ssh client gagal: "+err.Error())
+		return
+	}
+	defer func() {
+		_ = sshCmd2.Process.Kill()
+		_ = sshCmd2.Wait()
+		_ = f2.Close()
+	}()
+	pumpPty(f2)
+	if !waitFor("password", 10*time.Second) {
+		check("serve pwfile prompt2", false, "prompt password tidak muncul")
+		return
+	}
+	send(f2, "qe2e-secret\n")
+	ok := waitFor("QUADLET", 12*time.Second)
+	check("serve pwfile render", ok, "password berkas merender daftar unit quadman")
+	send(f2, "q")
+	time.Sleep(300 * time.Millisecond)
+}
+
+// scenarioServeCompartment verifies quadman --as svc-test serve: clients
+// see the compartment's units with the [svc-test] chip. Skips without a
+// ready fixture (sudo + resolvable user + runtime dir, probed through the
+// same validation the daemon uses at startup).
+func scenarioServeCompartment() {
+	if !runOK("sudo", "-n", "-u", "svc-test", "true") || !runOK("./quadman", "--as", "svc-test", "list") {
+		skip("serve compartment", "no ready svc-test fixture (see e2e/README.md)")
+		return
+	}
+	drain()
+	port := "22390"
+	srvCmd := exec.Command("./quadman", "--as", "svc-test", "serve", "-p", port, "--readonly")
+	if err := srvCmd.Start(); err != nil {
+		check("serve compartment start", false, "gagal menjalankan quadman serve: "+err.Error())
+		return
+	}
+	defer func() {
+		_ = srvCmd.Process.Kill()
+		_ = srvCmd.Wait()
+	}()
+
+	time.Sleep(600 * time.Millisecond)
+
+	sshCmd := exec.Command("ssh", "-tt", "-p", port, "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", "127.0.0.1")
+	f, err := pty.StartWithSize(sshCmd, &pty.Winsize{Rows: 42, Cols: 120})
+	if err != nil {
+		check("serve compartment client", false, "ssh client gagal: "+err.Error())
+		return
+	}
+	defer func() {
+		_ = sshCmd.Process.Kill()
+		_ = sshCmd.Wait()
+		_ = f.Close()
+	}()
+	pumpPty(f)
+
+	ok := waitFor("QUADLET", 12*time.Second)
+	check("serve compartment render", ok, "koneksi SSH merender daftar unit kompartemen")
+	chip := waitFor("[svc-test]", 5*time.Second)
+	check("serve compartment chip", chip, "title bar menampilkan chip [svc-test]")
 	send(f, "q")
 	time.Sleep(300 * time.Millisecond)
 }
