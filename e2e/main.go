@@ -1320,10 +1320,10 @@ func scenarioSystemMode() {
 	send(f, "?")
 	time.Sleep(300 * time.Millisecond)
 
-	// Also test non-interactive list --system
+	// Also test non-interactive --system list
 	out := runOut("./quadman", "--system", "list")
 	listOk := strings.Contains(out, "QUADLET") || strings.Contains(out, "/etc/containers/systemd")
-	check("system cli list", listOk, "perintah list --system jalan dan mencari di path system")
+	check("system cli list", listOk, "perintah --system list jalan dan mencari di path system")
 }
 
 // scenarioTimersAndSecrets tests the Timers view (T), Secrets view (K), and Command Palette actions.

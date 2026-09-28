@@ -10,7 +10,8 @@ healthcheck, follow logs, enable/disable at boot, the auto-update screen,
 the stale banner, daemon-reload, linger toggling, help, file view,
 systemd timers schedules, podman secrets inspection and pre-flight validation,
 exec prompt, stats screen, prune confirmation, live-object generate,
-compartment denied/live, and AI agent skill export.
+serve-over-SSH, command palette, log export and filtering, system mode,
+bulk actions, compartment denied/live, and AI agent skill export.
 
 This module is intentionally separate (its own go.mod) so the main module
 stays free of test-only dependencies, and CI does not run it — it needs a
@@ -22,7 +23,7 @@ live systemd user session, podman, and quadlet units on the host.
 # from the repo root, with demo units present (see below)
 go build -o /tmp/qe2e ./e2e
 make build
-cp quadman /tmp/quadman-under-test
+cp quadman /tmp/quadman
 cd /tmp && /tmp/qe2e
 ```
 

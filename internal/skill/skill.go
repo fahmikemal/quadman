@@ -51,12 +51,14 @@ func Get(ver string) Definition {
 			{Usage: "quadman --system", Description: "Manage system-wide (rootful) Quadlet units (/etc/containers/systemd)."},
 			{Usage: "sudo quadman", Description: "Auto-detects root (UID 0) and switches to system-wide mode."},
 			{Usage: "quadman list", Description: "Non-interactive tab-delimited overview of all Quadlet source files and systemd states (for scripts/pipes)."},
-			{Usage: "quadman list --system", Description: "List system-wide Quadlet units non-interactively."},
-			{Usage: "quadman serve [-p 2222] [--readonly]", Description: "Run embedded Wish v2 SSH daemon to serve TUI over network. With no keys/password it forces readonly sessions."},
+			{Usage: "quadman --system list", Description: "List system-wide Quadlet units non-interactively (flags go before the command)."},
+			{Usage: "quadman serve [-p 2222] [--readonly]", Description: "Run embedded Wish v2 SSH daemon to serve TUI over SSH (loopback-only by default; non-loopback binds require --authorized-keys). With no keys/password it forces readonly sessions."},
 			{Usage: "quadman --ssh user@host", Description: "Transparently manage remote rootless Quadlets over SSH client."},
 			{Usage: "quadman --as <user>", Description: "Manage another local user's Quadlets via non-interactive sudo (compartment); file edits stay disabled."},
 			{Usage: "quadman --as <user> list", Description: "Non-interactive compartment overview for scripts (flags go before the command)."},
 			{Usage: "quadman --readonly", Description: "Launch TUI with all state-changing actions disabled (monitoring mode)."},
+			{Usage: "quadman --skill", Description: "Print this Agent Skill definition as Markdown (for LLM coding agents)."},
+			{Usage: "quadman skill [--format json]", Description: "Print the Agent Skill definition; --format json emits the machine-readable schema."},
 		},
 		QuadletInfo: QuadletDoc{
 			FileExtensions: []string{
@@ -126,7 +128,7 @@ func Get(ver string) Definition {
 // Markdown formats the definition as a comprehensive Markdown agent skill document.
 func (d Definition) Markdown() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Agent Skill: %s (v%s)\n\n", d.Name, d.Version)
+	fmt.Fprintf(&b, "# Agent Skill: %s (v%s)\n\n", d.Name, strings.TrimPrefix(d.Version, "v"))
 	fmt.Fprintf(&b, "%s\n\n", d.Description)
 
 	b.WriteString("## Command CLI Invocations\n\n")

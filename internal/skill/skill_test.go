@@ -18,6 +18,17 @@ func TestGetSkill(t *testing.T) {
 	if !strings.Contains(md, ".container") || !strings.Contains(md, "quadman list") {
 		t.Errorf("expected quadlet specs in markdown, got: %s", md)
 	}
+	if !strings.Contains(md, "quadman --skill") || !strings.Contains(md, "quadman --system list") {
+		t.Errorf("expected skill export and pre-command system list in markdown, got: %s", md)
+	}
+	if strings.Contains(md, "quadman list --system") {
+		t.Errorf("post-command list --system is rejected by the CLI, must not be documented: %s", md)
+	}
+
+	dv := Get("v0.5.1")
+	if !strings.Contains(dv.Markdown(), "# Agent Skill: quadman (v0.5.1)") {
+		t.Errorf("v-prefixed version must render single v prefix, got: %s", dv.Markdown())
+	}
 
 	js, err := d.JSON()
 	if err != nil {

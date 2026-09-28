@@ -68,6 +68,11 @@ feature tiers, patch bumps for accumulated fixes.
 - [x] **Compartments (`--as <user>`, `quadman --as <user> list`)** — manage another OS user's Quadlets through non-interactive sudo with that user's own search path, systemd instance, storage, and secrets; palette switcher, `[user]` title chip, isolated-session guards throughout.
 - [x] **Custom-key guard** — startup warning when a `custom_commands` key is shadowed by a built-in binding (built-ins always win).
 
+### Next batch (unreleased, collecting on `main`)
+
+- [x] **Serve bind policy**: loopback-only default (`127.0.0.1:2222`); non-loopback binds refuse to start without `--authorized-keys`, so open-auth and password-only stay loopback-only; open-auth still forces readonly everywhere; a missing or empty keys file fails loudly at startup; an existing host key is tightened to `0600`.
+- [x] **Charm stack refresh**: bubbletea v2.0.9 → v2.0.10; `govulncheck` and `gosec` green.
+
 ### Notable ecosystem notes (Sep 2026)
 
 - [podman-tui](https://github.com/containers/podman-tui) v2.0.0 (Sep 6, 2026)

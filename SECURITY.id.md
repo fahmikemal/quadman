@@ -32,6 +32,10 @@ merilis perbaikan sebelum detail dipublikasikan.
 
 Ini terimplementasi di kode, bukan sekadar anjuran:
 
+- `quadman serve` default ke loopback (`127.0.0.1:2222`); setiap
+  bind non-loopback **menolak berjalan** tanpa `--authorized-keys`,
+  sehingga bind open-auth dan password-only hanya boleh di loopback
+  (`internal/server/server.go`, ditegakkan di `Validate`, fail-fast di `main.go`).
 - `quadman serve` tanpa `--authorized-keys` maupun `--password`
   **memaksa mode readonly** plus peringatan keras; tulis anonim tidak
   pernah aktif secara default (`main.go`).
@@ -47,8 +51,9 @@ Ini terimplementasi di kode, bukan sekadar anjuran:
   non-interaktif (`internal/remote`).
 - Setiap panggilan `systemctl`/`journalctl` dibatasi (default 30 dtk),
   panggilan podman/SSH dibatasi (default 10 dtk).
-- Listen di semua interface dengan akses tulis memicu peringatan;
-  gunakan `-a 127.0.0.1:2222` atau `--readonly`.
+- Listen di semua interface wajib `--authorized-keys` (ditolak
+  tanpanya) dan dengan akses tulis tetap memicu peringatan; gunakan
+  `-a 127.0.0.1:2222` atau `--readonly`.
 - Sesi terisolasi (target SSH, kompartemen `--as`, sesi serve)
   menolak tulis file lokal, sudo hop bersarang, dan pembajakan proses
   `$EDITOR`, dengan penjelasan di UI.

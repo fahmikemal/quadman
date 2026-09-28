@@ -32,6 +32,10 @@ ship a fix before publishing details.
 
 These are implemented in the tree, not just advised:
 
+- `quadman serve` defaults to loopback (`127.0.0.1:2222`); any
+  non-loopback bind **refuses to start** without `--authorized-keys`, so
+  open-auth and password-only binds are loopback-only
+  (`internal/server/server.go`, enforced in `Validate`, fail-fast in `main.go`).
 - `quadman serve` with neither `--authorized-keys` nor `--password`
   **forces readonly mode** and prints loud warnings; anonymous write
   access is never on by default (`main.go`).
@@ -47,8 +51,9 @@ These are implemented in the tree, not just advised:
   (`internal/remote`).
 - Every `systemctl`/`journalctl` call is bounded (30s default),
   podman/SSH calls are bounded (10s default).
-- Listening on all interfaces with write access prints a warning;
-  prefer `-a 127.0.0.1:2222` or `--readonly`.
+- Listening on all interfaces requires `--authorized-keys` (refused
+  otherwise) and with write access still prints a warning; prefer
+  `-a 127.0.0.1:2222` or `--readonly`.
 - Isolated sessions (SSH target, `--as` compartment, served sessions)
   refuse local file writes, nested sudo hops, and `$EDITOR` process
   hijacking, with an explanation in the UI.

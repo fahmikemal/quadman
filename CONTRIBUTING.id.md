@@ -19,6 +19,8 @@ Dalam praktiknya: kerjakan perubahan di branch `main`, kumpulkan perubahan, dan 
 ## Aturan Repositori (House Rules)
 
 - `make fmt vet test` wajib berstatus hijau (lulus) sebelum setiap push (divalidasi ketat oleh CI).
+- Jaga gate keamanan tetap hijau juga: `go run golang.org/x/vuln/cmd/govulncheck@latest ./...`
+  dan `go run github.com/securego/gosec/v2/cmd/gosec@latest -quiet ./...` (CI menjalankan keduanya).
 - Prefiks commit `docs:`, `test:`, `ci:`, dan `chore:` otomatis dikecualikan dari changelog yang dihasilkan (lihat `.goreleaser.yaml`).
 - Fitur atau perilaku baru wajib disertai pengujian (*unit tests*); pembungkus CLI (*wrapper*) diuji menggunakan binary tiruan (lihat pola di `internal/systemd/systemd_test.go`).
 - Perbarui tangkapan layar README setelah terjadi perubahan pada UI:
