@@ -198,6 +198,9 @@ theme: auto            # auto, dark, light, or colorblind
 mouse: false           # same as quadman --mouse (off keeps text selection working)
 quadlet_dirs:          # extra Quadlet source dirs (same as --quadlet-dir)
   - ~/quadlets
+serve:
+  authorized_keys: ~/.ssh/authorized_keys # required for non-loopback binds
+  # password_file: /run/secrets/quadman-pass # or password: ... (only one)
 
 custom_commands:
   - name: status
@@ -236,8 +239,8 @@ that edit files on the host (edit, enable/disable at boot, instantiate,
 generate-write, install, delete) are refused with an explanation — manage
 files by running quadman on that host directly. Interactive or destructive
 host actions are also refused remotely: `podman exec` (`X`) needs a local
-TTY and `system prune` (`P`) must run on the host. Drop-ins are not enumerated
-remotely; the file view says so.
+TTY and `system prune` (`P`) must run on the host. Drop-ins are enumerated
+remotely (read-only) and merged in the file view.
 
 ## Compartments (many OS users, one TUI)
 
@@ -256,7 +259,8 @@ why and keeps showing your own session instead of half-switching.
 Configured compartments (`compartments: [svc-web, svc-db]` in config.yaml)
 appear in the Command Palette (`Ctrl+P`) as "Use Compartment ..." actions,
 plus "Use Own Session" to go back. Switching compartments over an SSH
-session is refused (no nested sudo hops).
+session is refused (no nested sudo hops), and `--system` cannot be combined
+with `--as` at all (system units live outside any user's session).
 Non-interactive scripts use `quadman --as <user> list`.
 
 ```yaml
@@ -272,6 +276,8 @@ quadman serve                                          # listens on 127.0.0.1:22
 quadman serve -p 2222 --readonly                       # read-only dashboard over SSH (loopback)
 quadman serve -a 0.0.0.0:2222 --authorized-keys ~/.ssh/authorized_keys # LAN access, keys required
 quadman serve --password secret123                     # password protected (loopback only)
+quadman serve --password-file /run/secrets/quadman-pass # password from file, never in argv (loopback only)
+quadman --as svc-web serve --readonly                  # serve another user's session via sudo compartment
 ```
 
 quadman includes a native SSH server powered by [Charm Wish](https://github.com/charmbracelet/wish) (`wish/v2`). By default it binds loopback only. To share with your team on the LAN, bind explicitly with public-key auth, because non-loopback binds refuse to start without `--authorized-keys`:
@@ -281,7 +287,7 @@ quadman serve -a 0.0.0.0:2222 --authorized-keys ~/.ssh/authorized_keys
 ssh -p 2222 user@host
 ```
 
-- **Authentication Options**: Supports `authorized_keys` file verification or password protection (loopback only). With neither configured on loopback, the server still starts but **forces all sessions into readonly mode** and says so loudly, and anonymous write access is never on by default, and open-auth/password-only binds never listen beyond loopback.
+- **Authentication Options**: Supports `authorized_keys` file verification or password protection (loopback only). Passwords come from exactly one of `--password`, `--password-file`, `QUADMAN_SERVE_PASSWORD`, or config `password`/`password_file`; prefer the file or env forms so the secret never appears in the process list. With neither configured on loopback, the server still starts but **forces all sessions into readonly mode** and says so loudly, and anonymous write access is never on by default, and open-auth/password-only binds never listen beyond loopback.
 - **Readonly Dashboard Mode**: Pass `--readonly` to safely expose quadman as an observability dashboard for teammates without granting permission to start/stop units.
 - **Safe Execution**: Local `$EDITOR` process hijacking is safely disabled in SSH server sessions.
 

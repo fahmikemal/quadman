@@ -41,6 +41,9 @@ These are implemented in the tree, not just advised:
   access is never on by default (`main.go`).
 - Served-session passwords use constant-time comparison
   (`internal/server/server.go`).
+- Serve passwords can come from `--password-file`, `QUADMAN_SERVE_PASSWORD`,
+  or config `password_file`, so the secret never appears in the process
+  list; exactly one password source may be set (`main.go`).
 - Host-key directory is created `0700`; `config.json` is written `0600`
   (`internal/server`, `internal/config`).
 - A `config.yaml` holding a serve password that is readable beyond the

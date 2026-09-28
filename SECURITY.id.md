@@ -41,6 +41,9 @@ Ini terimplementasi di kode, bukan sekadar anjuran:
   pernah aktif secara default (`main.go`).
 - Password sesi serve dibandingkan secara constant-time
   (`internal/server/server.go`).
+- Password serve bisa berasal dari `--password-file`, `QUADMAN_SERVE_PASSWORD`,
+  atau config `password_file`, sehingga secret tidak muncul di process list;
+  tepat satu sumber password boleh diisi (`main.go`).
 - Direktori host-key dibuat `0700`; `config.json` ditulis `0600`
   (`internal/server`, `internal/config`).
 - `config.yaml` berisi password serve yang terbaca selain owner

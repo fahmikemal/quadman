@@ -67,6 +67,11 @@ func main() {
 	// Auto-detect system mode when running as root.
 	system := *systemFlag || os.Getuid() == 0
 
+	if err := checkModeConflict(system, *asUser); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(2)
+	}
+
 	args := flag.Args()
 
 	// Extra Quadlet source directories apply to every mode, including the
@@ -77,20 +82,15 @@ func main() {
 	if len(args) > 0 {
 		switch args[0] {
 		case "list":
-			if bad := misplacedFlag(args[1:]); bad != "" {
-				fmt.Fprintf(os.Stderr, "error: place --%s before the command (quadman --%s ... list)\n", bad, bad)
-				os.Exit(2)
-			}
+			rejectMisplaced("list", args[1:])
 			listCmd(system, *asUser)
 		case "version":
+			rejectMisplaced("version", args[1:])
 			fmt.Println("quadman", moduleVersion())
 		case "serve":
-			if *asUser != "" {
-				fmt.Fprintln(os.Stderr, "error: serve --as is not supported (the daemon serves the operator's own session)")
-				os.Exit(2)
-			}
-			serve(args[1:], *readonly, *mouse, *theme, quadletDirs, system)
+			serve(args[1:], *readonly, *mouse, *theme, quadletDirs, system, *asUser)
 		case "skill":
+			rejectMisplaced("skill", args[1:], "format", "json")
 			format := "markdown"
 			for i := 1; i < len(args); i++ {
 				arg := args[i]
@@ -133,12 +133,32 @@ func main() {
 	}
 }
 
+// checkModeConflict rejects --system combined with --as: system units live
+// outside any user's session, so the pair would mix system discovery with a
+// compartment runner. Callers exit 2 on error.
+func checkModeConflict(system bool, asUser string) error {
+	if system && asUser != "" {
+		return fmt.Errorf("--system and --as cannot be combined (system units live outside any user's session)")
+	}
+	return nil
+}
+
 // misplacedFlag returns the name of the first flag found after the
 // subcommand, where Go's flag package would silently ignore it (list takes
 // no flags of its own, so any flag there is a dropped global option).
 // Empty means no misplaced flag. Callers reject this explicitly instead of
 // running with silently dropped options.
 func misplacedFlag(args []string) string {
+	return misplacedFlagExcept(args)
+}
+
+// misplacedFlagExcept is misplacedFlag with an allowlist for subcommands
+// that take their own flags (skill --format/--json).
+func misplacedFlagExcept(args []string, allowed ...string) string {
+	allow := map[string]bool{}
+	for _, a := range allowed {
+		allow[a] = true
+	}
 	for _, a := range args {
 		if a == "--" {
 			return ""
@@ -148,10 +168,22 @@ func misplacedFlag(args []string) string {
 			if i := strings.IndexByte(name, '='); i >= 0 {
 				name = name[:i]
 			}
-			return name
+			if !allow[name] {
+				return name
+			}
 		}
 	}
 	return ""
+}
+
+// rejectMisplaced exits 2 when a global flag trails the subcommand, where
+// it would be silently ignored. Allowed names pass through for subcommands
+// with their own flags.
+func rejectMisplaced(cmd string, args []string, allowed ...string) {
+	if bad := misplacedFlagExcept(args, allowed...); bad != "" {
+		fmt.Fprintf(os.Stderr, "error: place --%s before the command (quadman --%s ... %s)\n", bad, bad, cmd)
+		os.Exit(2)
+	}
 }
 
 // applyQuadletDirs appends user-configured Quadlet source directories to
@@ -320,7 +352,7 @@ func unitNames(units []quadlet.Unit) []string {
 }
 
 // serve starts the Wish SSH daemon so remote clients can run quadman over SSH.
-func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme string, extraDirs []string, system bool) {
+func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme string, extraDirs []string, system bool, asUser string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	port := fs.String("port", "", "port to listen on loopback (e.g. 2222, default 127.0.0.1:2222)")
 	fs.StringVar(port, "p", "", "shorthand for --port")
@@ -328,7 +360,8 @@ func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme strin
 	fs.StringVar(addr, "a", "", "shorthand for --address")
 	hostKey := fs.String("host-key", "", "path to private host key (default: auto-generated under ~/.config/quadman)")
 	authKeys := fs.String("authorized-keys", "", "path to authorized_keys file (optional public key auth)")
-	pass := fs.String("password", "", "optional password required to log in")
+	pass := fs.String("password", "", "optional password required to log in (visible in the process list; prefer --password-file)")
+	passFile := fs.String("password-file", "", "read the login password from a file instead of --password")
 	readonly := fs.Bool("readonly", defaultReadonly, "disable all state-changing actions for connected sessions")
 	mouse := fs.Bool("mouse", defaultMouse, "enable mouse support for connected sessions")
 	theme := fs.String("theme", defaultTheme, "color scheme: auto, dark, light, or colorblind")
@@ -341,10 +374,28 @@ func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme strin
 		os.Exit(2)
 	}
 
+	// A broken compartment must fail the daemon, never silently serve the
+	// operator's own session to clients expecting someone else's.
+	if asUser != "" {
+		if _, err := compSetup(asUser); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+	}
+
 	// Load settings from config.yaml if available
 	cfg, _ := config.Load()
 	scfg := cfg.Settings.Serve
-	if scfg.Password != "" && *pass == "" {
+
+	finalPass, passSource, passWarn, passErr := resolveServePassword(*pass, *passFile, scfg, os.Getenv)
+	if passErr != nil {
+		fmt.Fprintln(os.Stderr, "error:", passErr)
+		os.Exit(2)
+	}
+	if passWarn != "" {
+		fmt.Fprintln(os.Stderr, passWarn)
+	}
+	if passSource == "config password" {
 		if yp, err := config.YAMLPath(); err == nil {
 			if st, err := os.Stat(yp); err == nil && st.Mode().Perm()&0o077 != 0 {
 				fmt.Fprintf(os.Stderr, "WARNING: %s holds a password and is readable beyond owner (mode %04o); run: chmod 600 %s\n", yp, st.Mode().Perm(), yp)
@@ -364,11 +415,6 @@ func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme strin
 		finalAuthKeys = scfg.AuthorizedKeys
 	}
 
-	finalPass := *pass
-	if finalPass == "" && scfg.Password != "" {
-		finalPass = scfg.Password
-	}
-
 	openAuth := finalAuthKeys == "" && finalPass == ""
 	finalReadonly := *readonly || scfg.Readonly || openAuth
 
@@ -385,6 +431,7 @@ func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme strin
 		IdleTimeout:        *idleTimeout,
 		MaxTimeout:         *maxTimeout,
 		System:             system,
+		Compartment:        asUser,
 	}
 
 	// Fail fast on insecure binds (non-loopback without authorized_keys)
@@ -399,13 +446,16 @@ func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme strin
 
 	fmt.Printf("quadman SSH daemon starting on %s ...\n", opts.Address)
 	fmt.Printf("Connect with: ssh %s\n", formatConnectHint(opts.Address))
+	if asUser != "" {
+		fmt.Printf("Compartment: %s (non-interactive sudo; isolated-session guards apply)\n", asUser)
+	}
 	if finalReadonly {
 		fmt.Println("Mode: readonly (all state-changing actions disabled)")
 	}
 	if finalAuthKeys != "" {
 		fmt.Printf("Authentication: public keys from %s\n", finalAuthKeys)
 	} else if finalPass != "" {
-		fmt.Println("Authentication: password protected (loopback only)")
+		fmt.Printf("Authentication: password protected via %s (loopback only)\n", passSource)
 	} else {
 		fmt.Println("Authentication: open (loopback only, any key accepted, readonly enforced)")
 	}
@@ -417,8 +467,7 @@ func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme strin
 		fmt.Println("WARNING: listening on all interfaces with write access enabled; prefer -a 127.0.0.1:2222 or --readonly.")
 	}
 	if *pass != "" {
-
-		fmt.Println("WARNING: --password is visible in the process list; prefer --authorized-keys or config password_file/env in the future.")
+		fmt.Println("WARNING: --password is visible in the process list; prefer --password-file, QUADMAN_SERVE_PASSWORD, or --authorized-keys.")
 	}
 	fmt.Println("Press Ctrl+C to stop the server.")
 
@@ -427,6 +476,87 @@ func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme strin
 		os.Exit(1)
 	}
 	fmt.Println("\nquadman SSH daemon stopped gracefully.")
+}
+
+// servePasswordEnv carries the serve password without exposing it in the
+// process list (unlike --password): process environments are owner-readable
+// while argv is world-readable.
+const servePasswordEnv = "QUADMAN_SERVE_PASSWORD" // #nosec G101 -- env var name, not a credential
+
+// checkSecretFile reads a password file: it must exist, must not be a
+// directory, and must be non-empty after trimming a trailing newline. A
+// file readable beyond its owner yields a warning, not a refusal: managed
+// secret mounts are commonly 0444 by design.
+func checkSecretFile(path string) (content, warning string, err error) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return "", "", fmt.Errorf("password file %q: %w", path, err)
+	}
+	if st.IsDir() {
+		return "", "", fmt.Errorf("password file %q is a directory", path)
+	}
+	data, err := os.ReadFile(path) // #nosec G304 -- operator-provided secret path
+	if err != nil {
+		return "", "", fmt.Errorf("password file %q: %w", path, err)
+	}
+	content = strings.TrimRight(string(data), "\r\n")
+	if content == "" {
+		return "", "", fmt.Errorf("password file %q is empty", path)
+	}
+	if st.Mode().Perm()&0o077 != 0 {
+		warning = fmt.Sprintf("WARNING: password file %s is readable beyond owner (mode %04o); prefer chmod 600", path, st.Mode().Perm())
+	}
+	return content, warning, nil
+}
+
+// resolveServePassword picks the serve password from exactly one source:
+// --password, --password-file, or the environment win over config.yaml,
+// which itself accepts either password or password_file. getenv is os.Getenv
+// in production and a stub in tests. Errors never echo the secret.
+func resolveServePassword(passFlag, passFileFlag string, scfg config.ServeSettings, getenv func(string) string) (password, source, warning string, err error) {
+	set := 0
+	if passFlag != "" {
+		set++
+	}
+	if passFileFlag != "" {
+		set++
+	}
+	env := ""
+	if getenv != nil {
+		env = getenv(servePasswordEnv)
+	}
+	if env != "" {
+		set++
+	}
+	if set > 1 {
+		return "", "", "", fmt.Errorf("specify only one of --password, --password-file, %s", servePasswordEnv)
+	}
+	switch {
+	case passFlag != "":
+		return passFlag, "--password", "", nil
+	case passFileFlag != "":
+		content, warn, err := checkSecretFile(passFileFlag)
+		if err != nil {
+			return "", "", "", err
+		}
+		return content, "--password-file", warn, nil
+	case env != "":
+		return env, servePasswordEnv, "", nil
+	}
+	if scfg.Password != "" && scfg.PasswordFile != "" {
+		return "", "", "", fmt.Errorf("config serve: set only one of password, password_file")
+	}
+	if scfg.PasswordFile != "" {
+		content, warn, err := checkSecretFile(scfg.PasswordFile)
+		if err != nil {
+			return "", "", "", err
+		}
+		return content, "config password_file", warn, nil
+	}
+	if scfg.Password != "" {
+		return scfg.Password, "config password", "", nil
+	}
+	return "", "", "", nil
 }
 
 // resolveServeAddr picks the listen address: explicit --address wins, then

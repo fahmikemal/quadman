@@ -116,6 +116,21 @@ func TestCompartmentPaletteActions(t *testing.T) {
 	}
 }
 
+func TestCompartmentPaletteDisabledInSystemMode(t *testing.T) {
+	m := New()
+	m.compList = []string{"svc-a"}
+	m.system = true
+	for _, a := range m.compartmentPaletteActions() {
+		if a.id != "compartment-svc-a" {
+			continue
+		}
+		ok, reason := a.enabled(m)
+		if ok || reason != "unavailable in system mode" {
+			t.Errorf("system mode must disable compartment switch, ok=%v reason=%q", ok, reason)
+		}
+	}
+}
+
 func TestIsolatedReason(t *testing.T) {
 	m := New()
 	if bad, _ := m.isolatedReason(); bad {

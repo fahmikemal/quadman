@@ -151,6 +151,29 @@ func TestValidateBindPolicy(t *testing.T) {
 	})
 }
 
+func TestUIOptionsPassthrough(t *testing.T) {
+	opts := Options{
+		Address:     "127.0.0.1:2222",
+		HostKeyPath: filepath.Join(t.TempDir(), "k"),
+		Readonly:    true,
+		Mouse:       true,
+		Theme:       "dark",
+		QuadletDirs: []string{"/tmp/q"},
+		System:      true,
+		Compartment: "svc-web",
+	}
+	u := opts.uiOptions("tester@127.0.0.1:1")
+	if !u.Readonly || !u.Mouse || u.Theme != "dark" || !u.System || !u.NoEditor {
+		t.Errorf("session flags lost: %+v", u)
+	}
+	if u.Compartment != "svc-web" {
+		t.Errorf("Compartment = %q, want svc-web", u.Compartment)
+	}
+	if u.ClientInfo != "tester@127.0.0.1:1" || len(u.QuadletDirs) != 1 {
+		t.Errorf("client info or dirs lost: %+v", u)
+	}
+}
+
 func TestNewRejectsPublicOpenAuth(t *testing.T) {
 	opts := Options{Address: ":2222", HostKeyPath: filepath.Join(t.TempDir(), "k")}
 	if _, err := New(opts); err == nil {

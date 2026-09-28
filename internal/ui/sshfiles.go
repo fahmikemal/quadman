@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path"
+	"sort"
+	"strings"
 
 	"github.com/fahmikemal/quadman/internal/quadlet"
 )
@@ -57,13 +60,60 @@ func (m Model) readUnitFile(u quadlet.Unit) ([]byte, error) {
 }
 
 // fileContent renders a unit's source for the file view: base content plus
-// merged drop-ins locally; base content only in isolated sessions
-// (drop-in enumeration needs local dir access), with a note saying so.
+// merged drop-ins, locally or through the session runner when isolated. A
+// listed-but-empty unit renders base only; a failed enumeration keeps the
+// note saying drop-ins could not be listed.
 func (m Model) fileContent(u quadlet.Unit, base []byte) string {
 	if !m.ssh.Isolated() {
 		return withDropins(u, base)
 	}
+	drops, ok := m.dropinsRemote(u)
+	if len(drops) > 0 {
+		return renderDropins(base, drops, func(p string) ([]byte, error) {
+			return m.ssh.Cat(context.Background(), p)
+		})
+	}
+	if ok {
+		return string(base)
+	}
 	return string(base) + "\n# ── isolated session: drop-ins not listed ──\n"
+}
+
+// dropinNames parses `ls -1Ap` output into sorted .conf basenames,
+// skipping directories (trailing /) and anything not ending .conf.
+func dropinNames(out []byte) []string {
+	var names []string
+	for _, line := range strings.Split(string(out), "\n") {
+		name := strings.TrimSpace(line)
+		if name == "" || strings.HasSuffix(name, "/") || !strings.HasSuffix(name, ".conf") {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// dropinsRemote enumerates drop-ins through the session runner (SSH or sudo):
+// the same candidate dirs and merge order as quadlet.Dropins, read-only.
+// Missing dirs and unreadable files are skipped like locally. ok reports
+// whether at least one directory listed successfully.
+func (m Model) dropinsRemote(u quadlet.Unit) (drops []quadlet.Dropin, ok bool) {
+	if u.Path == "" {
+		return nil, false
+	}
+	ctx := context.Background()
+	for _, d := range quadlet.DropinDirs(u) {
+		out, err := m.ssh.Output(ctx, "ls", "-1Ap", "--", d)
+		if err != nil {
+			continue // missing dirs are normal
+		}
+		ok = true
+		for _, name := range dropinNames(out) {
+			drops = append(drops, quadlet.Dropin{Path: path.Join(d, name), Dir: path.Base(d)})
+		}
+	}
+	return drops, ok
 }
 func (m Model) parseUnitFile(u quadlet.Unit) (*quadlet.File, error) {
 	if m.ssh.Isolated() {
