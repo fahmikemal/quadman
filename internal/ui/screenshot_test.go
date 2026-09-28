@@ -16,6 +16,30 @@ import (
 	"github.com/fahmikemal/quadman/internal/systemd"
 )
 
+// TestSVGMetrics locks the font contract: cell width must equal the true
+// monospace advance (0.6em), and runs must never distort glyphs to fit.
+func TestSVGMetrics(t *testing.T) {
+	if svgCharW != 0.6*svgFontSize {
+		t.Errorf("svgCharW = %v, want 0.6 x font size (%v)", svgCharW, 0.6*svgFontSize)
+	}
+	out := ansiToSVG("ab  \nc", "title")
+	if strings.Contains(out, "spacingAndGlyphs") {
+		t.Error("runs must not stretch glyphs (spacingAndGlyphs)")
+	}
+	if strings.Contains(out, "ui-monospace") {
+		t.Error("ui-monospace fuzzy-matches proportional fonts on Linux; use named monospace fonts")
+	}
+	if !strings.Contains(out, "white-space: pre") {
+		t.Error("runs need white-space: pre (browsers ignore xml:space and collapse padding)")
+	}
+	if !strings.Contains(out, `lengthAdjust="spacing"`) {
+		t.Error("runs must absorb fallback differences via spacing only")
+	}
+	if !strings.Contains(out, `textLength="18.0"`) {
+		t.Errorf("2-cell run must span 2 x char width, got: %s", out)
+	}
+}
+
 // TestGenerateScreenshots renders the real Model into docs/screenshot-*.svg
 // for the README. Regenerate with: QUADMAN_SCREENSHOTS=1 go test ./internal/ui -run Screenshots
 func TestGenerateScreenshots(t *testing.T) {
@@ -229,9 +253,15 @@ func xterm256(n int) string {
 }
 
 const (
-	svgCharW    = 9.6
-	svgLineH    = 25.0
-	svgFont     = `ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace`
+	// svgCharW is exactly 0.6em: the true advance of every monospace font
+	// in svgFont. A wider cell here forces the renderer to stretch glyphs
+	// to fill textLength, which reads as fat, broken text.
+	svgCharW = 9.0
+	svgLineH = 25.0
+	// No ui-monospace: on Linux it fuzzy-matches proportional Noto Sans
+	// instead of a real mono, stretching every run into garbage. Named
+	// 0.6em monospace fonts per platform, generic monospace last.
+	svgFont     = `SFMono-Regular, Menlo, 'Cascadia Mono', Consolas, 'Liberation Mono', 'DejaVu Sans Mono', monospace`
 	svgFontSize = 15
 	svgPadX     = 22.0
 	svgPadTop   = 46.0
@@ -250,7 +280,7 @@ func ansiToSVG(content, title string) string {
 	height := svgPadTop + float64(len(lines))*svgLineH + 18
 
 	var b strings.Builder
-	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" width="%.0f" height="%.0f" viewBox="0 0 %.0f %.0f" font-family="%s" xml:space="preserve">`,
+	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" width="%.0f" height="%.0f" viewBox="0 0 %.0f %.0f" font-family="%s" xml:space="preserve" style="white-space: pre">`,
 		width, height, width, height, svgFont)
 	fmt.Fprintf(&b, `<rect x="0.5" y="0.5" width="%.0f" height="%.0f" rx="10" fill="#10121c" stroke="#2a2e42"/>`, width-1, height-1)
 	fmt.Fprintf(&b, `<rect x="0.5" y="0.5" width="%.0f" height="34" rx="10" fill="#191c2b"/>`, width-1)
@@ -273,6 +303,16 @@ func ansiToSVG(content, title string) string {
 				fmt.Fprintf(&b, `<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" fill="%s"/>`,
 					x, y-svgLineH+5, float64(n)*svgCharW, svgLineH, r.bg)
 			}
+			// Trailing padding carries no ink, but Chrome trims it from
+			// textLength's natural width and then stretches the glyphs to
+			// fill: strip it so textLength matches visible cells exactly.
+			// Columns still advance by the full n below.
+			text := strings.TrimRight(r.text, " \t")
+			tn := ansiWidth(text)
+			if tn == 0 {
+				col += n
+				continue
+			}
 			weight := ""
 			if r.bold {
 				weight = ` font-weight="bold"`
@@ -281,8 +321,8 @@ func ansiToSVG(content, title string) string {
 			if fg == "" {
 				fg = "#d8dcec"
 			}
-			fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" font-size="%d" fill="%s"%s textLength="%.1f" lengthAdjust="spacingAndGlyphs">%s</text>`,
-				x, y-4, svgFontSize, fg, weight, float64(n)*svgCharW, xmlEscape(r.text))
+			fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" font-size="%d" fill="%s"%s textLength="%.1f" lengthAdjust="spacing">%s</text>`,
+				x, y-4, svgFontSize, fg, weight, float64(tn)*svgCharW, xmlEscape(text))
 			col += n
 		}
 	}
