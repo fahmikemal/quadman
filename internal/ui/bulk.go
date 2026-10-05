@@ -88,9 +88,21 @@ func bulkNoun(units []quadlet.Unit) string {
 	return fmt.Sprintf("%d units", len(units))
 }
 
+// maxBulkErrs bounds how many per-unit failures the bulk error carries;
+// the remainder is folded into a "+N more" count.
+const maxBulkErrs = 5
+
+// firstLine keeps the head of a multi-line command error for one-line logs.
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
+
 // bulkCmd runs verb on every marked unit sequentially, reporting each result
 // into the status line and the recent-actions log. The list refreshes once
-// at the end.
+// at the end. Failures carry each unit's own reason, not just its name.
 func (m Model) bulkCmd(verb string, units []quadlet.Unit) tea.Cmd {
 	sys := m.sys
 	names := make([]string, 0, len(units))
@@ -102,13 +114,19 @@ func (m Model) bulkCmd(verb string, units []quadlet.Unit) tea.Cmd {
 		var failed []string
 		for _, name := range names {
 			if _, err := sys.UnitAction(ctx, verb, name); err != nil {
-				failed = append(failed, name)
+				failed = append(failed, name+": "+firstLine(err.Error()))
 			}
 		}
 		desc := fmt.Sprintf("bulk %s %d unit(s)", verb, len(names))
 		if len(failed) > 0 {
+			detail := failed
+			more := ""
+			if len(failed) > maxBulkErrs {
+				detail = failed[:maxBulkErrs]
+				more = fmt.Sprintf("; +%d more", len(failed)-maxBulkErrs)
+			}
 			return bulkMsg{desc: desc, done: len(names) - len(failed), total: len(names),
-				err: fmt.Errorf("failed: %s", strings.Join(failed, ", "))}
+				err: fmt.Errorf("failed: %s%s", strings.Join(detail, "; "), more)}
 		}
 		return bulkMsg{desc: desc, done: len(names), total: len(names)}
 	}

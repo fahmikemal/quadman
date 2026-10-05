@@ -50,6 +50,23 @@ type Unit struct {
 // quadman lists, previews, and validates them anyway, and marks them.
 var ExtraDirs []string
 
+// AddExtraDirs appends user-configured Quadlet source directories to the
+// discovery search path. Empty and duplicate entries are ignored, so
+// calling it from both main and the TUI constructor is safe.
+func AddExtraDirs(dirs []string) {
+	seen := map[string]bool{}
+	for _, d := range ExtraDirs {
+		seen[d] = true
+	}
+	for _, d := range dirs {
+		if d == "" || seen[d] {
+			continue
+		}
+		seen[d] = true
+		ExtraDirs = append(ExtraDirs, d)
+	}
+}
+
 // SearchDirs returns the Quadlet source directories for the current user, in
 // generator lookup order. It mirrors podman's rootless search path: the
 // runtime dir, the user config dir, then the admin/distro users directories.

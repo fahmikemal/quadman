@@ -91,34 +91,58 @@ func uniqueExportPath(path string) string {
 	}
 }
 
-// exportLogsText writes log lines as plain text to path.
-func exportLogsText(path string, unit string, lines []string) error {
-	cleanPath := filepath.Clean(path)
-	f, err := os.OpenFile(cleanPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) // #nosec G304 -- path is user-requested export log destination
+// createExportFile exclusively creates the export destination, advancing
+// the -N suffix while the name is taken. The O_EXCL open closes the
+// check-then-create race between uniqueExportPath and the write: two
+// concurrent exports can never clobber each other, and a pre-planted
+// symlink at the destination is never followed. It returns the file and
+// the final path (which may carry a higher suffix than base).
+func createExportFile(base string) (*os.File, string, error) {
+	for {
+		cand := filepath.Clean(uniqueExportPath(base))
+		// #nosec G304 -- path is the user-requested export destination, created exclusively
+		f, err := os.OpenFile(cand, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			return f, cand, nil
+		}
+		if !os.IsExist(err) {
+			return nil, "", err
+		}
+		// Lost a creation race: recompute, and the winner's file pushes
+		// the suffix forward.
+	}
+}
+
+// exportLogsText writes log lines as plain text to path. It returns the
+// final path, which may carry a higher -N suffix than path when the
+// destination was taken concurrently.
+func exportLogsText(path string, unit string, lines []string) (string, error) {
+	f, final, err := createExportFile(path)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer f.Close()
 
 	header := fmt.Sprintf("# Quadman Log Export: %s\n# Exported: %s\n# Total Lines: %d\n\n",
 		unit, time.Now().Format(time.RFC3339), len(lines))
 	if _, err := f.WriteString(header); err != nil {
-		return err
+		return "", err
 	}
 	for _, l := range lines {
 		if _, err := fmt.Fprintf(f, "%s\n", l); err != nil {
-			return err
+			return "", err
 		}
 	}
-	return nil
+	return final, nil
 }
 
 // exportLogsJSONL writes log lines as structured JSON Lines (ndjson) to path.
-func exportLogsJSONL(path string, unit string, lines []string) error {
-	cleanPath := filepath.Clean(path)
-	f, err := os.OpenFile(cleanPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) // #nosec G304 -- path is user-requested export log destination
+// It returns the final path, which may carry a higher -N suffix than path
+// when the destination was taken concurrently.
+func exportLogsJSONL(path string, unit string, lines []string) (string, error) {
+	f, final, err := createExportFile(path)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer f.Close()
 
@@ -126,8 +150,8 @@ func exportLogsJSONL(path string, unit string, lines []string) error {
 	for i, l := range lines {
 		entry := parseLogLine(l, unit, i+1)
 		if err := enc.Encode(entry); err != nil {
-			return err
+			return "", err
 		}
 	}
-	return nil
+	return final, nil
 }

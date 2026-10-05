@@ -2,7 +2,11 @@ package systemd
 
 import (
 	"context"
+	"slices"
+	"strings"
 	"testing"
+
+	"github.com/fahmikemal/quadman/internal/remote"
 )
 
 func TestParseTimers(t *testing.T) {
@@ -57,5 +61,20 @@ EOF
 	}
 	if timers[0].Unit != "podman-auto-update.timer" {
 		t.Errorf("Unit = %q", timers[0].Unit)
+	}
+}
+
+func TestListTimersCmdLocale(t *testing.T) {
+	local := New().listTimersCmd(context.Background())
+	if !slices.Contains(local.Env, "LC_ALL=C") {
+		t.Error("local list-timers must force LC_ALL=C for stable headers")
+	}
+	ssh := New()
+	ssh.Remote = remote.Runner{Target: "user@host"}
+	argv := strings.Join(ssh.listTimersCmd(context.Background()).Args, " ")
+	for _, want := range []string{"env", "LC_ALL=C", "systemctl", "list-timers"} {
+		if !strings.Contains(argv, want) {
+			t.Errorf("remote argv %q must contain %q", argv, want)
+		}
 	}
 }

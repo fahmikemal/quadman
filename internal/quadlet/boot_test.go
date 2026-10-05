@@ -109,3 +109,37 @@ func TestEnsureBootTargetRespectsExisting(t *testing.T) {
 		t.Errorf("file must be untouched:\n%s", data)
 	}
 }
+
+func TestWriteAtomicConcurrent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "webapp.container")
+	if err := os.WriteFile(path, []byte("[Container]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	payloads := []string{"[Container]\nImage=a\n", "[Container]\nImage=bb\n", "[Container]\nImage=ccc\n"}
+	done := make(chan error, len(payloads)*4)
+	for range 4 {
+		for _, p := range payloads {
+			go func() { done <- writeAtomic(path, []byte(p)) }()
+		}
+	}
+	for range len(payloads) * 4 {
+		if err := <-done; err != nil {
+			t.Fatalf("writeAtomic: %v", err)
+		}
+	}
+	data, _ := os.ReadFile(path)
+	complete := false
+	for _, p := range payloads {
+		if string(data) == p {
+			complete = true
+		}
+	}
+	if !complete {
+		t.Errorf("file holds a torn write: %q", data)
+	}
+	leftovers, _ := filepath.Glob(filepath.Join(dir, ".tmp-*"))
+	if len(leftovers) != 0 {
+		t.Errorf("temp files left behind: %v", leftovers)
+	}
+}

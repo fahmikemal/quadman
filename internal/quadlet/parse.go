@@ -3,6 +3,7 @@ package quadlet
 import (
 	"bufio"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -205,18 +206,34 @@ func RemoveBootTarget(path string) (bool, error) {
 	return true, writeAtomic(path, []byte(body))
 }
 
-// writeAtomic writes data to a temp file next to path, then renames it over
-// path, preserving the original file mode.
+// writeAtomic writes data to a uniquely-named temp file next to path, then
+// renames it over path, preserving the original file mode. The unique name
+// keeps concurrent writers from sharing (and corrupting) one temp file; the
+// rename itself is atomic, so readers always see one complete version.
 func writeAtomic(path string, data []byte) error {
 	var mode os.FileMode = 0o644
 	if fi, err := os.Stat(path); err == nil {
 		mode = fi.Mode()
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, mode); err != nil { // #nosec G703 -- path is the quadlet file the user asked quadman to edit; the temp file sits next to it
+	// #nosec G703 -- the temp file sits next to the quadlet file the user asked quadman to edit
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName) // no-op once the rename below succeeds
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(mode); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
 }
 
 // Info is what quadman reads from one Quadlet source file.

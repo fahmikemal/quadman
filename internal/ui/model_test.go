@@ -511,6 +511,35 @@ func TestEditorEnvVarWins(t *testing.T) {
 	}
 }
 
+func TestEditorArgv(t *testing.T) {
+	for _, tc := range []struct {
+		editor string
+		want   []string
+		fail   bool
+	}{
+		{"nano", []string{"nano", "/f/x.container"}, false},
+		{"code --wait", []string{"code", "--wait", "/f/x.container"}, false},
+		{`"my editor" --wait`, []string{"my editor", "--wait", "/f/x.container"}, false},
+		{"", nil, true},
+		{`"unclosed`, nil, true},
+	} {
+		got, err := editorArgv(tc.editor, "/f/x.container")
+		if tc.fail {
+			if err == nil {
+				t.Errorf("editorArgv(%q) should fail", tc.editor)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("editorArgv(%q): %v", tc.editor, err)
+			continue
+		}
+		if strings.Join(got, "\x00") != strings.Join(tc.want, "\x00") {
+			t.Errorf("editorArgv(%q) = %q, want %q", tc.editor, got, tc.want)
+		}
+	}
+}
+
 func TestExpandedHelpHeightReservation(t *testing.T) {
 	// resize() reserves one screen row per rendered helpBar line; the
 	// expanded block must be fully reserved or short terminals clip its
@@ -593,6 +622,17 @@ func TestSystemModeLingerGuard(t *testing.T) {
 	model := mm.(Model)
 	if !strings.Contains(model.statusLine, "rootless") {
 		t.Errorf("expected rootless status message, got %q", model.statusLine)
+	}
+}
+
+func TestLingerKeystrokeForm(t *testing.T) {
+	m := NewWithOptions(Options{System: true})
+	// No Text: kitty-style shift modifier without accompanying text.
+	if _, _, ok := m.lingerKeys(tea.KeyPressMsg{Code: 'l', Mod: tea.ModShift}); !ok {
+		t.Error("lingerKeys should consume the shift+l keystroke form")
+	}
+	if _, _, ok := m.lingerKeys(tea.KeyPressMsg{Code: 'l', Text: "l"}); ok {
+		t.Error("lingerKeys must not consume lowercase l")
 	}
 }
 

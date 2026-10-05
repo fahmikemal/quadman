@@ -1,11 +1,14 @@
 package ui
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/fahmikemal/quadman/internal/shellwords"
 )
 
 // editorChoice is one entry of the first-use editor picker.
@@ -83,14 +86,33 @@ func (m Model) pickerLine() string {
 	return "Choose an editor: " + strings.Join(parts, "  ") + " - saved for next time (esc to cancel)"
 }
 
+// editorArgv builds the argv for opening path in editor. The editor value
+// may carry its own arguments (`code --wait`), split quote-aware without a
+// shell; the file path is always the final argument.
+func editorArgv(editor, path string) ([]string, error) {
+	argv, err := shellwords.Split(editor)
+	if err != nil {
+		return nil, fmt.Errorf("bad $EDITOR %q: %w", editor, err)
+	}
+	if len(argv) == 0 {
+		return nil, fmt.Errorf("empty $EDITOR")
+	}
+	return append(argv, path), nil
+}
+
 // editWith opens the file in the given editor via tea.ExecProcess.
 func (m Model) editWith(editor string) (tea.Model, tea.Cmd) {
 	u, ok := m.selected()
 	if !ok {
 		return m, nil
 	}
+	argv, err := editorArgv(editor, u.Path)
+	if err != nil {
+		m.setStatus(err.Error(), true)
+		return m, nil
+	}
 	before := fileMtime(u.Path)
-	cmd := exec.Command(editor, u.Path) // #nosec G702 G204 -- the editor binary is the user's own $EDITOR or their saved picker choice; argv slice, no shell
+	cmd := exec.Command(argv[0], argv[1:]...) // #nosec G702 G204 -- the editor binary is the user's own $EDITOR or their saved picker choice; argv slice, no shell
 	return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
 		return editorFinishedMsg{changed: fileMtime(u.Path) != before, err: err}
 	})

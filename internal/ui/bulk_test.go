@@ -84,6 +84,24 @@ func TestBulkResultFailure(t *testing.T) {
 	}
 }
 
+func TestBulkCmdKeepsPerUnitErrors(t *testing.T) {
+	fakeBin(t, "systemctl", "echo 'connection refused' >&2\nexit 1\n")
+	m := withUnits(New(), "alpha", "bravo")
+	msg := m.bulkCmd("start", m.units)()
+	bm, ok := msg.(bulkMsg)
+	if !ok {
+		t.Fatalf("expected bulkMsg, got %T", msg)
+	}
+	if bm.err == nil || bm.done != 0 || bm.total != 2 {
+		t.Fatalf("bulk must report 0/2 with an error: %+v", bm)
+	}
+	if !strings.Contains(bm.err.Error(), "alpha.service") ||
+		!strings.Contains(bm.err.Error(), "bravo.service") ||
+		!strings.Contains(bm.err.Error(), "connection refused") {
+		t.Errorf("bulk error must name each unit with its reason: %v", bm.err)
+	}
+}
+
 func TestEscClearsMarks(t *testing.T) {
 	m := withUnits(New(), "alpha")
 	m.marks = map[string]bool{"alpha.service": true}

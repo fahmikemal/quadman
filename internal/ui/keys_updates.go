@@ -32,7 +32,7 @@ func (m Model) modeUpdatesKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 			return timerToggledMsg{err: err}
 		}), true
 	case "r":
-		return m, tea.Batch(m.setBusy("checking auto-updates"), updatesCmd(m.sys)), true
+		return m, tea.Batch(m.setBusy("checking auto-updates"), updatesCmd(m.sys, m.ssh)), true
 	}
 	var cmd tea.Cmd
 	m.viewport, cmd = m.viewport.Update(msg)

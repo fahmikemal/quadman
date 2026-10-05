@@ -11,6 +11,7 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/fahmikemal/quadman/internal/remote"
@@ -21,13 +22,27 @@ import (
 // to cold-start, but this only runs on first load and after actions.
 const DefaultTimeout = 10 * time.Second
 
-// DefaultRunner executes the podman CLI. It is local by default; the UI sets
-// it to an SSH runner in --ssh mode.
-var DefaultRunner remote.Runner
+// defaultRunner executes the podman CLI. It is local by default; the UI sets
+// it to an SSH or compartment runner. Access is atomic because a session
+// switch on the main loop races refresh commands already in flight.
+var defaultRunner atomic.Pointer[remote.Runner]
+
+// Runner returns the runner used to execute the podman CLI.
+func Runner() remote.Runner {
+	if r := defaultRunner.Load(); r != nil {
+		return *r
+	}
+	return remote.Runner{}
+}
+
+// SetRunner replaces the runner used to execute the podman CLI.
+func SetRunner(r remote.Runner) {
+	defaultRunner.Store(&r)
+}
 
 // runCmd executes the podman CLI (locally or over SSH) like exec.CommandContext.
 func runCmd(ctx context.Context, name string, args ...string) *exec.Cmd {
-	return DefaultRunner.Command(ctx, name, args...)
+	return Runner().Command(ctx, name, args...)
 }
 
 // Entry is one row of `podman quadlet list --format json`.
@@ -78,18 +93,13 @@ type psEntry struct {
 
 // healthOf extracts the health state podman embeds in the ps Status string:
 // "Up 2 minutes (healthy)" / "(unhealthy)" / "(starting)" / no healthcheck.
+// The parenthesized token is matched anywhere in the string (not only as a
+// suffix), so trailing annotations podman may add never hide the state.
 func healthOf(status string) string {
-	if !strings.HasSuffix(status, ")") {
-		return ""
-	}
-	open := strings.LastIndex(status, "(")
-	if open < 0 {
-		return ""
-	}
-	inner := status[open+1 : len(status)-1]
-	switch inner {
-	case "healthy", "unhealthy", "starting":
-		return inner
+	for _, h := range []string{"healthy", "unhealthy", "starting"} {
+		if strings.Contains(status, "("+h+")") {
+			return h
+		}
 	}
 	return ""
 }
