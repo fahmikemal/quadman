@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="quadman_final_blue.png" alt="logo quadman" width="200">
+
 # quadman
 
 **Terminal UI manager untuk unit rootless Podman [Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html).**
