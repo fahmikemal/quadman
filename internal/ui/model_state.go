@@ -109,11 +109,10 @@ type templateState struct {
 	instanceIn textinput.Model
 }
 
-// confirmState holds armed confirmations: stop confirmation and the
-// generic y/N pending action (stop / enable / disable).
+// confirmState holds the armed generic y/N pending action
+// (stop / enable / disable).
 type confirmState struct {
-	confirmStop bool
-	pending     *pendingAction
+	pending *pendingAction
 }
 
 // sessionState is the first-use editor picker and persisted config.

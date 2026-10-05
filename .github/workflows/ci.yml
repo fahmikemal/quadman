@@ -18,6 +18,23 @@ jobs:
       - run: go test -race ./...
       - run: test -z "$(gofmt -l .)"
 
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+      - name: golangci-lint (main module)
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.14.0
+      - name: golangci-lint (e2e module)
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.14.0
+          working-directory: e2e
+
   smoke:
     runs-on: ubuntu-latest
     steps:

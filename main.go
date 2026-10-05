@@ -257,7 +257,7 @@ func compSetup(username string) (compartment.Compartment, error) {
 func runList(w io.Writer, sys *systemd.Systemd, system bool, dirs []string) error {
 	ctx := context.Background()
 	var units []quadlet.Unit
-	images := []string{}
+	var images []string
 	var err error
 	if sys.Remote.Isolated() {
 		// Compartments/SSH: enumerate through the session runner
@@ -287,9 +287,13 @@ func runList(w io.Writer, sys *systemd.Systemd, system bool, dirs []string) erro
 	}
 
 	if len(units) == 0 {
-		fmt.Fprintln(w, "no quadlet units found in:")
+		if _, err := fmt.Fprintln(w, "no quadlet units found in:"); err != nil {
+			return err
+		}
 		for _, d := range dirs {
-			fmt.Fprintln(w, "  "+d)
+			if _, err := fmt.Fprintln(w, "  "+d); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
@@ -307,25 +311,25 @@ func runList(w io.Writer, sys *systemd.Systemd, system bool, dirs []string) erro
 			if as := sys.Remote.As; as != "" {
 				reloadHint = "run: sudo -u " + as + " systemctl --user daemon-reload"
 			}
-			fmt.Fprintf(os.Stderr, "warning: %d quadlet file(s) changed since last daemon-reload: %s\n",
+			_, _ = fmt.Fprintf(os.Stderr, "warning: %d quadlet file(s) changed since last daemon-reload: %s\n",
 				len(stale), strings.Join(names, ", "))
-			fmt.Fprintln(os.Stderr, reloadHint)
+			_, _ = fmt.Fprintln(os.Stderr, reloadHint)
 		}
 	}
 
 	statuses, serr := sys.Show(context.Background(), unitNames(units))
 	if serr != nil {
-		fmt.Fprintln(os.Stderr, "warning:", serr)
+		_, _ = fmt.Fprintln(os.Stderr, "warning:", serr)
 	}
 
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "QUADLET\tKIND\tSYSTEMD UNIT\tSTATE\tSUB\tIMAGE")
+	_, _ = fmt.Fprintln(tw, "QUADLET\tKIND\tSYSTEMD UNIT\tSTATE\tSUB\tIMAGE")
 	for i, u := range units {
 		state, sub := "-", "-"
 		if serr == nil {
 			state, sub = statuses[u.UnitName].Display()
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", u.Name, u.Kind, u.UnitName, state, sub, images[i])
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", u.Name, u.Kind, u.UnitName, state, sub, images[i])
 	}
 	return tw.Flush()
 }

@@ -97,7 +97,7 @@ func TestExportLogsJSONL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open file failed: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	var entries []LogEntry
@@ -151,7 +151,7 @@ func TestLogFilterGrep(t *testing.T) {
 
 	// Type "error"
 	for _, ch := range "error" {
-		model, _ = mm.Update(tea.KeyPressMsg{Code: rune(ch), Text: string(ch)})
+		model, _ = mm.Update(tea.KeyPressMsg{Code: ch, Text: string(ch)})
 		mm = model.(Model)
 	}
 

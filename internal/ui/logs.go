@@ -137,10 +137,6 @@ func (m *Model) stopLogs() {
 	}
 }
 
-func logsCmd(sys *systemd.Systemd, unit string) tea.Cmd {
-	return logsCmdWithPriority(sys, unit, "")
-}
-
 func logsCmdWithPriority(sys *systemd.Systemd, unit string, priority string) tea.Cmd {
 	return func() tea.Msg {
 		out, err := sys.JournalWithPriority(context.Background(), unit, 300, priority)

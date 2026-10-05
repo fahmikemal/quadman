@@ -50,16 +50,16 @@ func updatesCmd(sys *systemd.Systemd, runner remote.Runner) tea.Cmd {
 // updatesView renders the auto-update screen body.
 func (m Model) updatesView() string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("Timer %s: %s · %s\n\n", autoUpdateTimer, orUnknown(m.timerEnabled), orUnknown(m.timerActive)))
+	_, _ = fmt.Fprintf(&b, "Timer %s: %s · %s\n\n", autoUpdateTimer, orUnknown(m.timerEnabled), orUnknown(m.timerActive))
 	if len(m.updateEntries) == 0 {
 		b.WriteString("No units with an AutoUpdate policy.\n")
 		b.WriteString("Set AutoUpdate=registry (or =local) in a [Container] file to opt in.\n")
 	} else {
 		var tw strings.Builder
 		w := tabwriter.NewWriter(&tw, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(w, "UNIT\tPOLICY\tUPDATED\tIMAGE")
+		_, _ = fmt.Fprintln(w, "UNIT\tPOLICY\tUPDATED\tIMAGE")
 		for _, e := range m.updateEntries {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", e.Unit, e.Policy, e.Updated, e.Image)
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", e.Unit, e.Policy, e.Updated, e.Image)
 		}
 		_ = w.Flush()
 		b.WriteString(tw.String())

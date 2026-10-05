@@ -20,7 +20,6 @@ var (
 	mu        sync.Mutex
 	screen    bytes.Buffer
 	lastWrite time.Time
-	activeCmd *exec.Cmd
 )
 
 type result struct {
@@ -123,7 +122,6 @@ func main() {
 	}()
 
 	cmd := exec.Command("./quadman")
-	activeCmd = cmd
 	env := []string{"TERM=xterm-256color"}
 	for _, e := range os.Environ() {
 		if strings.HasPrefix(e, "EDITOR=") || strings.HasPrefix(e, "VISUAL=") { // the editor test must see the picker
@@ -159,7 +157,6 @@ func main() {
 				// Transient PTY read errors (mis. EIO saat mode switch tty di
 				// child) tidak boleh membunuh pump — kalau tidak, semua check
 				// berikutnya membaca buffer basi/kosong.
-				logPumpErr(err)
 				time.Sleep(50 * time.Millisecond)
 			}
 		}
@@ -366,7 +363,6 @@ func launch(cols, rows uint16, extraEnv ...string) (*exec.Cmd, *os.File) {
 // launchArgs is launch with extra CLI argv (e.g. --readonly).
 func launchArgs(cols, rows uint16, argv []string, extraEnv ...string) (*exec.Cmd, *os.File) {
 	cmd := exec.Command("./quadman", argv...)
-	activeCmd = cmd
 	env := []string{"TERM=xterm-256color"}
 	for _, e := range os.Environ() {
 		if strings.HasPrefix(e, "EDITOR=") {
@@ -402,7 +398,6 @@ func launchArgs(cols, rows uint16, argv []string, extraEnv ...string) (*exec.Cmd
 				// Transient PTY read errors (mis. EIO saat mode switch tty di
 				// child) tidak boleh membunuh pump — kalau tidak, semua check
 				// berikutnya membaca buffer basi/kosong.
-				logPumpErr(err)
 				time.Sleep(50 * time.Millisecond)
 			}
 		}
@@ -838,7 +833,6 @@ Exec=sh -c 'while true; do echo tickmark; sleep 2; done'
 
 	drain()
 	cmd, f := launch(120, 42)
-	activeCmd = cmd
 	defer quit(cmd, f)
 	if !waitFor("e2e-tick.service", 12*time.Second) {
 		check("live follow", false, "ticker tidak muncul di daftar")
@@ -885,7 +879,6 @@ HealthRetries=1
 
 	drain()
 	cmd, f := launch(120, 42)
-	activeCmd = cmd
 	defer quit(cmd, f)
 	ok := waitFor("unhealthy", 30*time.Second)
 	check("unhealthy display", ok, "STATE menampilkan unhealthy dari healthcheck gagal")
@@ -983,7 +976,7 @@ func scenarioCustomCommand(quadletDir string) {
 		check("custom command", false, "gagal menulis config.yaml sementara")
 		return
 	}
-	defer os.RemoveAll(cfgDir)
+	defer func() { _ = os.RemoveAll(cfgDir) }()
 
 	drain()
 	cmd, f := launch(120, 42, "XDG_CONFIG_HOME="+cfgDir)
@@ -1013,7 +1006,7 @@ func scenarioYAMLConfig() {
 		check("yaml corrupt", false, "gagal menulis config.yaml rusak")
 		return
 	}
-	defer os.RemoveAll(cfgDir)
+	defer func() { _ = os.RemoveAll(cfgDir) }()
 
 	drain()
 	cmd, f := launch(120, 42, "XDG_CONFIG_HOME="+cfgDir)
@@ -1075,8 +1068,6 @@ func last() string {
 	}
 	return s
 }
-
-var pumpErrs int
 
 // scenarioBulk: space marks rows, s acts on all marked with one confirm,
 // and the result count lands in the status and the A log.
@@ -1241,7 +1232,7 @@ func scenarioServePasswordFile() {
 		check("serve pwfile fixture", false, "gagal menulis berkas password: "+err.Error())
 		return
 	}
-	defer os.Remove(pwPath)
+	defer func() { _ = os.Remove(pwPath) }()
 	srvCmd := exec.Command("./quadman", "serve", "-p", port, "--readonly", "--password-file", pwPath)
 	if err := srvCmd.Start(); err != nil {
 		check("serve pwfile start", false, "gagal menjalankan quadman serve: "+err.Error())
@@ -1522,8 +1513,8 @@ func scenarioTimersAndSecrets() {
 	check("secrets exit", ok, "tombol q menutup layar secrets")
 
 	// 3. Command palette shortcuts for Timers and Secrets
-	send(f, "\x10") // Ctrl+P
-	ok = waitFor("COMMAND PALETTE", 4*time.Second)
+	send(f, "\x10")                               // Ctrl+P
+	_ = waitFor("COMMAND PALETTE", 4*time.Second) // settle: the next check catches a failure to open
 	send(f, "timers")
 	time.Sleep(300 * time.Millisecond)
 	ok = waitFor("Systemd Timers", 3*time.Second)
@@ -1531,8 +1522,8 @@ func scenarioTimersAndSecrets() {
 	send(f, "\x1b")
 	time.Sleep(300 * time.Millisecond)
 
-	send(f, "\x10") // Ctrl+P
-	ok = waitFor("COMMAND PALETTE", 4*time.Second)
+	send(f, "\x10")                               // Ctrl+P
+	_ = waitFor("COMMAND PALETTE", 4*time.Second) // settle: the next check catches a failure to open
 	send(f, "secrets")
 	time.Sleep(300 * time.Millisecond)
 	ok = waitFor("Podman Secret Store", 3*time.Second)
@@ -1574,12 +1565,6 @@ func scenarioAgentSkill() {
 	outSkillJSON := runOut("./quadman", "skill", "--format", "json")
 	jsonOk := strings.Contains(outSkillJSON, `"name": "quadman"`) && strings.Contains(outSkillJSON, `"tools"`)
 	check("cli skill --format json", jsonOk, "subcommand skill --format json mencetak schema JSON yang valid")
-}
-
-func logPumpErr(err error) {
-	mu.Lock()
-	pumpErrs++
-	mu.Unlock()
 }
 
 // runOK reports whether a command exits zero (output discarded).

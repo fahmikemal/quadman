@@ -37,9 +37,9 @@ func renderStats(entries []podman.StatEntry) string {
 	}
 	var b strings.Builder
 	w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tCPU%\tMEM\tMEM%\tNET\tBLOCK\tPIDS")
+	_, _ = fmt.Fprintln(w, "NAME\tCPU%\tMEM\tMEM%\tNET\tBLOCK\tPIDS")
 	for _, e := range entries {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			e.Name, e.CPU, e.Mem, e.MemPerc, e.Net, e.Block, e.PIDs)
 	}
 	_ = w.Flush()
