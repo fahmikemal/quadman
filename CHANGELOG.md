@@ -9,8 +9,7 @@ All notable changes to quadman are documented here. The format follows
 
 ## [v0.1.0-dev1] - 2026-10-05
 
-First release under restarted versioning: all previous tags and releases
-were removed and numbering starts over here as a prerelease.
+Initial prerelease.
 
 ### Added
 
@@ -22,8 +21,8 @@ were removed and numbering starts over here as a prerelease.
 - Install docs point at the `v0.1.0-dev1` prerelease assets via an
   explicit tag URL (`/latest/` skips prereleases).
 - Security support table tracks `v0.1.0-dev1`; older lines unsupported.
-- Roadmap reframed around tiers: previous version labels are kept as
-  pre-reset history only, and the collected batch shipped as `v0.1.0-dev1`.
+- Roadmap reframed around tiers, with the collected serve batch
+  shipped as `v0.1.0-dev1`.
 
 ### Fixed
 
