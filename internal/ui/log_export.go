@@ -121,7 +121,7 @@ func exportLogsText(path string, unit string, lines []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	header := fmt.Sprintf("# Quadman Log Export: %s\n# Exported: %s\n# Total Lines: %d\n\n",
 		unit, time.Now().Format(time.RFC3339), len(lines))
@@ -144,7 +144,7 @@ func exportLogsJSONL(path string, unit string, lines []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	enc := json.NewEncoder(f)
 	for i, l := range lines {

@@ -58,7 +58,7 @@ func TestPaletteFuzzyFilter(t *testing.T) {
 
 	// Type "reload" to filter
 	for _, ch := range "reload" {
-		model, _ = mm.Update(tea.KeyPressMsg{Code: rune(ch), Text: string(ch)})
+		model, _ = mm.Update(tea.KeyPressMsg{Code: ch, Text: string(ch)})
 		mm = model.(Model)
 	}
 
@@ -85,7 +85,7 @@ func TestPaletteExecuteAction(t *testing.T) {
 
 	// Filter down to reload
 	for _, ch := range "reload" {
-		model, _ = mm.Update(tea.KeyPressMsg{Code: rune(ch), Text: string(ch)})
+		model, _ = mm.Update(tea.KeyPressMsg{Code: ch, Text: string(ch)})
 		mm = model.(Model)
 	}
 
@@ -158,7 +158,7 @@ func TestPaletteDisabledActionRefusal(t *testing.T) {
 
 	// Filter down to start
 	for _, ch := range "start unit" {
-		model, _ = mm.Update(tea.KeyPressMsg{Code: rune(ch), Text: string(ch)})
+		model, _ = mm.Update(tea.KeyPressMsg{Code: ch, Text: string(ch)})
 		mm = model.(Model)
 	}
 

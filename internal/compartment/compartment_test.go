@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/fahmikemal/quadman/internal/remote"
 )
 
 func TestSelf(t *testing.T) {
@@ -46,7 +44,6 @@ func TestRunnerCarriesSessionEnv(t *testing.T) {
 	if r.Dir != "/" {
 		t.Errorf("Dir = %q, want universally traversable /", r.Dir)
 	}
-	var _ remote.Runner = r
 	want := map[string]bool{
 		"XDG_RUNTIME_DIR=/run/user/1001": false,
 		"HOME=/home/svc":                 false,

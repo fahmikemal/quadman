@@ -189,7 +189,7 @@ func TestSSHPasswordAuth(t *testing.T) {
 		t.Fatalf("net.Listen error: %v", err)
 	}
 	addr := l.Addr().String()
-	l.Close()
+	_ = l.Close()
 
 	opts := Options{
 		Address:     addr,
@@ -217,12 +217,12 @@ func TestSSHPasswordAuth(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		defer client.Close()
+		defer func() { _ = client.Close() }()
 		sess, err := client.NewSession()
 		if err != nil {
 			return err
 		}
-		defer sess.Close()
+		defer func() { _ = sess.Close() }()
 		return nil
 	}
 
@@ -244,7 +244,7 @@ func TestServeGracefulShutdown(t *testing.T) {
 		t.Fatalf("net.Listen error: %v", err)
 	}
 	addr := l.Addr().String()
-	l.Close() // release so server can bind
+	_ = l.Close() // release so server can bind
 
 	opts := Options{
 		Address:     addr,
@@ -284,7 +284,7 @@ func TestSSHClientInteractiveSession(t *testing.T) {
 		t.Fatalf("net.Listen error: %v", err)
 	}
 	addr := l.Addr().String()
-	l.Close()
+	_ = l.Close()
 
 	opts := Options{
 		Address:     addr,
@@ -324,13 +324,13 @@ func TestSSHClientInteractiveSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ssh.Dial error: %v", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	session, err := client.NewSession()
 	if err != nil {
 		t.Fatalf("NewSession error: %v", err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	// Request a PTY so activeterm middleware passes
 	modes := cryptossh.TerminalModes{

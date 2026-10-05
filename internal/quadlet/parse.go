@@ -112,7 +112,7 @@ func Parse(path string) (*File, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer fh.Close()
+	defer func() { _ = fh.Close() }()
 
 	f := &File{Path: path, Sections: map[string]*Section{}}
 	var cur *Section
@@ -221,13 +221,14 @@ func writeAtomic(path string, data []byte) error {
 		return err
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName) // no-op once the rename below succeeds
+	// Best-effort cleanup; a no-op once the rename below succeeds.
+	defer func() { _ = os.Remove(tmpName) }()
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
 	if err := tmp.Chmod(mode); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
 	if err := tmp.Close(); err != nil {

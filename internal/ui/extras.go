@@ -50,9 +50,9 @@ func timersCmd(sys *systemd.Systemd) tea.Cmd {
 		}
 		var b strings.Builder
 		w := tabwriter.NewWriter(&b, 0, 0, 3, ' ', 0)
-		fmt.Fprintln(w, "UNIT\tACTIVATES\tNEXT\tLEFT\tLAST\tPASSED")
+		_, _ = fmt.Fprintln(w, "UNIT\tACTIVATES\tNEXT\tLEFT\tLAST\tPASSED")
 		for _, t := range timers {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", t.Unit, t.Activates, t.Next, t.Left, t.Last, t.Passed)
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", t.Unit, t.Activates, t.Next, t.Left, t.Last, t.Passed)
 		}
 		_ = w.Flush()
 		return timersMsg{content: b.String()}
@@ -77,9 +77,9 @@ func secretsCmd() tea.Cmd {
 		}
 		var b strings.Builder
 		w := tabwriter.NewWriter(&b, 0, 0, 3, ' ', 0)
-		fmt.Fprintln(w, "NAME\tID\tDRIVER\tCREATED\tUPDATED")
+		_, _ = fmt.Fprintln(w, "NAME\tID\tDRIVER\tCREATED\tUPDATED")
 		for _, s := range secrets {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", s.Name, s.ID, s.Driver, s.CreatedAt, s.UpdatedAt)
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", s.Name, s.ID, s.Driver, s.CreatedAt, s.UpdatedAt)
 		}
 		_ = w.Flush()
 		return secretsMsg{content: b.String()}

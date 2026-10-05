@@ -1,0 +1,19 @@
+# golangci-lint v2 configuration. CI runs the same `run ./...` on the
+# main module and on e2e/ (separate module).
+version: "2"
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - unconvert
+  settings:
+    govet:
+      enable-all: false
+formatters:
+  enable:
+    - gofmt
+    - goimports

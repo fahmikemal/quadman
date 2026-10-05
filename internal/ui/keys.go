@@ -58,16 +58,6 @@ func listKeys() keyMap {
 	}
 }
 
-func viewKeys() keyMap {
-	return keyMap{
-		Up:   key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "scroll")),
-		Down: key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "scroll")),
-		Edit: key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "edit")),
-		Back: key.NewBinding(key.WithKeys("esc", "q"), key.WithHelp("esc/q", "back")),
-		Quit: key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit")),
-	}
-}
-
 func detailKeys() keyMap {
 	return keyMap{
 		Up:     key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "scroll")),
@@ -87,8 +77,6 @@ func updatesKeys() keyMap {
 		Quit:    key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit")),
 	}
 }
-
-func (k keyMap) isList() bool { return k.Enter.Enabled() }
 
 func (k keyMap) ShortHelp() []key.Binding {
 	switch {

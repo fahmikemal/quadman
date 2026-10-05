@@ -51,6 +51,9 @@ func TestPrunePrompt(t *testing.T) {
 		t.Errorf("empty prompt = %q", got)
 	}
 	got := prunePrompt([]string{"db.service"})
+	if !strings.Contains(got, "1 inactive") || !strings.Contains(got, "db.service") {
+		t.Errorf("single prompt = %q", got)
+	}
 	many := make([]string, 0, 10)
 	for i := range 10 {
 		many = append(many, string(rune('a'+i))+".service")
