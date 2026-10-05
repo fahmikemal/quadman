@@ -8,8 +8,12 @@ import (
 
 // handleMouse processes mouse events. Clicks in the list move the cursor;
 // clicks in views scroll. Wheel events are left to the widgets.
+// A focused prompt owns the interaction while open, so clicks are ignored
+// until it closes; otherwise the prompt's own line would also shift the
+// row geometry below it.
 func (m Model) handleMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	if !m.mouse || m.mode != modeList || m.filtering || m.searching || m.pickingEditor || m.pending != nil {
+	if !m.mouse || m.mode != modeList || m.filtering || m.searching || m.pickingEditor || m.pending != nil ||
+		m.generating || m.instancing || m.execing {
 		return m, nil
 	}
 	// Row geometry: 1 title line, an optional filter line, 1 table header.

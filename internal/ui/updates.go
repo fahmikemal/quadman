@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/fahmikemal/quadman/internal/podman"
+	"github.com/fahmikemal/quadman/internal/remote"
 	"github.com/fahmikemal/quadman/internal/systemd"
 )
 
@@ -26,11 +27,13 @@ type timerToggledMsg struct{ err error }
 
 // updatesCmd previews `podman auto-update --dry-run` and reads the timer
 // state. Works without podman: the screen then shows the timer only.
-func updatesCmd(sys *systemd.Systemd) tea.Cmd {
+// Podman is probed through the session runner, so SSH and compartment
+// sessions read the remote podman instead of the operator's PATH.
+func updatesCmd(sys *systemd.Systemd, runner remote.Runner) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 		msg := updatesMsg{}
-		if podman.Available() {
+		if podmanAvailable(ctx, runner) {
 			entries, err := podman.AutoUpdateDryRun(ctx)
 			if err != nil {
 				msg.err = err

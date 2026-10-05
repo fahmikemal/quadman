@@ -2,9 +2,12 @@ package podman
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/fahmikemal/quadman/internal/remote"
 )
 
 // fakePodman puts a fake podman binary first on PATH.
@@ -97,6 +100,26 @@ EOF
 	}
 	if _, ok := m["plain"]; ok {
 		t.Error("container without healthcheck must be absent")
+	}
+}
+
+func TestHealthOf(t *testing.T) {
+	for _, tc := range []struct {
+		status string
+		want   string
+	}{
+		{"Up 2 minutes (healthy)", "healthy"},
+		{"Up 5 minutes (unhealthy)", "unhealthy"},
+		{"Up 3 seconds (starting)", "starting"},
+		{"Up 2 minutes (healthy) (extra annotation)", "healthy"},
+		{"Up 1 hour", ""},
+		{"", ""},
+		{"(up 5 minutes)", ""},
+		{"healthy without parens", ""},
+	} {
+		if got := healthOf(tc.status); got != tc.want {
+			t.Errorf("healthOf(%q) = %q, want %q", tc.status, got, tc.want)
+		}
 	}
 }
 
@@ -208,5 +231,25 @@ func TestSecretListEmpty(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Errorf("len(entries) = %d, want 0", len(entries))
+	}
+}
+
+func TestRunnerConcurrentAccess(t *testing.T) {
+	const n = 16
+	done := make(chan bool, n)
+	for i := range n {
+		go func() {
+			SetRunner(remote.Runner{Target: fmt.Sprintf("host-%d", i)})
+			_ = Runner()
+			_ = runCmd(context.Background(), "podman", "--version")
+			done <- true
+		}()
+	}
+	for range n {
+		<-done
+	}
+	SetRunner(remote.Runner{})
+	if got := Runner(); got.Target != "" || got.As != "" || len(got.Env) != 0 {
+		t.Errorf("Runner after reset = %+v, want zero", got)
 	}
 }

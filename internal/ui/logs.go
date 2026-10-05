@@ -181,12 +181,13 @@ func (m Model) exportLogs(format string) (tea.Model, tea.Cmd) {
 	if format == "json" {
 		ext = "jsonl"
 	}
-	filename := uniqueExportPath(defaultExportFilename(u.UnitName, ext))
+	base := defaultExportFilename(u.UnitName, ext)
+	var filename string
 	var err error
 	if format == "json" {
-		err = exportLogsJSONL(filename, u.UnitName, lines)
+		filename, err = exportLogsJSONL(base, u.UnitName, lines)
 	} else {
-		err = exportLogsText(filename, u.UnitName, lines)
+		filename, err = exportLogsText(base, u.UnitName, lines)
 	}
 
 	if err != nil {

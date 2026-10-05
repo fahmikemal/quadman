@@ -36,8 +36,8 @@ func (m *Model) applyCompartment(username string) bool {
 	m.ssh = r
 	m.sys.Remote = r
 	m.lc.Remote = r
-	podman.DefaultRunner = r
-	podlet.DefaultRunner = r
+	podman.SetRunner(r)
+	podlet.SetRunner(r)
 	m.sys.User = true
 	m.sys.GenDir = c.GeneratorDir()
 	m.comp = c
@@ -51,8 +51,8 @@ func (m *Model) leaveCompartment() {
 	m.ssh = remote.Runner{}
 	m.sys.Remote = m.ssh
 	m.lc.Remote = m.ssh
-	podman.DefaultRunner = m.ssh
-	podlet.DefaultRunner = m.ssh
+	podman.SetRunner(m.ssh)
+	podlet.SetRunner(m.ssh)
 	m.sys.GenDir = ""
 	m.compOn = false
 	m.setStatus("compartment: back to own session", false)

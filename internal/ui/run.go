@@ -92,17 +92,7 @@ func RunWithOptions(o Options) error {
 // flags). Empty and duplicate entries are ignored, so calling it twice
 // (once from main, once from New) is safe.
 func applyExtraDirs(dirs []string) {
-	seen := map[string]bool{}
-	for _, d := range quadlet.ExtraDirs {
-		seen[d] = true
-	}
-	for _, d := range dirs {
-		if d == "" || seen[d] {
-			continue
-		}
-		seen[d] = true
-		quadlet.ExtraDirs = append(quadlet.ExtraDirs, d)
-	}
+	quadlet.AddExtraDirs(dirs)
 }
 
 // RunWithSSH starts the quadman TUI against a remote host: every CLI call
@@ -117,6 +107,6 @@ func (m *Model) applySSH(target string) {
 	m.ssh = remote.Runner{Target: target}
 	m.sys.Remote = m.ssh
 	m.lc.Remote = m.ssh
-	podman.DefaultRunner = m.ssh
-	podlet.DefaultRunner = m.ssh
+	podman.SetRunner(m.ssh)
+	podlet.SetRunner(m.ssh)
 }

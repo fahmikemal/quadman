@@ -209,22 +209,38 @@ func (m Model) kubeYamlExists(u quadlet.Unit, yml string) bool {
 	return kubeYamlExists(u, yml)
 }
 
+// generatedFileName resolves the output file for generated Quadlet text from
+// the podlet `# FileName=` header. The header is reduced to a bare base name
+// so a hostile or malformed value cannot escape the target directory, and
+// `.container` is appended only when the header carries no extension of its
+// own (podlet may emit either `web` or `web.container`).
+func generatedFileName(raw string) (string, error) {
+	base := filepath.Base(strings.TrimSpace(raw))
+	if base == "" || base == "." || base == "/" {
+		return "", fmt.Errorf("empty FileName header")
+	}
+	if filepath.Ext(base) == "" {
+		base += ".container"
+	}
+	return base, nil
+}
+
 // installGenerated writes the generated quadlet into the user's config
 // search dir and reloads the generator.
 func (m Model) installGenerated() (tea.Model, tea.Cmd) {
-	name := podlet.FileNameOf(m.genContent)
-	if name == "" {
+	file, err := generatedFileName(podlet.FileNameOf(m.genContent))
+	if err != nil {
 		m.setStatus("cannot determine a FileName from the generated output", true)
 		return m, nil
 	}
 	content := m.genContent
-	return m, tea.Batch(m.setBusy("write "+name+".container"),
-		actionCmdHint("generate "+name, "written to ~/.config/containers/systemd and reloaded", func(ctx context.Context) (string, error) {
+	return m, tea.Batch(m.setBusy("write "+file),
+		actionCmdHint("generate "+file, "written to ~/.config/containers/systemd and reloaded", func(ctx context.Context) (string, error) {
 			dir, err := os.UserConfigDir()
 			if err != nil {
 				return "", err
 			}
-			target := filepath.Join(dir, "containers", "systemd", name+".container")
+			target := filepath.Join(dir, "containers", "systemd", file)
 			if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 				return "", err
 			}

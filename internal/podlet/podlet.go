@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/fahmikemal/quadman/internal/remote"
@@ -15,9 +16,23 @@ import (
 // DefaultTimeout bounds podlet calls (it is a local converter, no network).
 const DefaultTimeout = 15 * time.Second
 
-// DefaultRunner executes the podlet CLI. It is local by default; the UI sets
-// it to an SSH runner in --ssh mode.
-var DefaultRunner remote.Runner
+// defaultRunner executes the podlet CLI. It is local by default; the UI sets
+// it to an SSH or compartment runner. Access is atomic because a session
+// switch on the main loop races generate commands already in flight.
+var defaultRunner atomic.Pointer[remote.Runner]
+
+// Runner returns the runner used to execute the podlet CLI.
+func Runner() remote.Runner {
+	if r := defaultRunner.Load(); r != nil {
+		return *r
+	}
+	return remote.Runner{}
+}
+
+// SetRunner replaces the runner used to execute the podlet CLI.
+func SetRunner(r remote.Runner) {
+	defaultRunner.Store(&r)
+}
 
 // Available reports whether a podlet binary is on PATH.
 func Available() bool {
@@ -30,7 +45,7 @@ func Available() bool {
 func Generate(ctx context.Context, args []string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
-	out, err := DefaultRunner.Command(ctx, "podlet", args...).CombinedOutput() // #nosec G204 -- argv slice, no shell
+	out, err := Runner().Command(ctx, "podlet", args...).CombinedOutput() // #nosec G204 -- argv slice, no shell
 	if err != nil {
 		return "", fmt.Errorf("podlet: %w: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -41,7 +56,7 @@ func Generate(ctx context.Context, args []string) (string, error) {
 func Compose(ctx context.Context, path string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
-	out, err := DefaultRunner.Command(ctx, "podlet", "compose", "-f", path).CombinedOutput() // #nosec G204 -- argv slice, no shell
+	out, err := Runner().Command(ctx, "podlet", "compose", "-f", path).CombinedOutput() // #nosec G204 -- argv slice, no shell
 	if err != nil {
 		return "", fmt.Errorf("podlet compose: %w: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -74,7 +89,7 @@ func GenerateObject(ctx context.Context, kind, name string) (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
-	out, err := DefaultRunner.Command(ctx, "podlet", "generate", kind, name).CombinedOutput() // #nosec G204 -- argv slice, no shell
+	out, err := Runner().Command(ctx, "podlet", "generate", kind, name).CombinedOutput() // #nosec G204 -- argv slice, no shell
 	if err != nil {
 		return "", fmt.Errorf("podlet generate %s %s: %w: %s", kind, name, err, strings.TrimSpace(string(out)))
 	}

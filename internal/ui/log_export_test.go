@@ -54,9 +54,12 @@ func TestExportLogsText(t *testing.T) {
 		"line 3: listening on :8080",
 	}
 
-	err := exportLogsText(outPath, "demo-web.service", lines)
+	gotPath, err := exportLogsText(outPath, "demo-web.service", lines)
 	if err != nil {
 		t.Fatalf("exportLogsText failed: %v", err)
+	}
+	if gotPath != outPath {
+		t.Errorf("fresh export renamed to %q", gotPath)
 	}
 
 	data, err := os.ReadFile(outPath)
@@ -82,9 +85,12 @@ func TestExportLogsJSONL(t *testing.T) {
 		"2026-09-17T10:00:01Z host app[1]: critical database timeout",
 	}
 
-	err := exportLogsJSONL(outPath, "demo-web.service", lines)
+	gotPath, err := exportLogsJSONL(outPath, "demo-web.service", lines)
 	if err != nil {
 		t.Fatalf("exportLogsJSONL failed: %v", err)
+	}
+	if gotPath != outPath {
+		t.Errorf("fresh export renamed to %q", gotPath)
 	}
 
 	f, err := os.Open(outPath)
@@ -235,5 +241,49 @@ func TestUniqueExportPath(t *testing.T) {
 	}
 	if got, want := uniqueExportPath(first), filepath.Join(tmpDir, "web-20260101-000000-2.log"); got != want {
 		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestExportNeverTruncatesExisting(t *testing.T) {
+	tmpDir := t.TempDir()
+	victim := filepath.Join(tmpDir, "victim.log")
+	if err := os.WriteFile(victim, []byte("precious"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := exportLogsText(victim, "u.service", []string{"new"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == victim {
+		t.Fatal("export must advance past a taken name")
+	}
+	if data, _ := os.ReadFile(victim); string(data) != "precious" {
+		t.Errorf("existing file clobbered: %q", data)
+	}
+}
+
+func TestExportConcurrentSameBase(t *testing.T) {
+	tmpDir := t.TempDir()
+	base := filepath.Join(tmpDir, "race.log")
+	const n = 8
+	got := make(chan string, n)
+	errs := make(chan error, n)
+	for range n {
+		go func() {
+			p, err := exportLogsText(base, "u.service", []string{"x"})
+			got <- p
+			errs <- err
+		}()
+	}
+	seen := map[string]bool{}
+	for range n {
+		if err := <-errs; err != nil {
+			t.Fatalf("export: %v", err)
+		}
+		if p := <-got; seen[p] {
+			t.Fatalf("duplicate export path %q", p)
+		} else {
+			seen[p] = true
+		}
 	}
 }

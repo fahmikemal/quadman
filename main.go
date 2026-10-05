@@ -191,25 +191,12 @@ func rejectMisplaced(cmd string, args []string, allowed ...string) {
 // --quadlet-dir flags. A corrupt YAML file is reported; discovery still
 // proceeds with flags only.
 func applyQuadletDirs(flags []string) {
-	seen := map[string]bool{}
-	for _, d := range quadlet.ExtraDirs {
-		seen[d] = true
-	}
-	add := func(dirs []string) {
-		for _, d := range dirs {
-			if d == "" || seen[d] {
-				continue
-			}
-			seen[d] = true
-			quadlet.ExtraDirs = append(quadlet.ExtraDirs, d)
-		}
-	}
 	if cfg, err := config.Load(); err != nil {
 		fmt.Fprintln(os.Stderr, "warning: config:", err)
 	} else {
-		add(cfg.Settings.QuadletDirs)
+		quadlet.AddExtraDirs(cfg.Settings.QuadletDirs)
 	}
-	add(flags)
+	quadlet.AddExtraDirs(flags)
 }
 
 // moduleVersion reports the release version. Builds injected via ldflags
@@ -383,8 +370,12 @@ func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme strin
 		}
 	}
 
-	// Load settings from config.yaml if available
-	cfg, _ := config.Load()
+	// Load settings from config.yaml if available. A corrupt file is
+	// reported like everywhere else instead of silently serving defaults.
+	cfg, cfgErr := config.Load()
+	if cfgErr != nil {
+		fmt.Fprintln(os.Stderr, "warning: config:", cfgErr)
+	}
 	scfg := cfg.Settings.Serve
 
 	finalPass, passSource, passWarn, passErr := resolveServePassword(*pass, *passFile, scfg, os.Getenv)

@@ -160,7 +160,9 @@ func (m Model) reloadKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 }
 
 func (m Model) lingerKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
-	if msg.String() != "L" && msg.String() != "shift+l" && msg.Text != "L" {
+	// "L" is the normal text form; "shift+l" is the keystroke form some
+	// terminals emit when no text accompanies the shift modifier.
+	if msg.String() != "L" && msg.String() != "shift+l" {
 		return m, nil, false
 	}
 	if m.system {

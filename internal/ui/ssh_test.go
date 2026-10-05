@@ -11,7 +11,22 @@ import (
 	"github.com/fahmikemal/quadman/internal/podlet"
 	"github.com/fahmikemal/quadman/internal/podman"
 	"github.com/fahmikemal/quadman/internal/quadlet"
+	"github.com/fahmikemal/quadman/internal/remote"
 )
+
+// resetRunners restores the podman/podlet session runners to local.
+func resetRunners() {
+	podman.SetRunner(remote.Runner{})
+	podlet.SetRunner(remote.Runner{})
+}
+
+// setRunnerSSHBins points the podman/podlet runners at a fake ssh binary.
+func setRunnerSSHBins(fake string) {
+	pr, lr := podman.Runner(), podlet.Runner()
+	pr.SSHBin, lr.SSHBin = fake, fake
+	podman.SetRunner(pr)
+	podlet.SetRunner(lr)
+}
 
 func fakeSSHBin(t *testing.T, script string) string {
 	t.Helper()
@@ -35,12 +50,8 @@ func sshModel(t *testing.T) Model {
 	m.ssh.SSHBin = fake
 	m.sys.Remote.SSHBin = fake
 	m.lc.Remote.SSHBin = fake
-	podman.DefaultRunner.SSHBin = fake
-	podlet.DefaultRunner.SSHBin = fake
-	t.Cleanup(func() {
-		podman.DefaultRunner.SSHBin = ""
-		podlet.DefaultRunner.SSHBin = ""
-	})
+	setRunnerSSHBins(fake)
+	t.Cleanup(resetRunners)
 	return m
 }
 
@@ -50,11 +61,10 @@ func TestSSHApplyWiresClients(t *testing.T) {
 	if !m.ssh.IsRemote() || m.sys.Remote.Target != "user@remote" || m.lc.Remote.Target != "user@remote" {
 		t.Fatalf("clients not pointed at remote: %+v", m.ssh)
 	}
-	if podman.DefaultRunner.Target != "user@remote" || podlet.DefaultRunner.Target != "user@remote" {
+	if podman.Runner().Target != "user@remote" || podlet.Runner().Target != "user@remote" {
 		t.Error("podman/podlet runners must follow --ssh")
 	}
-	podman.DefaultRunner.Target = ""
-	podlet.DefaultRunner.Target = ""
+	resetRunners()
 }
 
 func TestDropinNamesParse(t *testing.T) {
@@ -135,8 +145,7 @@ func TestSSHRefusesFileWrites(t *testing.T) {
 			t.Errorf("key %q must explain SSH limits, got %q", key, mm.statusLine)
 		}
 	}
-	podman.DefaultRunner.Target = ""
-	podlet.DefaultRunner.Target = ""
+	resetRunners()
 }
 
 func TestSSHReadsFileViaCat(t *testing.T) {
@@ -156,8 +165,7 @@ func TestSSHReadsFileViaCat(t *testing.T) {
 	if f.Image() != "nginx" {
 		t.Errorf("image = %q", f.Image())
 	}
-	podman.DefaultRunner.Target = ""
-	podlet.DefaultRunner.Target = ""
+	resetRunners()
 }
 
 func TestSSHTitleShowsTarget(t *testing.T) {
@@ -166,8 +174,38 @@ func TestSSHTitleShowsTarget(t *testing.T) {
 	if !strings.Contains(m.View().Content, "user@remote") {
 		t.Errorf("title must show the remote target: %q", m.View().Content)
 	}
-	podman.DefaultRunner.Target = ""
-	podlet.DefaultRunner.Target = ""
+	resetRunners()
+}
+
+func TestUpdatesCmdUsesRemotePodman(t *testing.T) {
+	script := "#!/bin/sh\n" +
+		"if echo \"$@\" | grep -q 'is-enabled'; then echo 'enabled'; exit 0; fi\n" +
+		"if echo \"$@\" | grep -q 'is-active'; then echo 'active'; exit 0; fi\n" +
+		"if echo \"$@\" | grep -q 'auto-update --dry-run'; then echo '[{\"Container\":\"c\",\"Image\":\"img\",\"Policy\":\"registry\",\"Unit\":\"fake-test.service\",\"Updated\":\"true\"}]'; exit 0; fi\n" +
+		"echo ok; exit 0\n"
+	m := New()
+	m.applySSH("user@remote")
+	fake := fakeSSHBin(t, script)
+	m.ssh.SSHBin = fake
+	m.sys.Remote.SSHBin = fake
+	pr := podman.Runner()
+	pr.SSHBin = fake
+	podman.SetRunner(pr)
+	t.Cleanup(resetRunners)
+	msg := updatesCmd(m.sys, m.ssh)()
+	um, ok := msg.(updatesMsg)
+	if !ok {
+		t.Fatalf("expected updatesMsg, got %T", msg)
+	}
+	if um.err != nil {
+		t.Fatalf("updatesCmd error: %v", um.err)
+	}
+	if len(um.entries) != 1 || um.entries[0].Unit != "fake-test.service" {
+		t.Errorf("entries must come from remote podman, got %+v", um.entries)
+	}
+	if um.timerEnabled != "enabled" || um.timerActive != "active" {
+		t.Errorf("timer = %q/%q, want enabled/active", um.timerEnabled, um.timerActive)
+	}
 }
 
 func TestSSHRefreshCmd(t *testing.T) {
@@ -184,6 +222,5 @@ func TestSSHRefreshCmd(t *testing.T) {
 	if len(rm.units) != 1 || rm.units[0].Name != "web" {
 		t.Errorf("expected 1 unit 'web', got %v", rm.units)
 	}
-	podman.DefaultRunner.Target = ""
-	podlet.DefaultRunner.Target = ""
+	resetRunners()
 }

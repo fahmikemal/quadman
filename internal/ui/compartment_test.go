@@ -5,9 +5,6 @@ import (
 	"os/user"
 	"strings"
 	"testing"
-
-	"github.com/fahmikemal/quadman/internal/podlet"
-	"github.com/fahmikemal/quadman/internal/podman"
 )
 
 // compSudo fakes passwordless sudo for compartment tests.
@@ -47,8 +44,7 @@ func TestApplyCompartmentSelf(t *testing.T) {
 	if !strings.Contains(mm.View().Content, "["+u.Username+"]") {
 		t.Error("title must show the compartment user")
 	}
-	podman.DefaultRunner.As = ""
-	podlet.DefaultRunner.As = ""
+	resetRunners()
 }
 
 func TestApplyCompartmentProbeFailure(t *testing.T) {
@@ -91,8 +87,7 @@ func TestLeaveCompartment(t *testing.T) {
 	if m.compOn || m.ssh.As != "" || m.sys.GenDir != "" {
 		t.Errorf("leave must reset: compOn=%v As=%q GenDir=%q", m.compOn, m.ssh.As, m.sys.GenDir)
 	}
-	podman.DefaultRunner.As = ""
-	podlet.DefaultRunner.As = ""
+	resetRunners()
 }
 
 func TestCompartmentPaletteActions(t *testing.T) {

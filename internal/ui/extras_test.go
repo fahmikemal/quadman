@@ -96,3 +96,35 @@ func TestEventsSessionRouting(t *testing.T) {
 func podletAvailableForTest() bool {
 	return podletAvailable()
 }
+
+func TestGeneratedFileName(t *testing.T) {
+	for _, tc := range []struct {
+		raw  string
+		want string
+		fail bool
+	}{
+		{"web", "web.container", false},
+		{"web.container", "web.container", false},
+		{"web.network", "web.network", false},
+		{"  web  ", "web.container", false},
+		{"a/b.container", "b.container", false},
+		{"../evil", "evil.container", false},
+		{"", "", true},
+		{"   ", "", true},
+	} {
+		got, err := generatedFileName(tc.raw)
+		if tc.fail {
+			if err == nil {
+				t.Errorf("generatedFileName(%q) should fail", tc.raw)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("generatedFileName(%q) error: %v", tc.raw, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("generatedFileName(%q) = %q, want %q", tc.raw, got, tc.want)
+		}
+	}
+}

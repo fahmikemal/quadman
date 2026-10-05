@@ -174,7 +174,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.setStatus("timer toggled", false)
-		return m, updatesCmd(m.sys)
+		return m, updatesCmd(m.sys, m.ssh)
 
 	// One-shot viewport screens (storage, stats, timers, secrets) share
 	// one transition; see screenMsg in screens.go.
