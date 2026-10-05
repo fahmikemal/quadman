@@ -2,10 +2,9 @@
 
 > Back to [README berbahasa Indonesia](README.id.md).
 
-> **Catatan (2026-10-05):** penomoran versi dimulai ulang di `v0.1.0-dev1` dan semua tag/rilis lama telah dihapus. Tier bertanda ✅ di bawah ini sudah ada di kode saat ini; label versi lamanya hanya arsip sejarah.
 quadman dirilis secara terstruktur dalam kelompok fitur (lihat [CONTRIBUTING.id.md](CONTRIBUTING.id.md)); kenaikan versi minor untuk tingkatan fitur baru (*feature tiers*), dan patch untuk akumulasi perbaikan bug.
 
-### Tier 1: Diferensiator Utama (✅ Telah Dirilis, pra-reset v0.2.0)
+### Tier 1: Diferensiator Utama (✅ Telah Dirilis)
 
 - [x] Follow mode untuk journal (`journalctl -f` streaming, auto-scroll ke bawah)
 - [x] Filter fuzzy `/` pada daftar unit
@@ -16,7 +15,7 @@ quadman dirilis secara terstruktur dalam kelompok fitur (lihat [CONTRIBUTING.id.
 - [x] Pemetaan dan pembacaan direktif baru Podman 6.1 (contoh: `ImageVolume=`)
 - [x] Pengujian otomatis untuk perintah non-interaktif `quadman list`
 
-### Tier 2: Kedalaman Operasional (✅ Telah Dirilis, pra-reset v0.3.x)
+### Tier 2: Kedalaman Operasional (✅ Telah Dirilis)
 
 - [x] Validasi Quadlet bawaan (dry-run generator, penanda ✗/⚠, layar masalah, version gating)
 - [x] Pengelolaan direktori drop-in (`*.container.d/*.conf`, cascading `foo-.container.d/`)
@@ -30,7 +29,7 @@ quadman dirilis secara terstruktur dalam kelompok fitur (lihat [CONTRIBUTING.id.
 - [x] Petunjuk pintar (*smart hints*): deteksi `timed-out` → saran `TimeoutStartSec=`/`Pull=`, crash-loop start-limit, `AutoUpdate=` tanpa timer aktif
 - [x] Generator berkas Quadlet via podlet (`n`): konversi `docker run` / compose → preview → tulis `y` → reload otomatis
 
-### Tier 3: Infrastruktur & Skala (✅ Telah Dirilis, pra-reset v0.4.0+)
+### Tier 3: Infrastruktur & Skala (✅ Telah Dirilis)
 
 - [x] Mode SSH untuk server remote rootless (`--ssh user@host`; monitoring, siklus hidup, log, dan diagnostik via SSH — modifikasi berkas tetap terlindungi)
 - [x] Konfigurasi YAML (kecepatan refresh, log tail/buffer, tema, mouse) + perintah kustom template Go
@@ -40,20 +39,20 @@ quadman dirilis secara terstruktur dalam kelompok fitur (lihat [CONTRIBUTING.id.
 - [x] Log riwayat aksi terkini (`A`: aksi apa yang dijalankan, kapan, dan status keberhasilannya)
 - [x] Pengujian otomatis Update/View headless + benchmark 500 unit + demo tape VHS
 
-### Tier 4: Enterprise, Multi-Mode & Akses Remote (✅ Telah Dirilis, pra-reset v0.4.2)
+### Tier 4: Enterprise, Multi-Mode & Akses Remote (✅ Telah Dirilis)
 
 - [x] **Wish v2 SSH Daemon (`quadman serve`)** — server SSH terintegrasi ditenagai Charm Wish v2, koneksi langsung `ssh -p 2222 host`, auto-generate host key, autentikasi public key (`authorized_keys`), autentikasi kata sandi, mode read-only, dan manajemen sesi timeout.
 - [x] **Command Palette (`Ctrl+P`)** — modal overlay pencarian fuzzy instan untuk eksekusi seluruh perintah siklus hidup unit, perkakas diagnostik, perpindahan layar, dan perintah pengguna dengan validasi status kontekstual secara langsung.
 - [x] **Ekspor Log & Filter Interaktif** — ekspor log journal ke berkas terstempel waktu `.log` (teks biasa) dan `.jsonl` (format journal terstruktur) (`S`), salin ke clipboard OSC52 (`c`), live grep filter (`F`), dan toggle prioritas log (`p`: err, warning, info, all).
 - [x] **Mode Native Sistem / Rootful (`--system`)** — dukungan kelas satu untuk unit Quadlet tingkat sistem (`/etc/containers/systemd`, `/run/containers/systemd`, `/usr/share/containers/systemd`), deteksi otomatis hak akses root (UID 0 / `sudo quadman`), penyesuaian dinamis argumen CLI `--user`, serta proteksi status linger sistem.
 
-### Tier 5: Secrets, Timers & Agent Tooling (✅ Telah Dirilis, pra-reset v0.5.0)
+### Tier 5: Secrets, Timers & Agent Tooling (✅ Telah Dirilis)
 
 - [x] **Integrasi Rahasia Podman (Secrets)** — inspeksi penyimpanan rahasia Podman (`K`), dan validasi referensi *pre-flight* otomatis untuk direktif `Secret=` pada berkas `.container` dengan peringatan dini di layar masalah (`v`).
 - [x] **Tampilan Entitas Timer Systemd (`T`)** — inspeksi seluruh timer kalender yang aktif dan terjadwal (`systemctl list-timers`), pemicu eksekusi, serta hitung mundur waktu langsung di dalam TUI.
 - [x] **Ekspor Agent Skill AI (`quadman --skill`)** — ekspor skema perkakas JSON yang dapat dibaca mesin dan dokumentasi Markdown komprehensif untuk LLM coding agents.
 
-### Tier 6: Operasi, Hardening & Kompartemen (✅ Telah Dirilis, pra-reset v0.5.0)
+### Tier 6: Operasi, Hardening & Kompartemen (✅ Telah Dirilis)
 
 - [x] **Exec shell (`X`)** — buka `/bin/sh` di kontainer unit (cocok nama persis, prefill `systemd-<name>`), ditolak via SSH/sesi serve dengan penjelasan.
 - [x] **Statistik resource (`o`)** — tabel `podman stats --no-stream --all` (CPU/MEM/NET/BLOCK/PIDS), read-only dan aman via remote.
@@ -64,14 +63,14 @@ quadman dirilis secara terstruktur dalam kelompok fitur (lihat [CONTRIBUTING.id.
 - [x] **Kompartemen (`--as <user>`, `quadman --as <user> list`)** — kelola Quadlet milik OS user lain via sudo non-interaktif dengan search path, systemd instance, storage, dan secret miliknya; switcher palette, chip title `[user]`, guard sesi terisolasi di semua jalur.
 - [x] **Guard custom-key** — peringatan startup bila tombol `custom_commands` tertutup binding bawaan (bawaan selalu menang).
 
-### Batch hardening serve (✅ Telah Dirilis, pra-reset v0.5.1)
+### Batch hardening serve (✅ Telah Dirilis)
 
 - [x] **Kebijakan bind serve**: default loopback saja (`127.0.0.1:2222`); bind non-loopback menolak berjalan tanpa `--authorized-keys`, sehingga open-auth dan password-only hanya di loopback; open-auth tetap memaksa readonly di mana pun; berkas keys yang hilang atau kosong gagal keras saat startup; host key yang sudah ada dikencangkan ke `0600`.
 - [x] **Guard CLI**: flag salah posisi setelah `list` ditolak; target `e2e` Makefile diperbaiki (path binary plus phony).
 - [x] **Perbaikan skill**: entri ekspor mandiri, header versi satu-v, bentuk `--system list`, deskripsi kebijakan bind serve.
 - [x] **Refresh Charm stack**: bubbletea v2.0.9 → v2.0.10; `govulncheck` dan `gosec` hijau.
 
-### v0.1.0-dev1 — password serve, serve --as & guard (✅ Telah Dirilis)
+### v0.1.0-dev1: password serve, serve --as & guard (✅ Telah Dirilis)
 
 - [x] **Sumber password serve**: `--password-file`, `QUADMAN_SERVE_PASSWORD`, config `password_file` (tepat satu); secret tidak pernah muncul di argv.
 - [x] **serve --as**: menyajikan sesi milik user lain via kompartemen sudo dengan validasi startup; guard sesi terisolasi tetap berlaku.

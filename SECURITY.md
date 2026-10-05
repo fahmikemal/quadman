@@ -7,7 +7,7 @@
 | Version     | Supported          |
 |-------------|--------------------|
 | v0.1.0-dev1 | Yes (latest, prerelease) |
-| older       | No — versioning restarted; please upgrade |
+| older       | No (please upgrade to the latest release) |
 
 Security fixes ship as patch releases on `main` and are published through
 GitHub Releases with checksums (see `.github/workflows/release.yml`).

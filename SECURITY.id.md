@@ -7,7 +7,7 @@
 | Versi       | Didukung            |
 |-------------|---------------------|
 | v0.1.0-dev1 | Ya (terbaru, prarilis) |
-| lama        | Tidak — penomoran versi dimulai ulang; mohon upgrade |
+| lama        | Tidak (mohon upgrade ke rilis terbaru) |
 
 Perbaikan keamanan dirilis sebagai patch di `main` dan dipublikasikan
 melalui GitHub Releases beserta checksum (lihat `.github/workflows/release.yml`).

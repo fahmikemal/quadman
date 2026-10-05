@@ -9,8 +9,7 @@ Semua perubahan penting quadman dicatat di sini. Format mengikuti
 
 ## [v0.1.0-dev1] - 2026-10-05
 
-Rilis pertama setelah penomoran versi dimulai ulang: semua tag dan rilis
-lama telah dihapus dan penomoran dimulai lagi dari sini sebagai prarilis.
+Prarilis awal.
 
 ### Ditambahkan
 
@@ -22,8 +21,8 @@ lama telah dihapus dan penomoran dimulai lagi dari sini sebagai prarilis.
 - Dokumen instalasi menunjuk ke aset prarilis `v0.1.0-dev1` via URL tag
   eksplisit (`/latest/` melewatkan prarilis).
 - Tabel dukungan keamanan mengikuti `v0.1.0-dev1`; lini lama tidak didukung.
-- Roadmap disusun ulang per tier: label versi lama hanya arsip pra-reset,
-  dan batch yang terkumpul dirilis sebagai `v0.1.0-dev1`.
+- Roadmap disusun ulang per tier, dan batch serve yang terkumpul
+  dirilis sebagai `v0.1.0-dev1`.
 
 ### Diperbaiki
 

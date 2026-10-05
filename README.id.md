@@ -1,8 +1,9 @@
 <div align="center">
 
-<img src="quadman_final_blue.png" alt="logo quadman" width="200">
-
-# quadman
+<h1>
+<img src="quadman_final_blue.png" alt="logo quadman" width="200"><br>
+quadman
+</h1>
 
 **Terminal UI manager untuk unit rootless Podman [Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html).**
 
@@ -13,7 +14,7 @@
 [![CI](https://github.com/fahmikemal/quadman/actions/workflows/ci.yml/badge.svg)](https://github.com/fahmikemal/quadman/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/fahmikemal/quadman)](https://github.com/fahmikemal/quadman/releases)
 [![Go Reference](https://pkg.go.dev/badge/github.com/fahmikemal/quadman.svg)](https://pkg.go.dev/github.com/fahmikemal/quadman)
-[![Go Report Card](https://goreportcard.com/badge/github.com/fahmikemal/quadman)](https://goreportcard.com/report/github.com/fahmikemal/quadman)
+[![golangci-lint](https://img.shields.io/badge/linted_with-golangci--lint-blue)](https://golangci-lint.run/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 </div>
