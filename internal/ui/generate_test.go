@@ -70,7 +70,8 @@ func TestGeneratePodletComposeFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "FAKE-COMPOSE:compose -f") {
-		t.Errorf("compose file must route to `podlet compose -f`, got %q", out)
+	// podlet 0.3 takes the file positionally and rejects -f.
+	if !strings.Contains(out, "FAKE-COMPOSE:compose -- "+compose) {
+		t.Errorf("compose file must route to `podlet compose -- <file>`, got %q", out)
 	}
 }

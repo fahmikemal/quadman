@@ -56,7 +56,9 @@ func Generate(ctx context.Context, args []string) (string, error) {
 func Compose(ctx context.Context, path string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
-	out, err := Runner().Command(ctx, "podlet", "compose", "-f", path).CombinedOutput() // #nosec G204 -- argv slice, no shell
+	// podlet takes the compose file positionally (0.3 rejects -f); "--"
+	// keeps a path that starts with "-" from being read as an option.
+	out, err := Runner().Command(ctx, "podlet", "compose", "--", path).CombinedOutput() // #nosec G204 -- argv slice, no shell
 	if err != nil {
 		return "", fmt.Errorf("podlet compose: %w: %s", err, strings.TrimSpace(string(out)))
 	}
