@@ -51,6 +51,10 @@ LoadState=loaded
 ActiveState=active
 SubState=running
 Description=Web App
+ActiveEnterTimestamp=@1700000000
+Result=exit-code
+ExecMainStatus=137
+NRestarts=3
 
 Id=cache-volume.service
 LoadState=not-found
@@ -72,13 +76,22 @@ EOF
 	if web.ActiveState != "active" || web.SubState != "running" || web.Description != "Web App" {
 		t.Errorf("webapp = %+v", web)
 	}
+	if web.Result != "exit-code" || web.ExecMainStatus != 137 || web.NRestarts != 3 {
+		t.Errorf("webapp result fields = %+v", web)
+	}
+	if !web.ActiveSince.Equal(time.Unix(1700000000, 0)) {
+		t.Errorf("webapp ActiveSince = %v, want unix 1700000000", web.ActiveSince)
+	}
 	cache := statuses["cache-volume.service"]
+	if !cache.ActiveSince.IsZero() {
+		t.Errorf("a unit without ActiveEnterTimestamp must have zero ActiveSince: %v", cache.ActiveSince)
+	}
 	if cache.Loaded() {
 		t.Errorf("cache should not be loaded: %+v", cache)
 	}
 
 	args := readArgs(t, argsFile)
-	for _, want := range []string{"--user", "show", "--", "webapp.service", "cache-volume.service"} {
+	for _, want := range []string{"--user", "show", "--timestamp=unix", "--", "webapp.service", "cache-volume.service"} {
 		if !contains(args, want) {
 			t.Errorf("systemctl args %v missing %q", args, want)
 		}

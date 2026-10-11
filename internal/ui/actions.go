@@ -78,6 +78,9 @@ func (m Model) installBundle(u quadlet.Unit) (tea.Model, tea.Cmd) {
 
 // runPending executes an armed y/N-confirmed action.
 func (m Model) runPending(p *pendingAction) (tea.Model, tea.Cmd) {
+	if p.run != nil {
+		return p.run(m)
+	}
 	sys := m.sys
 	if verb, ok := strings.CutPrefix(p.verb, "bulk-"); ok {
 		marked := m.markedUnits()

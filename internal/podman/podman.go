@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -173,8 +174,14 @@ func AutoUpdateDryRun(ctx context.Context) ([]AutoUpdateEntry, error) {
 func runPodman(ctx context.Context, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
-	out, err := runCmd(ctx, "podman", args...).Output() // #nosec G204 -- argv slice, no shell; call sites pass read-only subcommands
+	out, err := runCmd(ctx, "podman", args...).Output() // #nosec G204 -- argv slice, no shell; call sites pass fixed subcommands
 	if err != nil {
+		// podman explains failures ("image is in use by a container") on
+		// stderr, which Output keeps on the ExitError.
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && len(bytes.TrimSpace(ee.Stderr)) > 0 {
+			return nil, fmt.Errorf("podman %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(ee.Stderr)))
+		}
 		return nil, fmt.Errorf("podman %s: %w", strings.Join(args, " "), err)
 	}
 	return out, nil

@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/textinput"
-	"charm.land/bubbles/v2/tree"
 
 	"github.com/fahmikemal/quadman/internal/compartment"
 	"github.com/fahmikemal/quadman/internal/config"
@@ -36,14 +35,25 @@ type listState struct {
 	filtering   bool
 	filterStr   string
 	filterIn    textinput.Model
+
+	// rowView is the render model of the table rows (same order as filtered).
+	rowView []unitRow
+	// listOff is the first visible row of the unit table.
+	listOff int
+	// sortBy is the S-cycled table order (problems first by default).
+	sortBy listSort
+	// dashOff collapses the tiles + attention block to one summary line
+	// (z toggles; config dashboard: false starts collapsed).
+	dashOff bool
 }
 
 // logState is the journal follow tail: live lines, filters, and search.
 type logState struct {
 	sess          *logSession
 	logLines      []string
-	logPriority   string // "", "err", "warning", "info"
-	logFilter     string // live grep filter
+	logFmt        []string // logLines rendered for display (same indexes)
+	logPriority   string   // "", "err", "warning", "info"
+	logFilter     string   // live grep filter
 	logFilterIn   textinput.Model
 	filteringLogs bool
 	following     bool
@@ -61,15 +71,16 @@ type detailState struct {
 
 // updateState is the auto-update screen (podman dry-run + timer).
 type updateState struct {
-	updateEntries []podman.AutoUpdateEntry
-	timerEnabled  string
-	timerActive   string
+	updateEntries  []podman.AutoUpdateEntry
+	timerEnabled   string
+	timerActive    string
+	updateTimer    systemd.TimerInfo
+	updatesApplied bool
 }
 
 // eventState is the live `podman events` stream.
 type eventState struct {
-	eventSess  *logSession
-	eventLines []string
+	eventSess *logSession
 }
 
 // generateState is the podlet Quadlet generator prompt and preview.
@@ -77,6 +88,12 @@ type generateState struct {
 	generating bool
 	genIn      textinput.Model
 	genContent string
+	genInput   string
+	genFiles   []genFile
+	genTab     int
+	genChecks  []genCheck
+	genBoot    bool // add [Install] WantedBy=default.target on write
+	genStart   bool // start the container units after writing
 }
 
 // execState is the interactive exec (X) container-name prompt.
@@ -90,11 +107,6 @@ type envState struct {
 	issues        unitIssues
 	generator     string
 	podmanVersion string
-}
-
-// treeState is the dependency tree view.
-type treeState struct {
-	treeModel tree.Model
 }
 
 // cacheState memoizes quadlet.Inspect by file mtime so the 2.5s poll
@@ -113,6 +125,9 @@ type templateState struct {
 // (stop / enable / disable).
 type confirmState struct {
 	pending *pendingAction
+	// armedFor is the pending action the modal was last prepared for.
+	armedFor *pendingAction
+	confirm  confirmUI
 }
 
 // sessionState is the first-use editor picker and persisted config.
@@ -120,6 +135,8 @@ type sessionState struct {
 	cfg           config.Config
 	pickingEditor bool
 	editorChoices []editorChoice
+	// editTarget overrides the file the next editor launch opens.
+	editTarget editTarget
 }
 
 // statusBarState is the app chrome: busy spinner, status line, window
@@ -158,6 +175,16 @@ type statusBarState struct {
 
 	// system targets system-wide (rootful) Quadlets instead of user units.
 	system bool
+
+	// whoami is "user@host" of the local session, for the top bar.
+	whoami string
+
+	// trigger describes how the current action was started ("key r",
+	// "palette"); busyHow freezes it when the action goes in flight, and
+	// pendingHow when it waits for confirmation.
+	trigger    string
+	busyHow    string
+	pendingHow string
 }
 
 // paletteState is the command palette overlay (Ctrl+P).
@@ -167,6 +194,17 @@ type paletteState struct {
 	paletteActions  []paletteAction
 	paletteFiltered []paletteAction
 	prevMode        mode
+}
+
+// screenData holds what the secondary screens loaded; specs are derived
+// from it on every render.
+type screenData struct {
+	storage  storageData
+	timers   timersData
+	secrets  secretsData
+	stats    statsData
+	events   eventsData
+	treeView treeViewState
 }
 
 // compartmentState runs CLI calls outside the operator's own session:

@@ -16,15 +16,18 @@ func (m Model) handleMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		m.generating || m.instancing || m.execing {
 		return m, nil
 	}
-	// Row geometry: 1 title line, an optional filter line, 1 table header.
-	y := msg.Y - 2
-	if m.filtering || m.filterStr != "" {
-		y--
-	}
-	if y < 0 || y >= len(m.filtered) {
+	// Row geometry: top bar, nav strip, the dashboard preamble (which
+	// carries any settled filter line), then the table header.
+	w, _ := m.size()
+	if m.sidePane() && msg.X >= m.tableWidth() {
 		return m, nil
 	}
-	m.table.SetCursor(y)
+	start, end := m.visibleWindow()
+	row := start + msg.Y - (2 + lineCount(m.listPreamble(w)) + 1)
+	if row < start || row >= end {
+		return m, nil
+	}
+	m.table.SetCursor(row)
 	return m, nil
 }
 

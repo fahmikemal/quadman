@@ -43,7 +43,10 @@ type Settings struct {
 	QuadletDirs     []string        `yaml:"quadlet_dirs,omitempty"`
 	CustomCommands  []CustomCommand `yaml:"custom_commands,omitempty"`
 	Compartments    []string        `yaml:"compartments,omitempty"`
-	Serve           ServeSettings   `yaml:"serve,omitempty"`
+	// Dashboard set to false starts the unit list with the tiles and
+	// "needs attention" block collapsed to one summary line (z toggles).
+	Dashboard *bool         `yaml:"dashboard,omitempty"`
+	Serve     ServeSettings `yaml:"serve,omitempty"`
 }
 
 // ServeSettings configures the built-in Wish SSH server mode.

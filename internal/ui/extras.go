@@ -1,134 +1,18 @@
 package ui
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"text/tabwriter"
-
-	tea "charm.land/bubbletea/v2"
 
 	"github.com/fahmikemal/quadman/internal/podlet"
-	"github.com/fahmikemal/quadman/internal/podman"
 	"github.com/fahmikemal/quadman/internal/quadlet"
 	"github.com/fahmikemal/quadman/internal/shellwords"
-	"github.com/fahmikemal/quadman/internal/systemd"
 )
 
-// --- Storage screen (g) ---------------------------------------------------
-
-type storageMsg struct {
-	content string
-	err     error
-}
-
-func storageCmd() tea.Cmd {
-	return func() tea.Msg {
-		text, err := podman.SystemDf(context.Background())
-		return storageMsg{content: text, err: err}
-	}
-}
-
-// --- Timers screen (T) ----------------------------------------------------
-
-type timersMsg struct {
-	content string
-	err     error
-}
-
-func timersCmd(sys *systemd.Systemd) tea.Cmd {
-	return func() tea.Msg {
-		timers, err := sys.ListTimers(context.Background())
-		if err != nil {
-			return timersMsg{err: err}
-		}
-		if len(timers) == 0 {
-			return timersMsg{content: "No systemd timers found."}
-		}
-		var b strings.Builder
-		w := tabwriter.NewWriter(&b, 0, 0, 3, ' ', 0)
-		_, _ = fmt.Fprintln(w, "UNIT\tACTIVATES\tNEXT\tLEFT\tLAST\tPASSED")
-		for _, t := range timers {
-			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", t.Unit, t.Activates, t.Next, t.Left, t.Last, t.Passed)
-		}
-		_ = w.Flush()
-		return timersMsg{content: b.String()}
-	}
-}
-
-// --- Secrets screen (K) ---------------------------------------------------
-
-type secretsMsg struct {
-	content string
-	err     error
-}
-
-func secretsCmd() tea.Cmd {
-	return func() tea.Msg {
-		secrets, err := podman.SecretList(context.Background())
-		if err != nil {
-			return secretsMsg{err: err}
-		}
-		if len(secrets) == 0 {
-			return secretsMsg{content: "No Podman secrets found.\nCreate one with: podman secret create <name> <file>"}
-		}
-		var b strings.Builder
-		w := tabwriter.NewWriter(&b, 0, 0, 3, ' ', 0)
-		_, _ = fmt.Fprintln(w, "NAME\tID\tDRIVER\tCREATED\tUPDATED")
-		for _, s := range secrets {
-			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", s.Name, s.ID, s.Driver, s.CreatedAt, s.UpdatedAt)
-		}
-		_ = w.Flush()
-		return secretsMsg{content: b.String()}
-	}
-}
-
-// --- Events stream (w) ----------------------------------------------------
-
-func (m Model) startEvents() (tea.Model, tea.Cmd) {
-	m.stopEvents()
-	stop, stream, err := podman.EventsFollow(context.Background())
-	if err != nil {
-		m.setStatus("podman events: "+err.Error(), true)
-		return m, nil
-	}
-	sess := &logSession{stop: stop, scan: bufio.NewScanner(stream), unit: "events"}
-	sess.scan.Buffer(make([]byte, 256*1024), 256*1024)
-	m.eventSess = sess
-	m.eventLines = nil
-	m.mode = modeEvents
-	m.viewport.SetContent("")
-	m.viewport.GotoBottom()
-	m.resize()
-	m.clearStatus()
-	return m, followLine(sess)
-}
-
-func (m *Model) stopEvents() {
-	if m.eventSess != nil {
-		m.eventSess.stop()
-		m.eventSess = nil
-	}
-}
-
 // --- Generate via podlet (n) ----------------------------------------------
-
-type generateMsg struct {
-	content string
-	err     error
-}
-
-func generateCmd(input string) tea.Cmd {
-	return func() tea.Msg {
-		ctx := context.Background()
-		trimmed := strings.TrimSpace(input)
-		out, err := generatePodlet(ctx, trimmed)
-		return generateMsg{content: out, err: err}
-	}
-}
 
 // generatePodlet routes trimmed user input to podlet compose, live-object
 // generate ("container <name>" and friends), or run. A "compose <path>"
@@ -172,7 +56,7 @@ func generatePodlet(ctx context.Context, trimmed string) (string, error) {
 	default:
 		return "", fmt.Errorf("not a run command (starts with %q): use `podman run ...`, `docker run ...`, `compose <path>`, or `<kind> <name>`", args[0])
 	}
-	return podlet.Generate(ctx, args)
+	return podlet.Generate(ctx, normalizeRunArgs(args))
 }
 
 func fileExists(p string) bool {
@@ -223,33 +107,6 @@ func generatedFileName(raw string) (string, error) {
 		base += ".container"
 	}
 	return base, nil
-}
-
-// installGenerated writes the generated quadlet into the user's config
-// search dir and reloads the generator.
-func (m Model) installGenerated() (tea.Model, tea.Cmd) {
-	file, err := generatedFileName(podlet.FileNameOf(m.genContent))
-	if err != nil {
-		m.setStatus("cannot determine a FileName from the generated output", true)
-		return m, nil
-	}
-	content := m.genContent
-	return m, tea.Batch(m.setBusy("write "+file),
-		actionCmdHint("generate "+file, "written to ~/.config/containers/systemd and reloaded", func(ctx context.Context) (string, error) {
-			dir, err := os.UserConfigDir()
-			if err != nil {
-				return "", err
-			}
-			target := filepath.Join(dir, "containers", "systemd", file)
-			if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
-				return "", err
-			}
-			if err := os.WriteFile(target, []byte(content), 0o644); err != nil { // #nosec G306 -- quadlet files are user config, not secrets
-				return "", err
-			}
-			_, err = m.sys.DaemonReload(ctx)
-			return target, err
-		}))
 }
 
 // podletAvailable indirection keeps tests independent of the real PATH.

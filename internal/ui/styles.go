@@ -17,51 +17,54 @@ const (
 	ThemeColorblind Theme = "colorblind"
 )
 
-// palette is one complete color scheme. The colorblind scheme avoids the
-// red-green pairing (≈8% of men cannot tell them apart): success is blue,
-// failure is vermilion/yellow, each always paired with a text glyph
-// (ok/FAIL/✗/⚠) that carries the meaning without color.
+// palette is one complete color scheme (DESIGN.md "Palette"). The main
+// background is never painted: only surfaces (top bar, status line, tiles,
+// modals) and the selected row get a background, so the user's terminal
+// background and font stay in charge. The colorblind scheme avoids the
+// red-green pairing (≈8% of men cannot tell them apart): ok is blue, warn
+// yellow, err orange, and every status also carries a glyph and a word.
 type palette struct {
-	titleFg, titleBg string
-	headerFg         string
-	help             string
-	ok               string
-	err              string
-	dimErr           string
-	warn             string
-	filter           string
-	lingerOn         string
-	lingerOff        string
-	lingerUnknown    string
-	tabActiveFg      string
-	tabActiveBg      string
-	tabInactive      string
+	surface  string
+	selBg    string
+	border   string
+	dim      string
+	muted    string
+	fg       string
+	bright   string
+	accent   string
+	onAccent string // text drawn on an accent background
+	ok       string
+	warn     string
+	err      string
+	kind     string
 }
 
 var (
 	darkPalette = palette{
-		titleFg: "15", titleBg: "62", headerFg: "62", help: "241",
-		ok: "42", err: "203", dimErr: "174", warn: "214", filter: "39",
-		lingerOn: "42", lingerOff: "203", lingerUnknown: "245",
-		tabActiveFg: "15", tabActiveBg: "62", tabInactive: "245",
+		surface: "#161B24", selBg: "#1C2838", border: "#262E3B",
+		dim: "#5D6878", muted: "#8B95A5", fg: "#C9D1DB", bright: "#EEF2F6",
+		accent: "#52CFF3", onAccent: "#0E1117",
+		ok: "#6ED889", warn: "#F3BD5C", err: "#F97770", kind: "#B6ADF3",
 	}
 	lightPalette = palette{
-		titleFg: "15", titleBg: "62", headerFg: "62", help: "240",
-		ok: "28", err: "160", dimErr: "131", warn: "172", filter: "25",
-		lingerOn: "28", lingerOff: "160", lingerUnknown: "242",
-		tabActiveFg: "15", tabActiveBg: "62", tabInactive: "242",
+		surface: "#E9ECF0", selBg: "#D9E6F3", border: "#CFD5DD",
+		dim: "#6B7584", muted: "#4F5867", fg: "#272D35", bright: "#0E1117",
+		accent: "#0074A6", onAccent: "#FFFFFF",
+		ok: "#0A7E3A", warn: "#AA6A00", err: "#C53637", kind: "#6451AC",
 	}
 	colorblindPalette = palette{
-		titleFg: "15", titleBg: "62", headerFg: "62", help: "241",
-		ok: "33", err: "214", dimErr: "180", warn: "226", filter: "39",
-		lingerOn: "33", lingerOff: "214", lingerUnknown: "245",
-		tabActiveFg: "15", tabActiveBg: "62", tabInactive: "245",
+		surface: "#161B24", selBg: "#1C2838", border: "#262E3B",
+		dim: "#5D6878", muted: "#8B95A5", fg: "#C9D1DB", bright: "#EEF2F6",
+		accent: "#52CFF3", onAccent: "#0E1117",
+		ok: "#609EFA", warn: "#F2E15F", err: "#F88A3D", kind: "#B6ADF3",
 	}
 )
 
+// activePalette is the resolved scheme; layout code reads raw colors from
+// it (tile borders, surface fills) where a prebuilt style does not fit.
+var activePalette palette
+
 var (
-	titleStyle         lipgloss.Style
-	headerStyle        lipgloss.Style
 	helpStyle          lipgloss.Style
 	okStyle            lipgloss.Style
 	errStyle           lipgloss.Style
@@ -72,7 +75,16 @@ var (
 	lingerOffStyle     lipgloss.Style
 	lingerUnknownStyle lipgloss.Style
 	tabActiveStyle     lipgloss.Style
-	tabInactiveStyle   lipgloss.Style
+
+	// Token styles for the redesigned chrome.
+	dimStyle     lipgloss.Style
+	mutedStyle   lipgloss.Style
+	fgStyle      lipgloss.Style
+	brightStyle  lipgloss.Style
+	accentStyle  lipgloss.Style
+	kindStyle    lipgloss.Style
+	surfaceStyle lipgloss.Style
+	logoStyle    lipgloss.Style
 )
 
 // activeTheme is the resolved scheme name (for tests and the help text).
@@ -80,6 +92,9 @@ var activeTheme Theme
 
 func init() {
 	applyTheme(ThemeDark)
+	if os.Getenv("TERM") == "linux" {
+		asciiGlyphs = true
+	}
 }
 
 // applyTheme rebuilds every style from the named palette.
@@ -101,26 +116,28 @@ func applyTheme(t Theme) {
 		t = ThemeDark
 	}
 	activeTheme = t
-	titleStyle = lipgloss.NewStyle().Bold(true).
-		Foreground(lipgloss.Color(p.titleFg)).
-		Background(lipgloss.Color(p.titleBg)).
-		Padding(0, 1)
-	headerStyle = lipgloss.NewStyle().Bold(true).
-		Foreground(lipgloss.Color(p.headerFg)).
-		Padding(0, 1)
-	helpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(p.help))
-	okStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(p.ok))
-	errStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(p.err))
-	dimErrStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(p.dimErr))
-	warnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(p.warn))
-	filterStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(p.filter))
-	lingerOnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(p.lingerOn)).Bold(true)
-	lingerOffStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(p.lingerOff)).Bold(true)
-	lingerUnknownStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(p.lingerUnknown)).Bold(true)
-	tabActiveStyle = lipgloss.NewStyle().Bold(true).
-		Foreground(lipgloss.Color(p.tabActiveFg)).
-		Background(lipgloss.Color(p.tabActiveBg))
-	tabInactiveStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(p.tabInactive))
+	activePalette = p
+	fg := func(c string) lipgloss.Style { return lipgloss.NewStyle().Foreground(lipgloss.Color(c)) }
+
+	dimStyle = fg(p.dim)
+	mutedStyle = fg(p.muted)
+	fgStyle = fg(p.fg)
+	brightStyle = fg(p.bright).Bold(true)
+	accentStyle = fg(p.accent)
+	kindStyle = fg(p.kind)
+	surfaceStyle = fg(p.fg).Background(lipgloss.Color(p.surface))
+	logoStyle = fg(p.bright).Background(lipgloss.Color(p.accent)).Bold(true)
+
+	helpStyle = mutedStyle
+	okStyle = fg(p.ok)
+	errStyle = fg(p.err)
+	dimErrStyle = dimStyle
+	warnStyle = fg(p.warn)
+	filterStyle = accentStyle
+	lingerOnStyle = fg(p.ok).Bold(true)
+	lingerOffStyle = fg(p.err).Bold(true)
+	lingerUnknownStyle = mutedStyle.Bold(true)
+	tabActiveStyle = fg(p.onAccent).Background(lipgloss.Color(p.accent)).Bold(true)
 }
 
 // resolveTheme maps the config string to a Theme, defaulting to dark.
@@ -131,4 +148,90 @@ func resolveTheme(s string) Theme {
 	default:
 		return ThemeDark
 	}
+}
+
+// onSurface returns s painted on the surface background, so segments
+// joined inside a surface bar keep the fill after their own ANSI resets.
+func onSurface(s lipgloss.Style) lipgloss.Style {
+	return s.Background(lipgloss.Color(activePalette.surface))
+}
+
+// onSel is onSurface for the selected-row background.
+func onSel(s lipgloss.Style) lipgloss.Style {
+	return s.Background(lipgloss.Color(activePalette.selBg))
+}
+
+// asciiGlyphs swaps every status glyph for its ASCII fallback (TERM=linux,
+// --ascii), for consoles whose font lacks the geometric shapes block.
+var asciiGlyphs bool
+
+// SetASCII forces the ASCII glyph fallback on or off.
+func SetASCII(on bool) { asciiGlyphs = on }
+
+// glyphKind names one entry of the status glyph table (DESIGN.md "Glyphs").
+type glyphKind int
+
+const (
+	gActive glyphKind = iota
+	gInactive
+	gStarting
+	gFailed
+	gUnhealthy
+	gNotFound
+	gTemplate
+	gWarn
+	gExternal
+	gMarked
+	gDone    // action succeeded (status line)
+	gRefresh // refresh interval chip
+)
+
+var glyphTable = map[glyphKind][2]string{
+	gActive:    {"●", "*"},
+	gInactive:  {"○", "o"},
+	gStarting:  {"◐", "~"},
+	gFailed:    {"✗", "x"},
+	gUnhealthy: {"▲", "!"},
+	gNotFound:  {"◌", "?"},
+	gTemplate:  {"◇", "<>"},
+	gWarn:      {"⚠", "!"},
+	gExternal:  {"~", "~"}, // units outside the generator search path (quadlet_dirs)
+	gMarked:    {"✱", "+"},
+	gDone:      {"✓", "ok"},
+	gRefresh:   {"⟳", "refresh"},
+}
+
+// glyph returns the Unicode glyph, or its ASCII fallback when enabled.
+func glyph(k glyphKind) string {
+	g := glyphTable[k]
+	if asciiGlyphs {
+		return g[1]
+	}
+	return g[0]
+}
+
+// glyphStyle is the color that goes with each glyph.
+func glyphStyle(k glyphKind) lipgloss.Style {
+	switch k {
+	case gActive:
+		return okStyle
+	case gStarting, gMarked:
+		return accentStyle
+	case gFailed:
+		return errStyle
+	case gUnhealthy, gWarn:
+		return warnStyle
+	case gNotFound, gExternal:
+		return dimStyle
+	}
+	return mutedStyle
+}
+
+// logoMark is the 1-cell quadman mark: a 2×2 grid with the bottom-right
+// cell in accent, drawn as ▛ (bright on accent).
+func logoMark() string {
+	if asciiGlyphs {
+		return "[q]"
+	}
+	return logoStyle.Render("▛")
 }

@@ -39,10 +39,12 @@ const (
 
 // Detail tabs, cycled with [ and ].
 const (
-	tabSource = iota
+	tabOverview = iota
+	tabSource
 	tabStatus
 	tabJournal
 	tabInspect
+	tabCount
 )
 
 // Model is the quadman Bubble Tea model. Screen state lives in the
@@ -69,7 +71,6 @@ type Model struct {
 	generateState
 	execState
 	envState
-	treeState
 	cacheState
 	templateState
 	confirmState
@@ -77,18 +78,13 @@ type Model struct {
 	statusBarState
 	paletteState
 	compartmentState
+	screenState
+	screenData
 }
 
 // New returns the initial quadman model.
 func New() Model {
-	cols := []table.Column{
-		{Title: "QUADLET", Width: 22},
-		{Title: "KIND", Width: 10},
-		{Title: "SYSTEMD UNIT", Width: 26},
-		{Title: "STATE", Width: 11},
-		{Title: "SUB", Width: 10},
-		{Title: "IMAGE", Width: 34},
-	}
+	cols := adaptiveColumns(100, 0)
 	t := table.New(
 		table.WithColumns(cols),
 		table.WithFocused(true),
@@ -120,6 +116,8 @@ func New() Model {
 	pi.Prompt = ""
 	lfi := textinput.New()
 	lfi.Prompt = ""
+	sfi := textinput.New()
+	sfi.Prompt = ""
 	cfg, cfgErr := config.Load()
 	m := Model{
 		sys:      systemd.New(),
@@ -137,6 +135,7 @@ func New() Model {
 		},
 		logState:       logState{searchIn: si, logFilterIn: lfi},
 		paletteState:   paletteState{paletteIn: pi},
+		screenState:    screenState{scrFilterIn: sfi},
 		templateState:  templateState{instanceIn: ii},
 		generateState:  generateState{genIn: gi},
 		execState:      execState{execIn: ei},
@@ -166,6 +165,10 @@ func New() Model {
 		m.setStatus("custom command(s) shadowed by built-in keys (never fire): "+strings.Join(bad, ", "), true)
 	}
 	m.compList = cfg.Settings.Compartments
+	m.whoami = localWhoami()
+	if d := cfg.Settings.Dashboard; d != nil && !*d {
+		m.dashOff = true
+	}
 	return m
 }
 

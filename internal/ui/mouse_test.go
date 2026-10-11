@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -42,8 +43,14 @@ func TestClickCompensatesSettledFilterLine(t *testing.T) {
 	m := clickModel()
 	m.filterStr = "a"
 	m.refilter()
-	// Title + filter + header occupy Y 0-2, so Y=4 is the second row.
-	model, _ := m.Update(tea.MouseClickMsg{X: 5, Y: 4})
+	// Top bar, nav strip, the preamble (dashboard + settled filter line)
+	// and the table header sit above the rows; +1 is the second row.
+	w, _ := m.size()
+	first := 2 + lineCount(m.listPreamble(w)) + 1
+	if !strings.Contains(m.listPreamble(w), "/ ") {
+		t.Fatal("the settled filter line must be part of the preamble")
+	}
+	model, _ := m.Update(tea.MouseClickMsg{X: 5, Y: first + 1})
 	mm := model.(Model)
 	u, ok := mm.selected()
 	if !ok || u.Name != "bravo" {

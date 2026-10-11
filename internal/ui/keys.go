@@ -119,6 +119,8 @@ var keyChain = []keyHandler{
 	{"generate-input", Model.generateKeys},
 	{"exec-input", Model.execKeys},
 	{"filter-input", Model.filterKeys},
+	{"screen-filter-input", Model.screenFilterKeys},
+	{"secret-input", Model.secretInputKeys},
 	// Command palette modal handler.
 	{"palette", Model.modePaletteKeys},
 	{"palette-open", openPaletteKeys},
@@ -141,6 +143,8 @@ var keyChain = []keyHandler{
 	{"esc", Model.escKeys},
 	{"help", Model.helpKeys},
 	{"filter-open", Model.filterOpenKeys},
+	{"sort", Model.sortKeys},
+	{"dashboard", Model.dashboardKeys},
 	{"start-restart", Model.startRestartKeys},
 	{"stop", Model.stopKeys},
 	{"enable", Model.enableKeys},
@@ -195,17 +199,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return mm, cmd
 	}
 
-	// An armed confirmation (stop/enable/disable/...) swallows the next key.
+	// An armed confirmation owns the keyboard (confirm.go).
 	if m.pending != nil {
-		p := m.pending
-		m.pending = nil
-		if msg.String() != "y" {
-			m.setStatus(p.verb+" cancelled", false)
-			return m, nil
-		}
-		mm, cmd := m.runPending(p)
+		mm, cmd := m.confirmKeys(msg)
 		return mm, cmd
 	}
+	m.trigger = "key " + msg.String()
 
 	// Dispatch through the keyChain table: first handler that
 	// consumes the key wins. Table order is the precedence.

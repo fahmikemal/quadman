@@ -19,6 +19,7 @@ type Options struct {
 	Compartment string
 	Mouse       bool
 	Theme       string
+	ASCII       bool // ASCII glyph fallback (TERM=linux enables it too)
 	QuadletDirs []string
 	ClientInfo  string
 	NoEditor    bool
@@ -57,6 +58,9 @@ func NewWithOptions(o Options) Model {
 	}
 	if o.Theme != "" {
 		applyTheme(resolveTheme(o.Theme))
+	}
+	if o.ASCII {
+		SetASCII(true)
 	}
 	if len(o.QuadletDirs) > 0 {
 		applyExtraDirs(o.QuadletDirs)

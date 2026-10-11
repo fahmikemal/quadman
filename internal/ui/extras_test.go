@@ -70,24 +70,25 @@ func TestGenerateFlowMissingPodlet(t *testing.T) {
 }
 
 func TestEventsSessionRouting(t *testing.T) {
-	m := New()
+	m := withUnits(New(), "web")
 	sess := &logSession{unit: "events"}
 	m.eventSess = sess
 	m.mode = modeEvents
 	m.following = true
 
-	model, _ := m.Update(logLineMsg{sess: sess, line: `{"status":"start"}`})
+	line := `{"ID":"61d6","Name":"systemd-web","Status":"died","time":1789477405,"Type":"container","ContainerExitCode":137,"Attributes":{"PODMAN_SYSTEMD_UNIT":"web.service"}}`
+	model, _ := m.Update(logLineMsg{sess: sess, line: line})
 	m = model.(Model)
-	if len(m.eventLines) != 1 || m.eventLines[0] != `{"status":"start"}` {
-		t.Errorf("event lines = %v", m.eventLines)
+	if len(m.events.recs) != 1 || m.events.recs[0].unit != "web.service" || m.events.recs[0].detail != "exit 137 (SIGKILL)" {
+		t.Fatalf("event recs = %+v", m.events.recs)
 	}
 
 	// journal session lines must not leak into events
 	other := &logSession{unit: "webapp.service"}
 	model, _ = m.Update(logLineMsg{sess: other, line: "journal line"})
 	m = model.(Model)
-	if len(m.eventLines) != 1 {
-		t.Errorf("foreign session line must be dropped: %v", m.eventLines)
+	if len(m.events.recs) != 1 {
+		t.Errorf("foreign session line must be dropped: %v", m.events.recs)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -89,6 +90,17 @@ type Status struct {
 	ActiveState string // active / inactive / failed
 	SubState    string // running / exited / dead / …
 	Description string
+	// ActiveSince is when the unit last entered the active state (zero
+	// when it never did); the UI derives UPTIME from it.
+	ActiveSince time.Time
+	// Result is systemd's last run result: success, exit-code, signal,
+	// timeout, start-limit-hit, …
+	Result string
+	// ExecMainStatus is the main process exit code (or signal number).
+	ExecMainStatus int
+	// NRestarts counts automatic restarts (Restart=) since the last
+	// manual start; a climbing value means a crash loop.
+	NRestarts int
 }
 
 // Loaded reports whether systemd knows the unit (it was generated).
@@ -119,7 +131,8 @@ func (s *Systemd) Show(ctx context.Context, units []string) (map[string]Status, 
 	}
 	args := s.args(append([]string{
 		"show",
-		"--property=Id,LoadState,ActiveState,SubState,Description",
+		"--property=Id,LoadState,ActiveState,SubState,Description,ActiveEnterTimestamp,Result,ExecMainStatus,NRestarts",
+		"--timestamp=unix", // "@1696000000": no locale or timezone parsing
 		"--no-pager",
 		"--", // never let a unit name be read as an option
 	}, units...)...)
@@ -164,6 +177,22 @@ func (s *Systemd) Show(ctx context.Context, units []string) (map[string]Status, 
 		case "Description":
 			if cur != nil {
 				cur.Description = v
+			}
+		case "ActiveEnterTimestamp":
+			if cur != nil {
+				cur.ActiveSince = parseUnixTimestamp(v)
+			}
+		case "Result":
+			if cur != nil {
+				cur.Result = v
+			}
+		case "ExecMainStatus":
+			if cur != nil {
+				cur.ExecMainStatus, _ = strconv.Atoi(v)
+			}
+		case "NRestarts":
+			if cur != nil {
+				cur.NRestarts, _ = strconv.Atoi(v)
 			}
 		}
 	}
@@ -258,4 +287,14 @@ func (s *Systemd) DaemonReload(ctx context.Context) (string, error) {
 		return msg, fmt.Errorf("systemctl daemon-reload: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	return msg, nil
+}
+
+// parseUnixTimestamp reads systemctl's --timestamp=unix form ("@<secs>").
+// Empty, "n/a" or malformed values yield the zero time.
+func parseUnixTimestamp(v string) time.Time {
+	secs, err := strconv.ParseInt(strings.TrimPrefix(v, "@"), 10, 64)
+	if err != nil || secs <= 0 || !strings.HasPrefix(v, "@") {
+		return time.Time{}
+	}
+	return time.Unix(secs, 0)
 }

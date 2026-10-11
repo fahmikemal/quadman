@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/fahmikemal/quadman/internal/quadlet"
@@ -40,46 +39,6 @@ func (m unitIssues) marker(name string) string {
 		return " ⚠"
 	}
 	return ""
-}
-
-// validateView renders the problems screen: issues grouped by file with
-// severity, plus version-gate annotations for known-new keys.
-func (m Model) validateView() string {
-	var b strings.Builder
-	if len(m.issues) == 0 {
-		b.WriteString("No validation issues — all Quadlet files converted cleanly.\n")
-		if m.generator == "" {
-			b.WriteString("(podman-system-generator not found; validation unavailable)\n")
-		}
-		return b.String()
-	}
-	b.WriteString("From the Quadlet generator itself (dry-run):\n\n")
-	names := make([]string, 0, len(m.issues))
-	for name := range m.issues {
-		names = append(names, name)
-	}
-	slices.Sort(names)
-	for _, name := range names {
-		fmt.Fprintf(&b, "%s\n", name)
-		for _, is := range m.issues[name] {
-			sev := "warn"
-			if is.Severity == quadlet.SeverityError {
-				sev = "ERROR"
-			}
-			fmt.Fprintf(&b, "  [%s] %s\n", sev, is.Message)
-			if hint := m.gateHint(is); hint != "" {
-				fmt.Fprintf(&b, "        %s\n", hint)
-			}
-		}
-	}
-	if hints := m.smartHints(); len(hints) > 0 {
-		b.WriteString("\nHINTS (from live state):\n")
-		for _, h := range hints {
-			b.WriteString("  • " + h + "\n")
-		}
-	}
-	b.WriteString("\nesc back · edit the file with E to fix")
-	return b.String()
 }
 
 // gatedKeys maps Quadlet keys to the Podman version that introduced them.

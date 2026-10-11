@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -39,7 +40,7 @@ func availableEditors() []editorChoice {
 // environment variable → the saved preference → a one-time picker whose
 // answer is persisted to the config file.
 func (m Model) editSelected() (tea.Model, tea.Cmd) {
-	if _, ok := m.selected(); !ok {
+	if _, ok := m.editPath(); !ok {
 		return m, nil
 	}
 	if e := os.Getenv("EDITOR"); e != "" {
@@ -61,6 +62,7 @@ func (m Model) editSelected() (tea.Model, tea.Cmd) {
 func (m Model) pickEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "esc" {
 		m.pickingEditor = false
+		m.editTarget = editTarget{}
 		m.setStatus("edit cancelled", false)
 		return m, nil
 	}
@@ -90,6 +92,12 @@ func (m Model) pickerLine() string {
 // may carry its own arguments (`code --wait`), split quote-aware without a
 // shell; the file path is always the final argument.
 func editorArgv(editor, path string) ([]string, error) {
+	return editorArgvAt(editor, path, 0)
+}
+
+// editorArgvAt is editorArgv that also jumps to line (> 0) for editors
+// whose line syntax is known; any other editor just opens the file.
+func editorArgvAt(editor, path string, line int) ([]string, error) {
 	argv, err := shellwords.Split(editor)
 	if err != nil {
 		return nil, fmt.Errorf("bad $EDITOR %q: %w", editor, err)
@@ -97,23 +105,67 @@ func editorArgv(editor, path string) ([]string, error) {
 	if len(argv) == 0 {
 		return nil, fmt.Errorf("empty $EDITOR")
 	}
+	if line <= 0 {
+		return append(argv, path), nil
+	}
+	switch filepath.Base(argv[0]) {
+	case "vi", "vim", "nvim", "nano", "emacs", "micro", "kak", "mg", "joe", "ne":
+		return append(argv, fmt.Sprintf("+%d", line), path), nil
+	case "hx", "helix":
+		return append(argv, fmt.Sprintf("%s:%d", path, line)), nil
+	case "code", "codium", "code-insiders":
+		return append(argv, "--goto", fmt.Sprintf("%s:%d", path, line)), nil
+	}
 	return append(argv, path), nil
+}
+
+// editTarget is a file (and optional line) to edit instead of the
+// selected unit's own file: timer files, a problem's exact line.
+type editTarget struct {
+	path string
+	line int
+}
+
+// editPath resolves what the editor opens: the explicit target when set,
+// else the selected unit's file.
+func (m Model) editPath() (editTarget, bool) {
+	if m.editTarget.path != "" {
+		return m.editTarget, true
+	}
+	if u, ok := m.selected(); ok {
+		return editTarget{path: u.Path}, true
+	}
+	return editTarget{}, false
+}
+
+// editPathAt opens path at line with the same gates as E on the list.
+func (m Model) editPathAt(path string, line int) (tea.Model, tea.Cmd) {
+	if m.noEditor {
+		m.setStatus("editor not available in SSH server session: edit files directly on the host", true)
+		return m, nil
+	}
+	if m.refuseRemoteWrite() || m.refuseReadonly() {
+		return m, nil
+	}
+	m.editTarget = editTarget{path: path, line: line}
+	return m.editSelected()
 }
 
 // editWith opens the file in the given editor via tea.ExecProcess.
 func (m Model) editWith(editor string) (tea.Model, tea.Cmd) {
-	u, ok := m.selected()
+	target, ok := m.editPath()
 	if !ok {
 		return m, nil
 	}
-	argv, err := editorArgv(editor, u.Path)
+	m.editTarget = editTarget{}
+	argv, err := editorArgvAt(editor, target.path, target.line)
 	if err != nil {
 		m.setStatus(err.Error(), true)
 		return m, nil
 	}
-	before := fileMtime(u.Path)
+	before := fileMtime(target.path)
 	cmd := exec.Command(argv[0], argv[1:]...) // #nosec G702 G204 -- the editor binary is the user's own $EDITOR or their saved picker choice; argv slice, no shell
 	return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
-		return editorFinishedMsg{changed: fileMtime(u.Path) != before, err: err}
+		return editorFinishedMsg{changed: fileMtime(target.path) != before, err: err}
 	})
 }

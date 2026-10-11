@@ -16,8 +16,8 @@ func TestMarkToggle(t *testing.T) {
 	if !mm.marks["alpha.service"] {
 		t.Fatal("space must mark the cursor row")
 	}
-	if !strings.Contains(mm.table.Rows()[0][0], "*") {
-		t.Errorf("marked row must show *: %q", mm.table.Rows()[0][0])
+	if !strings.Contains(mm.table.Rows()[0][1], glyph(gMarked)) {
+		t.Errorf("marked row must show %s: %q", glyph(gMarked), mm.table.Rows()[0][1])
 	}
 
 	model, _ = mm.Update(tea.KeyPressMsg{Code: ' ', Text: " "})

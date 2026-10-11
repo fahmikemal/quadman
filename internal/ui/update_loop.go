@@ -7,6 +7,8 @@ import (
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/fahmikemal/quadman/internal/podman"
 )
 
 // This file holds the Elm update loop: Init plus the Update message
@@ -21,7 +23,23 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(m.refresh(enrichFull), m.pollTick())
 }
 
+// Update routes msg, then re-syncs the list scroll window so the cursor
+// stays visible whichever handler moved it.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	model, cmd := m.update(msg)
+	if mm, ok := model.(Model); ok {
+		mm.syncListOffset()
+		mm.syncScreenOffset()
+		if mm.pending != nil && mm.pending != mm.armedFor {
+			mm.armPending()
+			mm.armedFor = mm.pending
+		}
+		return mm, cmd
+	}
+	return model, cmd
+}
+
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -36,13 +54,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Poll: refresh the list. Full podman enrichment runs once (or after
 		// daemon-reload); health refreshes on a slower cadence.
 		m.pollCount++
+		var extra tea.Cmd
+		if m.mode == modeStats && !m.busy {
+			extra = statsCmd()
+		}
 		level := enrichNone
 		if !m.podmanTried {
 			level = enrichFull
 		} else if m.pollCount%healthPollEvery == 0 {
 			level = enrichHealth
 		}
-		return m, tea.Batch(m.refresh(level), m.pollTick())
+		return m, tea.Batch(m.refresh(level), m.pollTick(), extra)
 
 	case spinner.TickMsg:
 		if !m.busy {
@@ -57,7 +79,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case actionMsg:
 		m.busy = false
-		m.recordAction(msg.desc, msg.err)
+		m.recordActionMsg(msg)
 		if msg.err != nil {
 			m.setStatus(msg.desc+": "+msg.err.Error(), true)
 			return m, nil
@@ -88,8 +110,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					"\n\nHint: the user journal may be missing. Is systemd user session running?"))
 		} else {
 			if msg.out != "" {
-				m.logLines = strings.Split(msg.out, "\n")
-				m.viewport.SetContent(strings.Join(m.visibleLogLines(), "\n"))
+				m.setLogLines(strings.Split(msg.out, "\n"))
+				m.viewport.SetContent(m.logViewText())
 			} else {
 				m.viewport.SetContent(msg.out)
 			}
@@ -103,29 +125,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case logLineMsg:
-		if msg.sess == m.eventSess && m.eventSess != nil {
-			m.eventLines = append(m.eventLines, msg.line)
-			if len(m.eventLines) > logBufferCap {
-				m.eventLines = m.eventLines[len(m.eventLines)-logBufferCap:]
-			}
-			if m.mode == modeEvents {
-				wasAtBottom := m.viewport.AtBottom()
-				m.viewport.SetContent(strings.Join(m.eventLines, "\n"))
-				if m.following && wasAtBottom {
-					m.viewport.GotoBottom()
-				}
-			}
-			return m, followLine(m.eventSess)
+		if (msg.sess == m.eventSess && m.eventSess != nil) || (msg.sess == m.events.jsess && m.events.jsess != nil) {
+			return m, m.applyEventLine(msg)
 		}
 		if msg.sess != m.sess { // a superseded session must not touch the view
 			return m, nil
 		}
 		wasAtBottom := m.viewport.AtBottom()
-		m.logLines = append(m.logLines, msg.line)
-		if len(m.logLines) > logBufferCap {
-			m.logLines = m.logLines[len(m.logLines)-logBufferCap:]
-		}
-		m.viewport.SetContent(strings.Join(m.visibleLogLines(), "\n"))
+		m.appendLogLine(msg.line)
+		m.viewport.SetContent(m.logViewText())
 		if m.following && wasAtBottom {
 			m.viewport.GotoBottom()
 		}
@@ -152,18 +160,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case updatesMsg:
 		m.busy = false
+		if msg.applied {
+			m.recordAction("podman auto-update", msg.err)
+		}
 		if msg.err != nil {
 			m.setStatus("auto-update: "+msg.err.Error(), true)
-			return m, nil
+			if !msg.applied {
+				return m, nil
+			}
 		}
 		m.updateEntries = msg.entries
+		if m.updateEntries == nil {
+			m.updateEntries = []podman.AutoUpdateEntry{}
+		}
 		m.timerEnabled = msg.timerEnabled
 		m.timerActive = msg.timerActive
-		m.mode = modeUpdates
-		m.viewport.SetContent(m.updatesView())
-		m.viewport.GotoTop()
-		m.resize()
-		m.clearStatus()
+		m.updateTimer = msg.timer
+		m.updatesApplied = msg.applied
+		if msg.applied && msg.err == nil {
+			m.setStatus(fmt.Sprintf("auto-update ran on %d container(s)", len(msg.entries)), false)
+		}
+		m.enterScreen(modeUpdates)
 		return m, nil
 
 	case timerToggledMsg:
@@ -176,23 +193,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setStatus("timer toggled", false)
 		return m, updatesCmd(m.sys, m.ssh)
 
-	// One-shot viewport screens (storage, stats, timers, secrets) share
-	// one transition; see screenMsg in screens.go.
+	// One-shot data screens (storage, stats, timers, secrets) share one
+	// transition; see screenMsg in screens.go.
 	case screenMsg:
 		return m.applyScreenMsg(msg)
 
-	case generateMsg:
+	case eventsHistoryMsg:
+		return m.applyEventsHistory(msg)
+
+	case timerLogMsg:
 		m.busy = false
 		if msg.err != nil {
-			m.setStatus("generate: "+msg.err.Error(), true)
+			m.setStatus("journal: "+msg.err.Error(), true)
 			return m, nil
 		}
-		m.genContent = msg.content
-		m.mode = modeGenerate
-		m.viewport.SetContent(msg.content)
-		m.viewport.GotoTop()
-		m.resize()
+		m.timers.logUnit, m.timers.logLines = msg.unit, msg.lines
 		return m, nil
+
+	case secretValueMsg:
+		return m.applySecretValue(msg)
+
+	case clipboardClearMsg:
+		m.setStatus("clipboard cleared (secret "+msg.secret+")", false)
+		return m, tea.SetClipboard("")
+
+	case generateMsg:
+		return m.applyGenerate(msg)
 
 	case statusMsg:
 		return m.applyTabMsg(msg.content, tabStatus)
