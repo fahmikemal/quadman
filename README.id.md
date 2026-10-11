@@ -1,8 +1,9 @@
 <div align="center">
 
-<img src="quadman_final_blue.png" alt="logo quadman" width="200">
-
-### quadman
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/logo/quadman-logo-dark.svg">
+  <img src="docs/logo/quadman-logo-light.svg" alt="quadman" width="360">
+</picture>
 
 **Terminal UI manager untuk unit rootless Podman [Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html).**
 
@@ -37,10 +38,13 @@ Quadlet adalah standar yang direkomendasikan untuk menjalankan container rootles
 - Pemantauan kesehatan container (*healthcheck*): container yang tidak sehat (*unhealthy*) langsung ditandai di kolom STATE, dan tombol `h` mengeksekusi `podman healthcheck run` pada unit yang dipilih.
 - **Validasi bawaan (*built-in validation*)** — generator Quadlet resmi dijalankan secara *dry-run* untuk memvalidasi setiap berkas saat refresh; unit yang bermasalah ditandai dengan ✗/⚠ dan layar `v` menjelaskan detail error secara gamblang, termasuk deteksi versi Podman (*version-gating hints*).
 - **Direktori Drop-in** — mendukung berkas konfigurasi tambahan `foo.container.d/*.conf` (termasuk *cascading* `foo-.container.d/` dan drop-in generik `container.d/`) yang ditampilkan menyatu (*merged*) sesuai urutan evaluasi generator systemd.
-- **Pohon dependensi (*dependency tree*)** (`t`) — visualisasi relasi pods → containers → unit image/network/volume beserta dependensi direktif `[Unit]`, dirender dengan komponen pohon (*tree*).
+- **Pohon dependensi (*dependency tree*)** (`t`) — unit dikelompokkan per pod dan per app podman, masing-masing dengan pod, image, network, volume, dan dependensi `[Unit]` yang dirujuknya. Referensi yang hilang ditandai `✗ missing`, subtree yang sehat dimulai terlipat (`←/→`, `z` semua), `f` hanya menampilkan yang bermasalah, dan `i` menambah baris *impact* (apa yang memblokir unit, dan siapa yang membutuhkannya).
 - Dukungan mouse: klik baris untuk memilih, putar roda mouse untuk menggulir log; `y`/`Y` untuk menyalin nama unit/image ke clipboard via protokol OSC52 (berfungsi mulus bahkan melalui koneksi SSH).
-- **Panel detail bertab** (`[`/`]`) — menampilkan kode sumber, `systemctl status`, live journal, dan `podman inspect` dari unit yang dipilih dalam satu tampilan terintegrasi.
-- **Penyimpanan & Event** — tombol `g` untuk diagnosa disk `podman system df --verbose`, tombol `w` untuk live streaming `podman events` (dapat dijeda dengan `f`).
+- **Panel detail bertab** (`[`/`]`) — ringkasan (*overview*: status, restart, result, boot, port, volume, secret, dependensi, masalah), kode sumber, `systemctl status`, live journal berkolom waktu/sumber/pesan dengan level berupa glyph + warna, dan `podman inspect`.
+- **Dashboard** — enam tiles (units, running, failed, generator, linger, auto-update) dan blok "needs attention" yang menyebut setiap masalah beserta tombol untuk memperbaikinya; masalah selalu berada di urutan teratas tabel.
+- **Storage** (`g`) — `podman system df` sebagai tiles, lalu images, volumes, dan containers sebagai tab, masing-masing ditautkan ke unit quadlet yang memakainya; objek yang tidak terpakai dikelompokkan di bawah UNUSED beserta ruang yang bisa di-reclaim. Pull, remove (ditolak selama masih dipakai unit), dan prune, semuanya lewat konfirmasi.
+- **Events** (`w`) — satu timeline live yang menggabungkan `podman events`, pesan service manager tentang unit Anda (started, failed, scheduled restart), dan aksi quadman sendiri; filter tipe (`1`-`6`), unit (`u`), dan rentang waktu (`s`), jeda (`f`), ekspor (`S`).
+- **Timers** (`T`), **Secrets** (`K`), **Actions** (`A`) — jadwal dalam bahasa manusia dengan riwayat 24 run ✓✗; unit mana memakai secret apa dan sebagai apa, dengan nilai yang tidak pernah dirender (input bermasker lewat stdin, clipboard dibersihkan setelah 30 detik); audit sesi dengan durasi, pemicu, perintah setara, dan tombol untuk mengulang.
 - **Petunjuk pintar (*smart hints*)** — jika start unit berstatus `timed-out`, TUI menyarankan penyesuaian `TimeoutStartSec=` atau `Pull=`; peringatan *crash-loop* dan pemakaian `AutoUpdate=` tanpa timer aktif juga langsung disorot pada layar diagnostik masalah.
 - **Generator dari perintah apapun** (`n`) — salin-tempel perintah `docker run` atau jalur berkas docker-compose; utilitas [podlet](https://github.com/containers/podlet) akan mengonversinya, Anda dapat meninjau preview hasilnya, lalu tekan `y` untuk menulis berkas dan memicu reload generator secara otomatis.
 - **Template & Bundel** — instansiasi template `web@.container` menjadi `web@prod.service` (`i`), serta preview dan instalasi bundel multi-dokumen `.quadlets` (`I`).
@@ -104,7 +108,8 @@ quadman --system list            # Tampilkan daftar quadlet tingkat sistem (flag
 quadman --as svc-web list        # Daftar unit milik user lain via sudo (flag ditulis sebelum perintah)
 quadman --skill                  # Ekspor spesifikasi Agent Skill untuk AI (markdown)
 quadman --skill --skill-format=json # Ekspor spesifikasi Agent Skill dalam format JSON
-quadman -version
+quadman --ascii                  # Glyph status ASCII (otomatis di TERM=linux)
+quadman -version                 # Splash logo blok di terminal, satu baris saat di-pipe
 ```
 
 ### Tombol Navigasi (Keybindings)
@@ -127,18 +132,20 @@ quadman -version
 | `v` | Layar diagnosa masalah — validasi generator terhadap seluruh berkas Quadlet |
 | `t` | Pohon dependensi (*dependency tree*: pods, images, networks, volumes, dependensi `[Unit]`) |
 | `i` | Instansiasi template unit (`web@.container` → `web@prod.service`) |
-| `D` | Hapus unit (menghentikan kontainer dan menghapus berkas sumber dengan konfirmasi) |
+| `D` | Hapus unit (menghentikan kontainer dan menghapus berkas sumber; ketik nama unit untuk konfirmasi) |
 | `y` / `Y` | Salin nama unit / image ke clipboard (OSC52, bekerja sempurna via SSH) |
-| `[` / `]` | Berpindah tab detail: source / status / journal / inspect |
+| `[` / `]` | Berpindah tab detail: overview / source / status / journal / inspect |
 | `I` | Pasang bundel `.quadlets` (`podman quadlet install`) |
-| `g` | Layar penyimpanan (*storage*: `podman system df --verbose`, `r` untuk refresh) |
-| `o` | Layar statistik resource (`podman stats`, `r` untuk refresh) |
+| `g` | Storage: images / volumes / containers dengan USED BY (`[ ]` tab, `p` pull, `D` hapus, `S` urutan) |
+| `o` | Statistik resource: bar CPU, urutkan dengan `←/→`, `i` container idle, sampling ulang otomatis |
 | `P` | `podman system prune` (konfirmasi dulu, peringatan untuk unit Quadlet nonaktif) |
-| `T` | Layar timer systemd (melihat jadwal aktif, pemicu service, dan hitung mundur kalender) |
-| `K` | Layar secret Podman (melihat penyimpanan secret Podman, driver, dan metadata) |
-| `w` | Live streaming event podman (`f` untuk jeda) |
+| `T` | Timers: jadwal, next/last run, riwayat run (`n` jalankan sekarang, `s`/`x`, `e`/`d`, `l` log run terakhir) |
+| `K` | Secrets: USED BY · AS, yang hilang dan tidak terpakai di atas (`n` buat, `r` rotasi, `c` salin nilai, `D` hapus) |
+| `w` | Timeline event (`f` jeda, `1`-`6` tipe, `u` unit ini, `s` rentang waktu, `S` ekspor) |
 | `n` | Generator quadlet via podlet (`podman run ...`, `docker run ...`, singkatan `run ...`, `compose <path>`, atau `<kind> <name>` untuk container\|pod\|network\|volume\|image) |
-| `A` | Log aksi terakhir (melihat perintah apa yang dijalankan, waktu, dan hasilnya) |
+| `A` | Aksi sesi: hasil, durasi, pemicu, perintah (`.` ulangi, `c` salin perintah) |
+| `S` | Ganti urutan daftar: masalah dulu / nama / kind |
+| `z` | Lipat atau buka tiles dashboard |
 | `R` | `systemctl --user daemon-reload` (regenerasi unit setelah berkas Quadlet diedit) |
 | `L` | Toggle linger pengguna (`loginctl enable-linger`) |
 | `?` | Buka bantuan tombol (*help overlay*) |
@@ -155,6 +162,7 @@ log_buffer: 1000       # Batas maksimum baris buffer penampil log
 readonly: false        # Sama dengan flag quadman --readonly
 theme: auto            # auto, dark, light, atau colorblind
 mouse: false           # Sama dengan flag quadman --mouse (off menjaga seleksi teks terminal tetap aktif)
+dashboard: true        # false membuat daftar dimulai dengan tiles terlipat (z untuk toggle)
 quadlet_dirs:          # Direktori sumber Quadlet tambahan (sama dengan --quadlet-dir)
   - ~/quadlets
 serve:
@@ -196,7 +204,7 @@ keluar dari quadman. `quadman --as svc-web` mengarahkan seluruh pemanggilan
 CLI (`systemctl`, `journalctl`, `loginctl`, `podman`) melalui sudo
 non-interaktif (`sudo -n -u svc-web`), terlingkup ke search path Quadlet,
 systemd user instance, storage podman, dan secret store milik user tersebut.
-Title bar menampilkan `[svc-web]`; edit berkas tetap dinonaktifkan seperti
+Top bar menampilkan `quadman › rootless › as svc-web`; edit berkas tetap dinonaktifkan seperti
 mode SSH.
 
 Syarat: `sudo -n -u <user> true` harus berhasil (entri sudoers NOPASSWD atau

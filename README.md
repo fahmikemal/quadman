@@ -1,8 +1,9 @@
 <div align="center">
 
-<img src="quadman_final_blue.png" alt="quadman logo" width="200">
-
-### quadman
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/logo/quadman-logo-dark.svg">
+  <img src="docs/logo/quadman-logo-light.svg" alt="quadman" width="360">
+</picture>
 
 **A Terminal UI manager for rootless Podman [Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) units.**
 
@@ -60,14 +61,33 @@ whole lifecycle in one TUI:
 - **Drop-in directories** — `foo.container.d/*.conf` (plus cascading
   `foo-.container.d/` and generic `container.d/`) shown merged in the file
   view, in the generator's merge order.
-- **Dependency tree** (`t`) — pods → containers → image/network/volume
-  units and `[Unit]` dependencies, rendered with the bubbles tree.
+- **Dependency tree** (`t`) — units grouped by pod and podman app, each
+  with the pod, image, networks, volumes and `[Unit]` deps it references.
+  Missing references are marked `✗ missing`, healthy subtrees start folded
+  (`←/→`, `z` all), `f` shows problems only, and `i` adds an impact line
+  (what blocks the unit, what needs it).
 - Mouse: click a row to select it, wheel-scroll logs; `y`/`Y` copy names
   and images via OSC52 (works over SSH).
-- **Tabbed detail pane** (`[`/`]`) — source, `systemctl status`, live journal,
-  and `podman inspect` of the selected unit in one view.
-- **Storage & events** — `g` for `podman system df --verbose`, `w` for a
-  live `podman events` stream (pause with `f`).
+- **Tabbed detail pane** (`[`/`]`) — an overview (state, restarts, result,
+  boot, ports, volumes, secrets, dependencies, problems), the source,
+  `systemctl status`, the live journal in time/source/message columns with
+  levels as glyph + color, and `podman inspect`.
+- **Dashboard** — six tiles (units, running, failed, generator, linger,
+  auto-update) and a "needs attention" block that names each problem and
+  the key that fixes it; problems sort first in the table.
+- **Storage** (`g`) — `podman system df` as tiles, then images, volumes and
+  containers as tabs, each linked to the quadlet units that use it; unused
+  objects group under UNUSED with the space a prune would reclaim. Pull,
+  remove (refused while a unit uses it) and prune, all behind a confirm.
+- **Events** (`w`) — one live timeline merged from `podman events`, the
+  service manager's own messages about your units (started, failed,
+  scheduled restart) and quadman's actions; filter by type (`1`-`6`),
+  unit (`u`) and window (`s`), pause (`f`), export (`S`).
+- **Timers** (`T`), **Secrets** (`K`), **Actions** (`A`) — human schedules
+  with a 24-run ✓✗ history; which unit uses which secret and how, with
+  values never rendered (masked entry on stdin, clipboard cleared after
+  30s); a session audit with duration, trigger, the equivalent command and
+  a repeat key.
 - **Smart hints** — `timed-out` starts suggest `TimeoutStartSec=`/`Pull=`;
   crash-loops and `AutoUpdate=`-without-timer also get called out in the
   problems view.
@@ -147,7 +167,8 @@ quadman --system list            # list system-wide quadlets (flags go before th
 quadman --as svc-web list        # list another user's units via sudo (flags go before the command)
 quadman --skill                  # export AI Agent Skill specification (markdown)
 quadman --skill --skill-format=json # export AI Agent Skill specification in JSON format
-quadman -version
+quadman --ascii                  # ASCII status glyphs (automatic on TERM=linux)
+quadman -version                 # block-art splash on a terminal, one line when piped
 ```
 
 ### Keys
@@ -170,18 +191,20 @@ quadman -version
 | `v`   | problems view — generator validation of every Quadlet file |
 | `t`   | dependency tree (pods, images, networks, volumes, [Unit] deps) |
 | `i`   | instantiate a template unit (`web@.container` → `web@prod.service`) |
-| `D`   | delete the unit (stops it and removes the file, asks first) |
+| `D`   | delete the unit (stops it and removes the file; type the unit name to confirm) |
 | `y` / `Y` | copy unit name / image to the clipboard (OSC52, works over SSH) |
-| `[` / `]` | cycle detail tabs: source / status / journal / inspect |
+| `[` / `]` | cycle detail tabs: overview / source / status / journal / inspect |
 | `I`   | install a `.quadlets` bundle (`podman quadlet install`) |
-| `g`   | storage screen (`podman system df --verbose`, `r` refresh) |
-| `o`   | resource stats screen (`podman stats`, `r` refresh) |
+| `g`   | storage: images / volumes / containers with USED BY (`[ ]` tabs, `p` pull, `D` remove, `S` sort) |
+| `o`   | resource stats: CPU bars, sort with `←/→`, `i` idle containers, live re-sample |
 | `P`   | `podman system prune` (asks first, warns about inactive Quadlet units) |
-| `T`   | systemd timers screen (view scheduled timers, countdowns, and triggers) |
-| `K`   | secrets screen (view Podman secret store, drivers, and metadata) |
-| `w`   | live podman events stream (`f` pause) |
+| `T`   | timers: schedule, next/last run, run history (`n` run now, `s`/`x`, `e`/`d`, `l` last run log) |
+| `K`   | secrets: USED BY · AS, missing and unused first (`n` create, `r` rotate, `c` copy value, `D` remove) |
+| `w`   | events timeline (`f` pause, `1`-`6` type, `u` this unit, `s` window, `S` export) |
 | `n`   | generate a quadlet via podlet (`podman run ...`, `docker run ...`, `run ...` shorthand, `compose <path>`, or `<kind> <name>` for container\|pod\|network\|volume\|image) |
-| `A`   | recent-actions log (what ran, when, and whether it worked) |
+| `A`   | session actions: result, duration, trigger, command (`.` repeat, `c` copy command) |
+| `S`   | cycle the list order: problems first / name / kind |
+| `z`   | collapse or expand the dashboard tiles |
 | `R`   | `systemctl --user daemon-reload` (regenerate after editing Quadlet files) |
 | `L`   | toggle user linger (`loginctl enable-linger`) |
 | `?`   | expand help                                   |
@@ -200,6 +223,7 @@ log_buffer: 1000       # follow-view line cap
 readonly: false        # same as quadman --readonly
 theme: auto            # auto, dark, light, or colorblind
 mouse: false           # same as quadman --mouse (off keeps text selection working)
+dashboard: true        # false starts the list with the tiles collapsed (z toggles)
 quadlet_dirs:          # extra Quadlet source dirs (same as --quadlet-dir)
   - ~/quadlets
 serve:
@@ -256,8 +280,8 @@ A compartment is an ordinary Linux user whose Quadlet workloads you administer
 without leaving quadman. `quadman --as svc-web` re-points every CLI call
 (`systemctl`, `journalctl`, `loginctl`, `podman`) through non-interactive sudo
 (`sudo -n -u svc-web`), scoped to that user's own Quadlet search path,
-systemd user instance, podman storage, and secret store. The title bar shows
-`[svc-web]`; file edits stay disabled, like SSH mode.
+systemd user instance, podman storage, and secret store. The top bar shows
+`quadman › rootless › as svc-web`; file edits stay disabled, like SSH mode.
 
 Requirements: `sudo -n -u <user> true` must succeed (NOPASSWD sudoers entry
 or a root operator), and the target needs a runtime dir (`/run/user/<uid>` —
