@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="t">
+  <title id="t">quadman</title>
+  <rect x="16" y="16" width="98" height="98" rx="12" fill="#000000"/>
+  <rect x="142" y="16" width="98" height="98" rx="12" fill="#000000"/>
+  <rect x="16" y="142" width="98" height="98" rx="12" fill="#000000"/>
+  <path fill="#000000" fill-rule="evenodd" d="M154 142h74a12 12 0 0 1 12 12v74a12 12 0 0 1 -12 12h-74a12 12 0 0 1 -12 -12v-74a12 12 0 0 1 12 -12zM164.56 163.56h52.88a1 1 0 0 1 1 1v52.88a1 1 0 0 1 -1 1h-52.88a1 1 0 0 1 -1 -1v-52.88a1 1 0 0 1 1 -1z"/>
+</svg>

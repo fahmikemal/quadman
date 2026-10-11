@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="t">
+  <title id="t">quadman</title>
+  <rect x="16" y="16" width="98" height="98" rx="12" fill="#0E1117"/>
+  <rect x="142" y="16" width="98" height="98" rx="12" fill="#0E1117"/>
+  <rect x="16" y="142" width="98" height="98" rx="12" fill="#0E1117"/>
+  <rect x="142" y="142" width="98" height="98" rx="12" fill="#0074A6"/>
+</svg>
