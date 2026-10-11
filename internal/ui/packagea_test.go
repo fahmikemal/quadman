@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"github.com/fahmikemal/quadman/internal/podman"
+
 	"context"
 	"os"
 	"path/filepath"
@@ -171,9 +173,12 @@ func TestRunPendingPrune(t *testing.T) {
 
 func TestStatsMsgOpensMode(t *testing.T) {
 	m := New()
-	model, _ := m.Update(statsMsg{content: "NAME\nweb\n"})
+	model, _ := m.Update(statsMsg{entries: []podman.StatEntry{{Name: "web", CPU: "1.50%", Mem: "12MB / 16GB"}}})
 	if model.(Model).mode != modeStats {
 		t.Error("statsMsg should switch to modeStats")
+	}
+	if rows := model.(Model).screenSpec().rows; len(rows) != 1 || rows[0].cells[0].text != "web" {
+		t.Errorf("stats rows = %+v", rows)
 	}
 	model, _ = m.Update(statsMsg{err: context.DeadlineExceeded})
 	if !strings.Contains(model.(Model).statusLine, "stats:") {

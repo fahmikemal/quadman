@@ -41,8 +41,8 @@ func TestApplyCompartmentSelf(t *testing.T) {
 	if len(dirs) == 0 || !strings.Contains(dirs[0], u.Uid) && !strings.Contains(dirs[1], u.HomeDir) {
 		t.Errorf("comp dirs = %v", dirs)
 	}
-	if !strings.Contains(mm.View().Content, "["+u.Username+"]") {
-		t.Error("title must show the compartment user")
+	if !strings.Contains(mm.View().Content, "as "+u.Username) {
+		t.Error("top bar must show the compartment user")
 	}
 	resetRunners()
 }

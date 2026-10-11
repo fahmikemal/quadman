@@ -16,22 +16,42 @@ type screenMsg interface {
 	// screenErrPrefix prefixes the status line on failure
 	// (e.g. "stats" renders "stats: <err>").
 	screenErrPrefix() string
-	screenContent() string
 	screenErr() error
+	// apply stores the fetched data on the model.
+	apply(m *Model)
 }
 
-// applyScreenMsg runs the shared one-shot-screen transition.
+// applyScreenMsg runs the shared one-shot-screen transition: on error keep
+// the current mode and report it; otherwise store the data and open the
+// screen (a refresh of the open screen keeps cursor, tab and filter).
 func (m Model) applyScreenMsg(msg screenMsg) (tea.Model, tea.Cmd) {
 	m.busy = false
 	if err := msg.screenErr(); err != nil {
 		m.setStatus(msg.screenErrPrefix()+": "+err.Error(), true)
 		return m, nil
 	}
-	m.mode = msg.screenMode()
-	m.viewport.SetContent(msg.screenContent())
-	m.viewport.GotoTop()
-	m.resize()
+	pin, _ := m.selectedRow()
+	msg.apply(&m)
+	if m.mode != msg.screenMode() {
+		m.enterScreen(msg.screenMode())
+		return m, nil
+	}
+	m.pinScreenRow(pin.id)
 	return m, nil
+}
+
+// pinScreenRow keeps the cursor on the row with id after data changed.
+func (m *Model) pinScreenRow(id string) {
+	if id == "" {
+		return
+	}
+	rows := m.visibleRows(m.screenSpec().rows)
+	for i, idx := range selectable(rows) {
+		if rows[idx].id == id {
+			m.scrCur = i
+			return
+		}
+	}
 }
 
 // applyTabMsg runs the shared detail-tab refresh: only viewports already
@@ -44,23 +64,3 @@ func (m Model) applyTabMsg(content string, tab int) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
-
-func (s storageMsg) screenMode() mode        { return modeStorage }
-func (s storageMsg) screenErrPrefix() string { return "system df" }
-func (s storageMsg) screenContent() string   { return s.content }
-func (s storageMsg) screenErr() error        { return s.err }
-
-func (s statsMsg) screenMode() mode        { return modeStats }
-func (s statsMsg) screenErrPrefix() string { return "stats" }
-func (s statsMsg) screenContent() string   { return s.content }
-func (s statsMsg) screenErr() error        { return s.err }
-
-func (s timersMsg) screenMode() mode        { return modeTimers }
-func (s timersMsg) screenErrPrefix() string { return "timers" }
-func (s timersMsg) screenContent() string   { return s.content }
-func (s timersMsg) screenErr() error        { return s.err }
-
-func (s secretsMsg) screenMode() mode        { return modeSecrets }
-func (s secretsMsg) screenErrPrefix() string { return "secrets" }
-func (s secretsMsg) screenContent() string   { return s.content }
-func (s secretsMsg) screenErr() error        { return s.err }

@@ -68,7 +68,7 @@ func TestExternalMarkerInRows(t *testing.T) {
 	units := []quadlet.Unit{{Name: "mine", Kind: quadlet.KindContainer, Path: path, UnitName: "mine.service"}}
 	model, _ := m.Update(refreshMsg{units: units, images: []string{"nginx"}, lingerOK: true})
 	rows := model.(Model).table.Rows()
-	if len(rows) != 1 || !strings.Contains(rows[0][0], "mine~") {
+	if len(rows) != 1 || !strings.Contains(rows[0][1], "mine~") {
 		t.Fatalf("external rows must carry the ~ marker, got %v", rows)
 	}
 }

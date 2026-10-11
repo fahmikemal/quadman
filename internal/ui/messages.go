@@ -1,6 +1,11 @@
 package ui
 
 import (
+	"context"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/fahmikemal/quadman/internal/quadlet"
 )
 
@@ -12,6 +17,9 @@ type actionMsg struct {
 	hint string
 	out  string
 	err  error
+	took time.Duration
+	// run is the work itself, kept so the actions screen can repeat it.
+	run func(context.Context) (string, error)
 }
 
 type logsMsg struct {
@@ -46,8 +54,18 @@ type healthMsg struct {
 }
 
 // pendingAction is an armed destructive/config-changing action waiting for
-// a y/N confirmation.
+// confirmation in the confirm modal.
 type pendingAction struct {
-	verb string // "stop", "enable", "disable"
+	verb string // "stop", "enable", "disable", "bulk-stop", "delete", …
 	unit quadlet.Unit
+
+	// Optional modal content; empty fields fall back to the verb's
+	// built-in wording (confirm.go).
+	title  string
+	lines  []string // THIS WILL: what happens
+	keeps  []string // KEEPS: what is left untouched
+	danger bool     // err-tinted modal instead of warn
+	typed  string   // the exact text the user must type to enable Confirm
+	// run performs a custom action; nil means the verb's built-in action.
+	run func(Model) (tea.Model, tea.Cmd)
 }

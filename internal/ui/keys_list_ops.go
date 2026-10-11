@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
-	"charm.land/bubbles/v2/tree"
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -16,7 +15,7 @@ func (m Model) storageKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if msg.String() != "g" {
 		return m, nil, false
 	}
-	return m, tea.Batch(m.setBusy("system df"), storageCmd()), true
+	return m, tea.Batch(m.setBusy("system df"), m.storageCmd()), true
 }
 
 func (m Model) timersKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
@@ -30,7 +29,7 @@ func (m Model) secretsKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if msg.String() != "K" {
 		return m, nil, false
 	}
-	return m, tea.Batch(m.setBusy("podman secrets"), secretsCmd()), true
+	return m, tea.Batch(m.setBusy("podman secrets"), m.secretsCmd()), true
 }
 
 func (m Model) eventsKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
@@ -66,10 +65,8 @@ func (m Model) problemsKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if msg.String() != "v" {
 		return m, nil, false
 	}
-	m.mode = modeValidate
-	m.viewport.SetContent(m.validateView())
-	m.viewport.GotoTop()
-	m.resize()
+	m.probList = m.computeProblems()
+	m.enterScreen(modeValidate)
 	return m, nil, true
 
 }
@@ -78,9 +75,8 @@ func (m Model) treeKeysOpen(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if msg.String() != "t" {
 		return m, nil, false
 	}
-	m.treeModel = tree.New(m.buildTreeModel(), 80, 20)
-	m.mode = modeTree
-	m.resize()
+	m.treeView = m.computeTree()
+	m.enterScreen(modeTree)
 	return m, nil, true
 
 }
@@ -124,7 +120,7 @@ func (m Model) deleteKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 	m.pending = &pendingAction{verb: "delete", unit: u}
-	m.setStatus("delete "+filepath.Base(u.Path)+"? the unit stops and the file is removed [y/N]", false)
+	m.setStatus("delete "+filepath.Base(u.Path)+"? type "+u.Name+" to confirm (esc cancels)", false)
 	return m, nil, true
 
 }

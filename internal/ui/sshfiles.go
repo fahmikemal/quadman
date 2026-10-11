@@ -2,7 +2,6 @@ package ui
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path"
 	"sort"
@@ -10,10 +9,6 @@ import (
 
 	"github.com/fahmikemal/quadman/internal/quadlet"
 )
-
-// errNoSuchUnit is returned when a tree lookup names a unit that is not in
-// the current list.
-var errNoSuchUnit = errors.New("no such unit")
 
 // remoteWriteMsg is shown when a file-mutating action is attempted over SSH.
 const remoteWriteMsg = "not available over SSH: manage files directly on the host (ssh there and run quadman locally)"

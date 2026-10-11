@@ -8,6 +8,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/fahmikemal/quadman/internal/podman"
 	"github.com/fahmikemal/quadman/internal/quadlet"
 	"github.com/fahmikemal/quadman/internal/systemd"
@@ -15,15 +17,15 @@ import (
 
 func TestHelpBarLingerStates(t *testing.T) {
 	m := New()
-	if !strings.Contains(m.helpBar(), "linger: ?") {
+	if !strings.Contains(m.chips(), "linger: ?") {
 		t.Error("before the first refresh, linger must render as unknown (?)")
 	}
 	m.lingerKnown = true
-	if !strings.Contains(m.helpBar(), "linger: off") {
+	if !strings.Contains(m.chips(), "linger: off") {
 		t.Error("known-disabled linger must render as off")
 	}
 	m.linger = true
-	if !strings.Contains(m.helpBar(), "linger: on") {
+	if !strings.Contains(m.chips(), "linger: on") {
 		t.Error("known-enabled linger must render as on")
 	}
 }
@@ -58,7 +60,7 @@ func TestApplyRefreshSetsRows(t *testing.T) {
 		t.Fatalf("rows = %d, want 1", len(rows))
 	}
 	row := rows[0]
-	if row[0] != "webapp" || row[2] != "webapp.service" || row[3] != "active" || row[4] != "running" || row[5] != "docker.io/library/nginx:latest" {
+	if row[0] != glyph(gActive)+" active" || row[1] != "webapp" || row[2] != "container" || row[3] != "running" || row[5] != "docker.io/library/nginx:latest" {
 		t.Errorf("row = %v", row)
 	}
 }
@@ -141,9 +143,10 @@ func TestCursorPinnedAcrossRefresh(t *testing.T) {
 		t.Fatalf("cursor = %d, want 2", m.table.Cursor())
 	}
 
-	m = refresh("alpha", "charlie", "bravo") // order changed, same units
-	if c := m.table.Cursor(); c != 1 {
-		t.Errorf("cursor = %d, want 1 (pinned on charlie by name)", c)
+	m.sortBy = sortProblems
+	m = refresh("charlie", "alpha", "bravo", "delta") // order and set changed
+	if c := m.table.Cursor(); c != 2 {
+		t.Errorf("cursor = %d, want 2 (pinned on charlie by name)", c)
 	}
 	if u, ok := m.selected(); !ok || u.Name != "charlie" {
 		t.Errorf("selection = %+v, want charlie", u)
@@ -190,11 +193,16 @@ func TestHelpBarContextual(t *testing.T) {
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 124, Height: 24})
 	m = model.(Model)
 	list := m.helpBar()
-	if !strings.Contains(list, "enable") || !strings.Contains(list, "reload") || !strings.Contains(list, "filter") {
+	if !strings.Contains(list, "boot") || !strings.Contains(list, "reload") || !strings.Contains(list, "logs") {
 		t.Errorf("list legend should spell out actions in full words: %q", list)
 	}
 	if strings.Contains(list, "…") {
 		t.Errorf("two-line legend should fit without truncation at 124 cols: %q", list)
+	}
+	for _, label := range []string{"UNIT", "INSPECT", "VIEWS", "HOST", "all commands"} {
+		if !strings.Contains(list, label) {
+			t.Errorf("124-col legend must carry the %s group: %q", label, list)
+		}
 	}
 	m.mode = modeDetail
 	m.tab = tabJournal
@@ -394,8 +402,8 @@ func TestHealthShownInRows(t *testing.T) {
 	}
 	model, _ := m.Update(msg)
 	rows := model.(Model).table.Rows()
-	if rows[0][3] != "unhealthy" || rows[0][4] != "health" {
-		t.Errorf("row state = %q/%q, want unhealthy/health", rows[0][3], rows[0][4])
+	if !strings.Contains(rows[0][0], "unhealthy") || rows[0][3] != "health" {
+		t.Errorf("row state = %q/%q, want unhealthy/health", rows[0][0], rows[0][3])
 	}
 }
 
@@ -411,8 +419,9 @@ func TestUpdatesScreen(t *testing.T) {
 	if mm.mode != modeUpdates {
 		t.Fatal("updatesMsg should switch to the updates screen")
 	}
-	if !strings.Contains(mm.updatesView(), "webapp.service") || !strings.Contains(mm.updatesView(), "pending") {
-		t.Errorf("updates view missing entry: %q", mm.updatesView())
+	view := ansi.Strip(mm.View().Content)
+	if !strings.Contains(view, "webapp.service") || !strings.Contains(view, "pending") || !strings.Contains(view, "TIMER") {
+		t.Errorf("updates screen missing entry or tiles:\n%s", view)
 	}
 }
 
@@ -576,8 +585,9 @@ func TestLegendWrapsByWidth(t *testing.T) {
 	m2 := New()
 	model, _ = m2.Update(tea.WindowSizeMsg{Width: 200, Height: 24})
 	wide := model.(Model).helpBar()
-	if !strings.Contains(wide, "y/Y copy") || !strings.Contains(wide, "D delete") || !strings.Contains(wide, "w events") {
-		t.Errorf("wide legend should contain the full sorted key set: %q", wide)
+	wide = ansi.Strip(wide)
+	if !strings.Contains(wide, "y/Y copy") || !strings.Contains(wide, "D delete") || !strings.Contains(wide, "SELECT") {
+		t.Errorf("wide legend should add the SELECT group: %q", wide)
 	}
 
 	// Very wide terminal: one line (threshold grows with the key set).
@@ -593,8 +603,8 @@ func TestSystemModeTitle(t *testing.T) {
 	m := NewWithOptions(Options{System: true})
 	m.width, m.height = 120, 30
 	v := m.View()
-	if !strings.Contains(v.Content, "[SYSTEM]") {
-		t.Error("system mode title must contain [SYSTEM]")
+	if !strings.Contains(ansi.Strip(v.Content), "quadman › system") {
+		t.Error("system mode top bar must show the system scope")
 	}
 	if strings.Contains(v.Content, "rootless") {
 		t.Error("system mode title must not contain 'rootless'")
@@ -603,13 +613,13 @@ func TestSystemModeTitle(t *testing.T) {
 
 func TestSystemModeHelpBarChip(t *testing.T) {
 	m := NewWithOptions(Options{System: true})
-	bar := m.helpBar()
+	bar := m.chips()
 	if !strings.Contains(bar, "system") {
-		t.Error("system mode helpBar must show 'system' chip")
+		t.Error("system mode status line must show 'system' chip")
 	}
 	// "linger:" is the chip format; plain "linger" may appear in key help (L linger).
 	if strings.Contains(bar, "linger:") {
-		t.Error("system mode helpBar must not show 'linger:' chip")
+		t.Error("system mode status line must not show 'linger:' chip")
 	}
 }
 

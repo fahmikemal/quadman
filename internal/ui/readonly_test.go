@@ -52,8 +52,8 @@ func TestReadonlyAllowsReads(t *testing.T) {
 
 func TestReadonlyBannerInLegend(t *testing.T) {
 	m := readonlyModel()
-	if !strings.Contains(m.helpBar(), "readonly") {
-		t.Errorf("legend must show readonly state: %q", m.helpBar())
+	if !strings.Contains(m.chips(), "readonly") {
+		t.Errorf("status chips must show readonly state: %q", m.chips())
 	}
 }
 

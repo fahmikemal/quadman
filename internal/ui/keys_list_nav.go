@@ -87,3 +87,24 @@ func (m Model) openFileKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	m.resize()
 	return m, nil, true
 }
+
+// sortKeys cycles the list order: problems first → name → kind.
+func (m Model) sortKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
+	if msg.String() != "S" || m.mode != modeList {
+		return m, nil, false
+	}
+	m.sortBy = (m.sortBy + 1) % sortCount
+	m.refilter()
+	m.setStatus("sorted: "+m.sortBy.String(), false)
+	return m, nil, true
+}
+
+// dashboardKeys toggles the dashboard tiles and attention block (z).
+func (m Model) dashboardKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
+	if msg.String() != "z" || m.mode != modeList {
+		return m, nil, false
+	}
+	m.dashOff = !m.dashOff
+	m.resize()
+	return m, nil, true
+}

@@ -54,6 +54,7 @@ var builtinKeys = map[string]bool{
 	"r": true, "R": true, "s": true, "t": true,
 	"T": true, "K": true, "u": true, "v": true,
 	"w": true, "x": true, "X": true, "y": true, "Y": true,
+	"S": true, "z": true,
 }
 
 // customKeyConflicts returns "name (key)" labels for custom commands whose

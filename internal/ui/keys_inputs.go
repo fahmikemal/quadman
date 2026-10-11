@@ -73,7 +73,7 @@ func (m Model) generateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 			m.setStatus("generate cancelled (empty input)", false)
 			return m, nil, true
 		}
-		return m, tea.Batch(m.setBusy("podlet generate"), generateCmd(input)), true
+		return m, tea.Batch(m.setBusy("podlet generate"), m.generateCmd(input)), true
 	case "esc":
 		m.generating = false
 		m.genIn.SetValue("")

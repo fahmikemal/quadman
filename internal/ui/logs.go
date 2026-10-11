@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -66,9 +67,76 @@ func (m Model) visibleLogLines() []string {
 
 // refreshLogContent updates the viewport content with visible filtered lines and re-applies search highlights.
 func (m *Model) refreshLogContent() {
-	lines := m.visibleLogLines()
-	m.viewport.SetContent(strings.Join(lines, "\n"))
+	m.viewport.SetContent(m.logViewText())
 	m.applySearch()
+}
+
+// setLogLines replaces the journal buffer (raw and display forms).
+func (m *Model) setLogLines(raw []string) {
+	m.logLines = raw
+	m.logFmt = make([]string, len(raw))
+	for i, l := range raw {
+		m.logFmt[i] = formatLogLine(l)
+	}
+}
+
+// appendLogLine adds one streamed line to both buffers, trimming both.
+func (m *Model) appendLogLine(raw string) {
+	m.logLines = append(m.logLines, raw)
+	m.logFmt = append(m.logFmt, formatLogLine(raw))
+	if len(m.logLines) > logBufferCap {
+		m.logLines = m.logLines[len(m.logLines)-logBufferCap:]
+		m.logFmt = m.logFmt[len(m.logFmt)-logBufferCap:]
+	}
+}
+
+// logViewText is the display form of the visible (filtered) lines. The
+// viewport strips ANSI before matching highlights, so searches run on
+// ansi.Strip of exactly this text.
+func (m Model) logViewText() string {
+	if len(m.logFmt) != len(m.logLines) {
+		m.setLogLines(m.logLines) // buffers set directly: rebuild the display form
+	}
+	if m.logFilter == "" {
+		return strings.Join(m.logFmt, "\n")
+	}
+	q := strings.ToLower(m.logFilter)
+	var out []string
+	for i, l := range m.logLines {
+		if strings.Contains(strings.ToLower(l), q) && i < len(m.logFmt) {
+			out = append(out, m.logFmt[i])
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+var longHexID = regexp.MustCompile(`\b[0-9a-f]{64}\b`)
+
+// formatLogLine renders a short-iso journal line as columns — time,
+// source, message — with container IDs shortened and the level shown as
+// glyph + color. Lines that are not journal entries pass through.
+func formatLogLine(raw string) string {
+	e := parseLogLine(raw, "", 0)
+	if e.Timestamp == "" || len(e.Timestamp) < 19 {
+		return mutedStyle.Render(raw)
+	}
+	src := e.Process
+	if i := strings.Index(src, "["); i > 0 {
+		src = src[:i]
+	}
+	msg := longHexID.ReplaceAllStringFunc(e.Message, func(id string) string { return id[:8] + "…" })
+	st := fgStyle
+	switch e.Level {
+	case "emerg", "crit", "err":
+		st, msg = errStyle, glyph(gFailed)+" "+msg
+	case "warning":
+		st, msg = warnStyle, glyph(gWarn)+" "+msg
+	}
+	srcStyle := kindStyle
+	if src == "systemd" {
+		srcStyle = mutedStyle
+	}
+	return dimStyle.Render(e.Timestamp[11:19]) + "  " + srcStyle.Render(padCell(src, 12)) + " " + st.Render(msg)
 }
 
 // cycleLogPriority cycles journal priority: all -> err -> warning -> info -> all
@@ -117,7 +185,7 @@ func (m Model) startLogsWithPriority(u quadlet.Unit, priority string) (tea.Model
 	sess := &logSession{stop: stop, scan: bufio.NewScanner(stream), unit: u.UnitName}
 	sess.scan.Buffer(make([]byte, 256*1024), 256*1024) // long journal lines must not kill the stream
 	m.sess = sess
-	m.logLines = nil
+	m.setLogLines(nil)
 	m.clearSearch()
 	m.following = true
 	m.mode = modeDetail

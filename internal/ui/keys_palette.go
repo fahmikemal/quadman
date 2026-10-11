@@ -44,6 +44,7 @@ func (m Model) modePaletteKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 			}
 		}
 		m.closePalette()
+		m.trigger = "palette"
 		if act.run != nil {
 			return act.run(m)
 		}

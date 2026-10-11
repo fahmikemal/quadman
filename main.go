@@ -13,14 +13,21 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
+	"runtime"
 	"runtime/debug"
 	"strings"
 	"syscall"
 	"text/tabwriter"
+	"time"
+
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/term"
 
 	"github.com/fahmikemal/quadman/internal/compartment"
 	"github.com/fahmikemal/quadman/internal/config"
+	"github.com/fahmikemal/quadman/internal/podman"
 	"github.com/fahmikemal/quadman/internal/quadlet"
 	"github.com/fahmikemal/quadman/internal/server"
 	"github.com/fahmikemal/quadman/internal/skill"
@@ -47,6 +54,7 @@ func main() {
 	asUser := flag.String("as", "", "manage another local user's Quadlet units via sudo (compartment, e.g. --as svc-web); file edits are disabled in this mode")
 	mouse := flag.Bool("mouse", false, "enable click-to-select (off by default so text selection keeps working)")
 	theme := flag.String("theme", "", "color scheme: auto, dark, light, or colorblind (default from config.yaml)")
+	ascii := flag.Bool("ascii", false, "ASCII status glyphs instead of Unicode shapes (automatic on TERM=linux)")
 	systemFlag := flag.Bool("system", false, "manage system-wide (rootful) Quadlet units instead of user units")
 	showSkill := flag.Bool("skill", false, "export AI agent skill definition (markdown or json) and exit")
 	skillFormat := flag.String("skill-format", "markdown", "output format for --skill: markdown or json")
@@ -55,7 +63,7 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Println("quadman", moduleVersion())
+		printVersion()
 		return
 	}
 
@@ -86,7 +94,7 @@ func main() {
 			listCmd(system, *asUser)
 		case "version":
 			rejectMisplaced("version", args[1:])
-			fmt.Println("quadman", moduleVersion())
+			printVersion()
 		case "serve":
 			serve(args[1:], *readonly, *mouse, *theme, quadletDirs, system, *asUser)
 		case "skill":
@@ -112,7 +120,7 @@ func main() {
 	}
 
 	if *sshTarget != "" {
-		if err := ui.RunWithOptions(ui.Options{SSH: *sshTarget, Readonly: *readonly, Mouse: *mouse, Theme: *theme, QuadletDirs: quadletDirs, System: system}); err != nil {
+		if err := ui.RunWithOptions(ui.Options{SSH: *sshTarget, Readonly: *readonly, Mouse: *mouse, Theme: *theme, ASCII: *ascii, QuadletDirs: quadletDirs, System: system}); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
@@ -120,14 +128,14 @@ func main() {
 	}
 
 	if *asUser != "" {
-		if err := ui.RunWithOptions(ui.Options{Compartment: *asUser, Readonly: *readonly, Mouse: *mouse, Theme: *theme, QuadletDirs: quadletDirs, System: system}); err != nil {
+		if err := ui.RunWithOptions(ui.Options{Compartment: *asUser, Readonly: *readonly, Mouse: *mouse, Theme: *theme, ASCII: *ascii, QuadletDirs: quadletDirs, System: system}); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
 		return
 	}
 
-	if err := ui.RunWithOptions(ui.Options{Readonly: *readonly, Mouse: *mouse, Theme: *theme, QuadletDirs: quadletDirs, System: system}); err != nil {
+	if err := ui.RunWithOptions(ui.Options{Readonly: *readonly, Mouse: *mouse, Theme: *theme, ASCII: *ascii, QuadletDirs: quadletDirs, System: system}); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
@@ -197,6 +205,45 @@ func applyQuadletDirs(flags []string) {
 		quadlet.AddExtraDirs(cfg.Settings.QuadletDirs)
 	}
 	quadlet.AddExtraDirs(flags)
+}
+
+// printVersion prints the block-art splash on a terminal and the plain
+// "quadman <version>" line otherwise, so scripts that read the version
+// keep working.
+func printVersion() {
+	if fi, err := os.Stdout.Stat(); err != nil || fi.Mode()&os.ModeCharDevice == 0 {
+		fmt.Println("quadman", moduleVersion())
+		return
+	}
+	width, _, err := term.GetSize(os.Stdout.Fd())
+	if err != nil {
+		width = 80
+	}
+	_, _ = lipgloss.Println(ui.Splash(moduleVersion(), versionInfo(), width))
+}
+
+// versionInfo is the splash's runtime line: podman, systemd, Go, commit.
+func versionInfo() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var parts []string
+	if v, err := podman.Version(ctx); err == nil && v != "" {
+		parts = append(parts, "podman "+v)
+	}
+	if out, err := exec.CommandContext(ctx, "systemctl", "--version").Output(); err == nil {
+		if f := strings.Fields(string(out)); len(f) >= 2 {
+			parts = append(parts, f[0]+" "+f[1])
+		}
+	}
+	parts = append(parts, runtime.Version()+" "+runtime.GOOS+"/"+runtime.GOARCH)
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, s := range info.Settings {
+			if s.Key == "vcs.revision" && len(s.Value) >= 7 {
+				parts = append(parts, "commit "+s.Value[:7])
+			}
+		}
+	}
+	return strings.Join(parts, " · ")
 }
 
 // moduleVersion reports the release version. Builds injected via ldflags

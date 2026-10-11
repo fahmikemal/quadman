@@ -179,8 +179,9 @@ func actionCmd(desc string, run func(context.Context) (string, error)) tea.Cmd {
 
 func actionCmdHint(desc, hint string, run func(context.Context) (string, error)) tea.Cmd {
 	return func() tea.Msg {
+		start := time.Now()
 		out, err := run(context.Background())
-		return actionMsg{desc: desc, hint: hint, out: out, err: err}
+		return actionMsg{desc: desc, hint: hint, out: out, err: err, took: time.Since(start), run: run}
 	}
 }
 
@@ -257,17 +258,24 @@ func (m Model) applyRefresh(msg refreshMsg) (tea.Model, tea.Cmd) {
 		m.images[u.UnitName] = msg.images[i]
 	}
 
-	m.filtered = filterUnits(m.units, m.filterStr)
+	m.filtered = m.sortUnits(filterUnits(m.units, m.filterStr))
 	m.buildRows()
-	if pin != "" {
-		for i, u := range m.filtered {
-			if u.UnitName == pin {
-				m.table.SetCursor(i)
-				break
-			}
+	m.pinCursor(pin)
+	m.loading = false
+	switch m.mode {
+	case modeTree:
+		// Local files are cheap to re-parse; isolated sessions would pay a
+		// remote cat per unit per tick, so they refresh on reopen only.
+		if !m.ssh.Isolated() {
+			m.treeView = m.computeTree()
+		}
+	case modeValidate:
+		if msg.issues != nil {
+			pin, _ := m.selectedRow()
+			m.probList = m.computeProblems()
+			m.pinScreenRow(pin.id)
 		}
 	}
-	m.loading = false
 	m.resize()
 	return m, nil
 }
@@ -276,5 +284,6 @@ func (m Model) applyRefresh(msg refreshMsg) (tea.Model, tea.Cmd) {
 func (m *Model) setBusy(text string) tea.Cmd {
 	m.busy = true
 	m.busyText = text
+	m.busyHow = m.trigger
 	return m.spinner.Tick
 }

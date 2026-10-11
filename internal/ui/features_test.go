@@ -8,6 +8,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/fahmikemal/quadman/internal/config"
 	"github.com/fahmikemal/quadman/internal/quadlet"
 )
@@ -20,7 +22,7 @@ func TestFeatureReadonlyEndToEnd(t *testing.T) {
 	m.table.SetCursor(0)
 	m.readonly = true
 
-	if !strings.Contains(m.helpBar(), "readonly") {
+	if !strings.Contains(m.chips(), "readonly") {
 		t.Fatal("readonly chip must be visible")
 	}
 
@@ -71,8 +73,8 @@ func TestFeatureRecentActionsEndToEnd(t *testing.T) {
 	if mm.mode != modeRecent {
 		t.Fatal("A must open the recent screen")
 	}
-	if !strings.Contains(mm.viewport.View(), "No actions yet") {
-		t.Fatalf("empty log must explain itself: %q", mm.viewport.View())
+	if v := ansi.Strip(mm.View().Content); !strings.Contains(v, "no actions yet") {
+		t.Fatalf("empty log must explain itself: %q", v)
 	}
 	model, _ = mm.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	mm = model.(Model)
@@ -87,12 +89,23 @@ func TestFeatureRecentActionsEndToEnd(t *testing.T) {
 	mm = model.(Model)
 	model, _ = mm.Update(tea.KeyPressMsg{Code: 'A', Text: "A"})
 	mm = model.(Model)
-	view := mm.viewport.View()
-	if !strings.Contains(view, "start webapp.service") || !strings.Contains(view, "FAIL") {
-		t.Errorf("failed action must render with FAIL:\n%s", view)
+	rows := mm.screenSpec().rows
+	if len(rows) != 2 {
+		t.Fatalf("actions rows = %d, want 2", len(rows))
 	}
-	if !strings.Contains(view, "healthcheck systemd-webapp") || !strings.Contains(view, "ok") {
-		t.Errorf("healthy check must render as ok:\n%s", view)
+	// Newest first: the healthcheck, then the failed start.
+	if rows[0].cells[2].text != "healthcheck" || rows[0].cells[1].text != glyph(gDone) {
+		t.Errorf("healthy check must render as ok: %+v", rows[0].cells)
+	}
+	if rows[1].cells[2].text != "start" || rows[1].cells[3].text != "webapp.service" || rows[1].cells[1].text != glyph(gFailed) {
+		t.Errorf("failed action must render with ✗: %+v", rows[1].cells)
+	}
+	mm.scrCur = 1
+	detail := ansi.Strip(strings.Join(mm.actionDetail(rows[1], 100), "\n"))
+	for _, want := range []string{"boom", "$ systemctl --user start webapp.service", "c copy command"} {
+		if !strings.Contains(detail, want) {
+			t.Errorf("failed action detail missing %q:\n%s", want, detail)
+		}
 	}
 }
 
@@ -236,9 +249,9 @@ func TestFeatureInspectCacheEndToEnd(t *testing.T) {
 // TestFeatureCustomLegendAndHelp proves the new keys are discoverable.
 func TestFeatureCustomLegendAndHelp(t *testing.T) {
 	m := New()
-	bar := m.helpBar()
-	if !strings.Contains(bar, "A actions") {
-		t.Errorf("legend must advertise A actions: %q", bar)
+	nav := ansi.Strip(m.navStrip(124))
+	if !strings.Contains(nav, "Actions A") {
+		t.Errorf("nav strip must advertise Actions A: %q", nav)
 	}
 	m.custom = []config.CustomCommand{{Name: "probe", Key: "C", Run: "echo hi"}}
 	// Custom keys work from the list dispatcher.

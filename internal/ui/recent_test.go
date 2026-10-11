@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestRecentActionsRecorded(t *testing.T) {
@@ -44,8 +45,8 @@ func TestRecentScreenFlow(t *testing.T) {
 	if mm.mode != modeRecent {
 		t.Fatal("A must open the recent-actions screen")
 	}
-	if !strings.Contains(mm.viewport.View(), "No actions yet") {
-		t.Errorf("empty log must explain itself: %q", mm.viewport.View())
+	if v := ansi.Strip(mm.View().Content); !strings.Contains(v, "no actions yet") {
+		t.Errorf("empty log must explain itself: %q", v)
 	}
 	model, _ = mm.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if model.(Model).mode != modeList {
