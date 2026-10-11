@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 )
 
@@ -46,77 +47,50 @@ func (s *Systemd) ListTimers(ctx context.Context) ([]Timer, error) {
 	return ParseTimers(string(out)), nil
 }
 
+// timerLine matches one data row of `list-timers --all --full` in the C
+// locale: NEXT and LAST are a timestamp ("Mon 2026-10-12 22:13:58 WIB")
+// or "-"/"n/a"; LEFT and PASSED are free-form spans ("20h", "4 weeks 2
+// days", "1h 16min ago"); UNIT and ACTIVATES are the last two fields.
+// Values are right-aligned under their headers, so a row cannot be cut at
+// header offsets ("6 days" starts left of the LEFT header).
+var timerLine = regexp.MustCompile(`^\s*(` + timerStamp + `|-|n/a)\s+(.*?)\s+(` + timerStamp + `|-|n/a)\s+(.*?)\s+(\S+)\s+(\S+)\s*$`)
+
+// timerStamp is "Day YYYY-MM-DD HH:MM:SS TZ".
+const timerStamp = `\S+ \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \S+`
+
 // ParseTimers parses tabular output from `systemctl list-timers --all --no-pager --full`.
 func ParseTimers(raw string) []Timer {
-	lines := strings.Split(raw, "\n")
-	if len(lines) == 0 {
-		return nil
-	}
-	var header string
-	var dataLines []string
-	for _, l := range lines {
-		l = strings.TrimRight(l, "\r\n")
-		if strings.Contains(l, "UNIT") && strings.Contains(l, "ACTIVATES") {
-			header = l
-			continue
-		}
-		trimmed := strings.TrimSpace(l)
-		if header != "" && trimmed != "" && !strings.HasSuffix(trimmed, "timers listed.") {
-			dataLines = append(dataLines, l)
-		}
-	}
-	if header == "" {
-		return nil
-	}
-	unitIdx := strings.Index(header, "UNIT")
-	activatesIdx := strings.Index(header, "ACTIVATES")
-	nextIdx := strings.Index(header, "NEXT")
-	leftIdx := strings.Index(header, "LEFT")
-	lastIdx := strings.Index(header, "LAST")
-	passedIdx := strings.Index(header, "PASSED")
-
-	if unitIdx == -1 || activatesIdx == -1 || nextIdx == -1 || leftIdx == -1 || lastIdx == -1 || passedIdx == -1 {
-		return nil
-	}
-
 	var timers []Timer
-	for _, l := range dataLines {
-		if len(l) <= unitIdx {
+	seenHeader := false
+	for _, l := range strings.Split(raw, "\n") {
+		l = strings.TrimRight(l, "\r")
+		if strings.Contains(l, "UNIT") && strings.Contains(l, "ACTIVATES") {
+			seenHeader = true
 			continue
 		}
-		var next, left, last, passed, unit, activates string
-		if len(l) > nextIdx && len(l) >= leftIdx {
-			next = strings.TrimSpace(l[nextIdx:leftIdx])
+		t := strings.TrimSpace(l)
+		if !seenHeader || t == "" || strings.HasSuffix(t, "timers listed.") || strings.HasSuffix(t, "timer listed.") {
+			continue
 		}
-		if len(l) > leftIdx && len(l) >= lastIdx {
-			left = strings.TrimSpace(l[leftIdx:lastIdx])
+		mt := timerLine.FindStringSubmatch(l)
+		if mt == nil {
+			continue
 		}
-		if len(l) > lastIdx && len(l) >= passedIdx {
-			last = strings.TrimSpace(l[lastIdx:passedIdx])
-		}
-		if len(l) > passedIdx && len(l) >= unitIdx {
-			passed = strings.TrimSpace(l[passedIdx:unitIdx])
-		}
-		if len(l) > unitIdx {
-			tail := strings.TrimSpace(l[unitIdx:])
-			tailFields := strings.Fields(tail)
-			if len(tailFields) >= 2 {
-				unit = tailFields[0]
-				activates = tailFields[len(tailFields)-1]
-			} else if len(tailFields) == 1 {
-				unit = tailFields[0]
-			}
-		}
-		if unit != "" {
-			timers = append(timers, Timer{
-				Unit:      unit,
-				Activates: activates,
-				Next:      next,
-				Left:      left,
-				Last:      last,
-				Passed:    passed,
-			})
-		}
+		timers = append(timers, Timer{
+			Next:      mt[1],
+			Left:      orDash(mt[2]),
+			Last:      mt[3],
+			Passed:    orDash(mt[4]),
+			Unit:      mt[5],
+			Activates: mt[6],
+		})
 	}
 	return timers
+}
+
+func orDash(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "-"
+	}
+	return strings.TrimSpace(s)
 }
