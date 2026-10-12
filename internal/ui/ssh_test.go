@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -203,7 +204,7 @@ func TestUpdatesCmdUsesRemotePodman(t *testing.T) {
 	m := New()
 	m.applySSH("user@remote")
 	useFakeSSH(&m, fakeSSHBin(t, script))
-	msg := updatesCmd(m.sys, m.pm)()
+	msg := updatesLoad(m.sys, m.pm)(context.Background())
 	um, ok := msg.(updatesMsg)
 	if !ok {
 		t.Fatalf("expected updatesMsg, got %T", msg)

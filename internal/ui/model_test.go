@@ -408,7 +408,7 @@ func TestHealthShownInRows(t *testing.T) {
 }
 
 func TestUpdatesScreen(t *testing.T) {
-	m := New()
+	m := press(New(), "u") // u opens the screen; the result fills it
 	msg := updatesMsg{
 		entries:      []podman.AutoUpdateEntry{{Unit: "webapp.service", Policy: "registry", Updated: "pending", Image: "nginx"}},
 		timerEnabled: "enabled",
@@ -416,8 +416,8 @@ func TestUpdatesScreen(t *testing.T) {
 	}
 	model, _ := m.Update(msg)
 	mm := model.(Model)
-	if mm.mode != modeUpdates {
-		t.Fatal("updatesMsg should switch to the updates screen")
+	if mm.mode != modeUpdates || mm.busy {
+		t.Fatalf("updates screen after its result: mode=%v busy=%v", mm.mode, mm.busy)
 	}
 	view := ansi.Strip(mm.View().Content)
 	if !strings.Contains(view, "webapp.service") || !strings.Contains(view, "pending") || !strings.Contains(view, "TIMER") {

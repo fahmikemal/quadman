@@ -49,10 +49,25 @@ func (m *Model) setSession(runner remote.Runner, system bool, genDir string) {
 	// one reported about podman, health, and containers is not its truth.
 	m.podmanTried = false
 	m.podmanInfo = nil
+	m.linger, m.lingerKnown = false, false // the new target's own, read next
 	m.health = map[string]string{}
 	m.ctrNames = map[string]string{}
 	m.refreshInFlight = false
 	m.lastRefresh = time.Time{}
+	// So does every screen's data, and any view streaming from it: the
+	// new target starts on its own unit list with nothing cached.
+	m.storage, m.timers, m.secrets = storageData{}, timersData{}, secretsData{}
+	m.stats = statsData{showIdle: m.stats.showIdle}
+	m.updateEntries, m.timerEnabled, m.timerActive = nil, "", ""
+	m.cancelLoad()
+	m.scrLoaded, m.scrLoading, m.scrErr, m.scrErrFor = 0, modeList, "", modeList
+	m.scrLoadedAt, m.statsInFlight = [modeCount]time.Time{}, false
+	m.busy = false
+	if m.mode != modeList {
+		m.stopLogs()
+		m.stopEvents()
+		m.mode = modeList
+	}
 }
 
 // applySSH points every CLI client at the remote target.

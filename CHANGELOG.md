@@ -7,6 +7,39 @@ All notable changes to quadman are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Switching to Updates, Storage, Timers, Secrets, or Stats no longer
+  flashes the unit list's dashboard while the data loads: the screen opens
+  on the keypress, with its last data or a loading state.
+- A screen's data that lands after you left it no longer pulls you back
+  (leaving Stats mid-sample used to reopen it).
+- Creating, rotating, or removing a secret and removing storage reload the
+  list after the action, not concurrently with it, so the list shows the
+  result.
+- Opening a screen from the journal or the events view (palette, nav keys)
+  stops its `journalctl -f` / `podman events` stream.
+- Switching session (compartment) drops every screen's data from the
+  previous target.
+- Switching between screens is fast:
+  - data reopened within 30 s (updates: 5 minutes) is shown as is, with
+    its age; `r` reloads;
+  - a load you leave is cancelled, so its podman processes stop instead
+    of piling up behind the next screen;
+  - storage, timers, secrets, updates, and stats run their independent
+    reads in parallel (storage: five podman calls at once);
+  - stats samples one at a time and no longer runs `podman info` and
+    `podman ps` on every tick.
+
+### Changed
+
+- An unattended quadman uses far less CPU: after a minute without input,
+  or while the terminal is unfocused, the unit list polls every 15 s
+  instead of every 2.5 s (the top bar shows `15s idle`); the next key,
+  click, or focus refreshes at once. A slower `refresh_interval` is kept.
+- Linger is read every 12 polls (and on full refreshes and session
+  switches) instead of on every poll; `L` reports its own result.
+
 ## [v0.7.0-beta.1] - 2026-10-12
 
 First beta. Every earlier version (`v0.1.0` to `v0.6.0`, and

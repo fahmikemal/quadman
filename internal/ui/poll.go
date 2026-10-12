@@ -18,23 +18,41 @@ import (
 // same unit (by name) across refreshes.
 const defaultPollInterval = 2500 * time.Millisecond
 
-type tickMsg struct{}
+// An unattended screen polls slowly: after idleAfter without a key or a
+// click, or at once when the terminal loses focus, the cadence drops to
+// idlePollInterval. The next key, click, or focus refreshes immediately
+// and restores the configured cadence.
+const (
+	idleAfter        = time.Minute
+	idlePollInterval = 15 * time.Second
+)
+
+// lingerPollEvery is how many polls pass between linger reads: linger only
+// changes through loginctl, and L reports its own result.
+const lingerPollEvery = 12
+
+// tickMsg is one poll tick of chain gen. Waking from idle starts a new
+// chain at the normal cadence; ticks of the slow one are dropped.
+type tickMsg struct{ gen uint64 }
 
 type refreshMsg struct {
-	units       []quadlet.Unit
-	images      []string
-	statuses    map[string]systemd.Status
-	linger      bool
-	lingerOK    bool
-	podman      map[string]podman.Entry
-	podmanTried bool
-	health      map[string]string
-	ctrNames    map[string]string
-	ctrOverride map[string]string
-	stale       []quadlet.Unit
-	issues      []quadlet.Issue
-	version     string
-	err         error
+	units    []quadlet.Unit
+	images   []string
+	statuses map[string]systemd.Status
+	linger   bool
+	lingerOK bool
+	// lingerSkipped marks a refresh that did not read linger (see
+	// lingerPollEvery): the model keeps what it knows.
+	lingerSkipped bool
+	podman        map[string]podman.Entry
+	podmanTried   bool
+	health        map[string]string
+	ctrNames      map[string]string
+	ctrOverride   map[string]string
+	stale         []quadlet.Unit
+	issues        []quadlet.Issue
+	version       string
+	err           error
 	// epoch is the session the refresh ran against and issuedAt when it
 	// started; applyRefresh drops results of an older session or older
 	// than the last applied one. Zero values (hand-built messages) apply.
@@ -61,11 +79,58 @@ const healthPollEvery = 4
 // hold the poll's in-flight slot forever.
 const refreshTimeout = 90 * time.Second
 
-func pollCmd(interval time.Duration) tea.Cmd {
+func pollCmd(interval time.Duration, gen uint64) tea.Cmd {
 	if interval <= 0 {
 		interval = defaultPollInterval
 	}
-	return tea.Tick(interval, func(time.Time) tea.Msg { return tickMsg{} })
+	return tea.Tick(interval, func(time.Time) tea.Msg { return tickMsg{gen: gen} })
+}
+
+// pollEvery is the current poll cadence: the configured interval, slowed
+// to idlePollInterval while nobody is looking.
+func (m Model) pollEvery() time.Duration {
+	d := m.pollInterval
+	if d <= 0 {
+		d = defaultPollInterval
+	}
+	if m.idle() && d < idlePollInterval {
+		return idlePollInterval
+	}
+	return d
+}
+
+// idle reports an unattended screen: the terminal lost focus, or no key
+// or click came for idleAfter.
+func (m Model) idle() bool {
+	return m.blurred || (!m.lastInput.IsZero() && time.Since(m.lastInput) > idleAfter)
+}
+
+// noteActivity tracks input and terminal focus. Coming back to an idle
+// screen refreshes at once and restarts polling at the normal cadence.
+func (m *Model) noteActivity(msg tea.Msg) tea.Cmd {
+	switch msg.(type) {
+	case tea.BlurMsg:
+		m.blurred = true
+		return nil
+	case tea.KeyPressMsg, tea.MouseClickMsg, tea.MouseWheelMsg, tea.PasteMsg, tea.FocusMsg:
+	default:
+		return nil
+	}
+	wasIdle := m.idle()
+	m.blurred = false
+	m.lastInput = time.Now()
+	if !wasIdle {
+		return nil
+	}
+	m.tickGen++
+	cmds := []tea.Cmd{m.pollTick()}
+	if !m.refreshInFlight && !m.loading {
+		m.refreshInFlight = true
+		req := m.refreshReq(enrichHealth)
+		req.fromPoll = true
+		cmds = append(cmds, req.cmd())
+	}
+	return tea.Batch(cmds...)
 }
 
 // refreshReq is everything one refresh needs, captured from the model when
@@ -77,6 +142,7 @@ type refreshReq struct {
 	cache    *quadlet.InspectCache
 	runner   remote.Runner
 	level    enrichLevel
+	linger   bool // read linger (see lingerPollEvery)
 	system   bool
 	dirs     []string
 	epoch    uint64
@@ -97,13 +163,14 @@ func (m Model) refreshReq(level enrichLevel) refreshReq {
 	return refreshReq{
 		sys: m.sys, lc: m.lc, pm: m.pm, cache: cache, runner: m.ssh,
 		level: level, system: m.system, dirs: m.searchDirs(), epoch: m.epoch,
+		linger: level == enrichFull || !m.lingerKnown,
 	}
 }
 
-// pollTick schedules the next poll using the model's configured interval
-// (or the default when unset).
+// pollTick schedules the next poll of the current chain at the current
+// cadence (pollEvery).
 func (m Model) pollTick() tea.Cmd {
-	return pollCmd(m.pollInterval)
+	return pollCmd(m.pollEvery(), m.tickGen)
 }
 
 func (r refreshReq) cmd() tea.Cmd {
@@ -167,7 +234,7 @@ func (r refreshReq) run() refreshMsg {
 		return refreshMsg{units: units, images: images, err: err, issuedAt: issuedAt}
 	}
 	var linger, lingerOK bool
-	if !r.system {
+	if !r.system && r.linger {
 		var lerr error
 		linger, lerr = r.lc.Enabled(ctx, "")
 		lingerOK = lerr == nil
@@ -218,20 +285,21 @@ func (r refreshReq) run() refreshMsg {
 	}
 
 	return refreshMsg{
-		units:       units,
-		images:      images,
-		statuses:    statuses,
-		linger:      linger,
-		lingerOK:    lingerOK,
-		podman:      pinfo,
-		podmanTried: r.level == enrichFull,
-		health:      health,
-		ctrNames:    ctrNames,
-		ctrOverride: ctrOverride,
-		stale:       staleUnits(units, statuses),
-		issues:      issues,
-		version:     version,
-		issuedAt:    issuedAt,
+		units:         units,
+		images:        images,
+		statuses:      statuses,
+		linger:        linger,
+		lingerOK:      lingerOK,
+		lingerSkipped: !r.system && !r.linger,
+		podman:        pinfo,
+		podmanTried:   r.level == enrichFull,
+		health:        health,
+		ctrNames:      ctrNames,
+		ctrOverride:   ctrOverride,
+		stale:         staleUnits(units, statuses),
+		issues:        issues,
+		version:       version,
+		issuedAt:      issuedAt,
 	}
 }
 
@@ -314,8 +382,10 @@ func (m Model) applyRefresh(msg refreshMsg) (tea.Model, tea.Cmd) {
 
 	m.units = msg.units
 	m.status = msg.statuses
-	m.linger = msg.linger
-	m.lingerKnown = msg.lingerOK
+	if !msg.lingerSkipped {
+		m.linger = msg.linger
+		m.lingerKnown = msg.lingerOK
+	}
 	m.stale = msg.stale
 	if msg.issues != nil {
 		m.issues = indexIssues(msg.issues)

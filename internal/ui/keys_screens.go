@@ -12,7 +12,10 @@ func (m Model) screenHandler(md mode, own func(Model, tea.KeyPressMsg) (tea.Mode
 	if m.mode != md {
 		return m, nil, false
 	}
-	if own != nil {
+	// An async screen without data yet only takes its retry key: nothing
+	// may act on rows that are not shown. Navigation and esc stay live.
+	waiting := isAsyncScreen(md) && !m.screenLoaded(md) && msg.String() != retryKey(md)
+	if own != nil && !waiting {
 		if mm, cmd, ok := own(m, msg); ok {
 			return mm, cmd, true
 		}

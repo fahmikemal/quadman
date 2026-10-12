@@ -172,6 +172,12 @@ type statusBarState struct {
 
 	// pollInterval overrides the default refresh tick (0 = default).
 	pollInterval time.Duration
+	// lastInput is the last key or click and blurred whether the terminal
+	// reported losing focus: both slow the poll down (see idle). tickGen
+	// numbers the poll chain so a wake can replace the slow one.
+	lastInput time.Time
+	blurred   bool
+	tickGen   uint64
 
 	// actions is the recent-actions log of state-changing results.
 	actions []actionRecord

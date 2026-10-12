@@ -251,7 +251,7 @@ an unknown key (a typo such as `read_only:`) is reported, the TUI starts
 quadman never guesses settings that decide who may change what.
 
 ```yaml
-refresh_interval: 5s   # list poll tick (default 2.5s)
+refresh_interval: 5s   # list poll tick (default 2.5s; 15s while idle or unfocused)
 log_tail: 200          # journal snapshot lines for a new follow stream
 log_buffer: 1000       # follow-view line cap
 readonly: false        # same as quadman --readonly

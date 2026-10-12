@@ -259,6 +259,7 @@ func TestStorageRemoveRefusesWhatAUnitUses(t *testing.T) {
 		images: []podman.ImageEntry{{ID: "img1", Names: []string{"docker.io/library/busybox:latest"}}},
 		df:     []podman.DfRow{{Type: "Images", Total: 1}},
 	}
+	m.scrLoaded |= modeBit(modeStorage)
 	m.enterScreen(modeStorage)
 	m = press(m, "D")
 	if m.pending != nil || !strings.Contains(m.statusLine, "used by demo-web.service") {
@@ -327,6 +328,7 @@ func TestSecretUsesAndGrouping(t *testing.T) {
 func TestSecretValuesNeverRenderAndCopyIsGated(t *testing.T) {
 	m := sampleModel(t, 120, 36)
 	m.secrets = secretsData{list: []podman.SecretEntry{{Name: "db-pass"}}, uses: secretUses(m.units, m.readUnitSources)}
+	m.scrLoaded |= modeBit(modeSecrets)
 	m.enterScreen(modeSecrets)
 	m = press(m, "down", "down") // onto db-pass
 	m.readonly = true
@@ -628,6 +630,7 @@ func TestStatsSortAndIdle(t *testing.T) {
 		{Name: "big", CPU: "2.00%", Mem: "10MB / 16GB"},
 		{Name: "idle", CPU: "0.00%", Mem: "1MB / 16GB"},
 	}}
+	m.scrLoaded |= modeBit(modeStats)
 	m.enterScreen(modeStats)
 	rows := m.screenSpec().rows
 	if rows[0].cells[0].text != "big" || rows[2].heading == "" || len(rows) != 3 {
@@ -646,6 +649,7 @@ func TestStatsSortAndIdle(t *testing.T) {
 func TestUpdatesApplyNeedsPendingAndConfirmation(t *testing.T) {
 	m := sampleModel(t, 120, 36)
 	m.updateEntries = []podman.AutoUpdateEntry{{Unit: "demo-web.service", Updated: "false"}}
+	m.scrLoaded |= modeBit(modeUpdates)
 	m.enterScreen(modeUpdates)
 	if mm := press(m, "a"); mm.pending != nil {
 		t.Error("with nothing pending, a must not arm anything")

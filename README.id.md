@@ -175,7 +175,7 @@ quadman -version                 # Splash logo blok di terminal, satu baris saat
 Pengaturan YAML opsional terletak di `~/.config/quadman/config.yaml` (seluruh opsi bersifat opsional). Berkas dibaca secara ketat dan *fail closed*: berkas rusak atau key tak dikenal (salah ketik seperti `read_only:`) dilaporkan, TUI mulai dalam mode **readonly** sampai diperbaiki, dan `quadman serve` menolak berjalan — quadman tidak pernah menebak pengaturan yang menentukan siapa boleh mengubah apa.
 
 ```yaml
-refresh_interval: 5s   # Interval polling daftar (default 2.5s)
+refresh_interval: 5s   # Interval polling daftar (default 2.5s; 15s saat idle/tidak fokus)
 log_tail: 200          # Jumlah baris awal snapshot journal saat membuka log
 log_buffer: 1000       # Batas maksimum baris buffer penampil log
 readonly: false        # Sama dengan flag quadman --readonly

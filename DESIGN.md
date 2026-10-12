@@ -31,7 +31,9 @@ disagree, fix one of them in the same change.
 
 - **2a Top bar** — `quadman › scope › target` (`rootless` / `system`, then
   the SSH host, `as <user>`, or the served client), plus refresh and podman
-  version chips on the right.
+  version chips on the right. The refresh chip shows the cadence in force:
+  `15s idle` after a minute without input or while the terminal is
+  unfocused; the next key, click, or focus refreshes at once.
 - **2b Nav strip** — every view with its key and a badge count (problems,
   pending updates). Nav keys switch views from any screen.
 - **2c Dashboard** (unit list only) — six tiles: units, running, failed,
@@ -141,6 +143,25 @@ headings and problems first → a detail panel for the selected row (full
 screen on `↵` below 100 columns) → its own footer group. A screen only
 describes itself (`screenSpec`); layout, scrolling, `/` filtering, and
 navigation behave the same everywhere.
+
+Screens whose data comes from a command (updates, storage, timers,
+secrets, stats) open on the keypress, never after the data lands: a
+revisit shows the last data while it reloads, a first visit shows the
+skeleton with `…` values and "loading…". Until data exists their own keys
+do nothing but say why. A failed first load stays on the screen and names
+the error and the retry key. A result only updates its own screen: one that
+lands after the user left is kept for the next visit, never used to switch
+back. A session switch drops every screen's data and returns to the new
+target's unit list.
+
+Reopening a screen within its freshness window — 30 s, five minutes for
+updates (a dry run asks every image's registry), none for live stats —
+shows its data as is and says how old it is; `r` (secrets: `^R`) always
+reloads. Leaving a screen cancels its load, killing the commands still
+running, so quick back-and-forth never stacks podman processes. A loader
+runs its independent reads side by side, and the stats sampler runs one
+sample at a time, reading host info once and container labels every few
+samples.
 
 ## 10. Accessibility
 

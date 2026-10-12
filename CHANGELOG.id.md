@@ -7,6 +7,40 @@ Semua perubahan penting quadman dicatat di sini. Format mengikuti
 
 ## [Unreleased]
 
+### Diperbaiki
+
+- Pindah ke Updates, Storage, Timers, Secrets, atau Stats tidak lagi
+  memunculkan sekilas dashboard daftar unit saat data dimuat: layar terbuka
+  begitu tombol ditekan, dengan data terakhirnya atau tampilan memuat.
+- Data layar yang datang setelah layar itu ditinggalkan tidak lagi menarik
+  kembali ke layar tersebut (dulu, keluar dari Stats saat sampel sedang
+  diambil membuka Stats lagi).
+- Membuat, me-rotate, atau menghapus secret serta menghapus storage memuat
+  ulang daftar setelah aksinya selesai, bukan bersamaan, sehingga daftar
+  menampilkan hasilnya.
+- Membuka layar dari journal atau tampilan events (palette, tombol nav)
+  menghentikan stream `journalctl -f` / `podman events`-nya.
+- Berganti sesi (kompartemen) membuang data layar dari target sebelumnya.
+- Perpindahan antar layar jadi cepat:
+  - data yang dibuka lagi dalam 30 detik (updates: 5 menit) langsung
+    ditampilkan beserta umurnya; `r` memuat ulang;
+  - load yang ditinggalkan dibatalkan, sehingga proses podman-nya berhenti
+    alih-alih menumpuk di belakang layar berikutnya;
+  - storage, timers, secrets, updates, dan stats menjalankan pembacaan yang
+    saling lepas secara paralel (storage: lima panggilan podman sekaligus);
+  - stats mengambil satu sampel dalam satu waktu dan tidak lagi menjalankan
+    `podman info` dan `podman ps` di setiap tick.
+
+### Diubah
+
+- quadman yang dibiarkan terbuka jauh lebih hemat CPU: setelah satu menit
+  tanpa input, atau saat terminal tidak fokus, daftar unit di-poll setiap
+  15 detik, bukan 2,5 detik (top bar menampilkan `15s idle`); tombol, klik,
+  atau fokus berikutnya langsung memperbarui. `refresh_interval` yang lebih
+  lambat tetap dipakai.
+- Linger dibaca setiap 12 poll (serta saat refresh penuh dan ganti sesi),
+  bukan di setiap poll; `L` melaporkan hasilnya sendiri.
+
 ## [v0.7.0-beta.1] - 2026-10-12
 
 Beta pertama. Semua versi sebelumnya (`v0.1.0` sampai `v0.6.0`, dan

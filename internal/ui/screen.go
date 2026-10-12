@@ -1,8 +1,10 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
@@ -89,6 +91,20 @@ type screenState struct {
 	secretIn secretInput
 	// probList caches the problems screen's findings.
 	probList []problem
+	// scrLoaded has one bit per async screen holding data from this
+	// session; scrLoading is the screen whose load is in flight (modeList:
+	// none); scrErr is why scrErrFor's first load failed.
+	scrLoaded  uint32
+	scrLoading mode
+	scrErr     string
+	scrErrFor  mode
+	// scrLoadedAt is when each screen's data landed; scrSeq numbers the
+	// loads (only the newest may land) and scrCancel ends the one in
+	// flight. statsInFlight keeps the poll tick to one sample at a time.
+	scrLoadedAt   [modeCount]time.Time
+	scrSeq        uint64
+	scrCancel     context.CancelFunc
+	statsInFlight bool
 }
 
 // isScreenMode reports the modes rendered through the screen skeleton.
@@ -106,6 +122,16 @@ func (m *Model) enterScreen(md mode) {
 	if m.mode == md {
 		return
 	}
+	// Leaving a screen abandons its load; leaving a live view ends its
+	// follow process (palette and nav keys can open a screen straight from
+	// the journal or the events view).
+	m.cancelLoad()
+	switch m.mode {
+	case modeDetail:
+		m.stopLogs()
+	case modeEvents:
+		m.stopEvents()
+	}
 	m.mode = md
 	m.scrCur, m.scrOff, m.scrTab = 0, 0, 0
 	m.scrFull = false
@@ -117,9 +143,68 @@ func (m *Model) enterScreen(md mode) {
 	m.resize()
 }
 
-// screenSpec returns the spec of the current screen mode.
+// screenSpec returns the spec of the current screen mode. An async screen
+// without data yet keeps its skeleton but shows a loading or failed state
+// instead of values derived from nothing.
 func (m Model) screenSpec() screenSpec {
-	switch m.mode {
+	s := m.specFor(m.mode)
+	if !isAsyncScreen(m.mode) || m.screenLoaded(m.mode) {
+		return s
+	}
+	switch {
+	case m.scrErrFor == m.mode && m.scrErr != "":
+		return placeholderSpec(s, "—", "not loaded",
+			"could not load: "+m.scrErr+"  ·  "+retryKey(m.mode)+" retry  ·  esc back")
+	case m.scrLoading == m.mode:
+		return placeholderSpec(s, "…", "loading", "loading…")
+	}
+	return s
+}
+
+// placeholderSpec blanks every data-derived part of s (tile values, rows,
+// toolbar, detail) and puts body where the rows would be.
+func placeholderSpec(s screenSpec, value, note, body string) screenSpec {
+	tiles := make([]tile, len(s.tiles))
+	for i, t := range s.tiles {
+		tiles[i] = tile{label: t.label, value: value, note: note, valueStyle: mutedStyle}
+	}
+	s.tiles = tiles
+	tabs := make([]string, len(s.tabs))
+	for i, t := range s.tabs {
+		tabs[i] = withoutCount(t)
+	}
+	s.tabs = tabs
+	if s.summary != "" {
+		s.summary = mutedStyle.Render(body)
+	}
+	s.toolbar = ""
+	s.rows = nil
+	s.detail = nil
+	s.empty = body
+	return s
+}
+
+// withoutCount drops a trailing row count from a sub-tab label
+// ("Images 0" → "Images"): there is nothing counted yet.
+func withoutCount(label string) string {
+	i := strings.LastIndexByte(label, ' ')
+	if i < 0 || strings.TrimLeft(label[i+1:], "0123456789") != "" {
+		return label
+	}
+	return label[:i]
+}
+
+// waitingHint answers a key pressed on an async screen that has no data.
+func (m Model) waitingHint() string {
+	if m.scrErrFor == m.mode && m.scrErr != "" {
+		return "nothing loaded yet: " + retryKey(m.mode) + " retries, esc goes back"
+	}
+	return "still loading: actions wait for the data (esc goes back)"
+}
+
+// specFor builds the spec of screen md from the model's data.
+func (m Model) specFor(md mode) screenSpec {
+	switch md {
 	case modeStorage:
 		return m.storageSpec()
 	case modeEvents:
@@ -590,6 +675,9 @@ func (m Model) screenKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if md, ok := navKeyMode(msg.String()); ok && md != m.mode {
 			return m.openView(md)
 		}
+		if isAsyncScreen(m.mode) && !m.screenLoaded(m.mode) {
+			m.setStatus(m.waitingHint(), false)
+		}
 	}
 	return m, nil
 }
@@ -665,6 +753,7 @@ func (m Model) leaveScreen() (tea.Model, tea.Cmd) {
 	if m.mode == modeEvents {
 		m.stopEvents()
 	}
+	m.cancelLoad()
 	m.scrFiltering = false
 	m.scrFilter = ""
 	m.scrFilterIn.SetValue("")

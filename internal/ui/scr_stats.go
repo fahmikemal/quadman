@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -61,19 +62,35 @@ func (s statsMsg) apply(m *Model) {
 	m.stats.sampledAt = time.Now()
 }
 
-// statsCmd samples every container (running or stopped; stopped rows read
-// zero). Host info and container labels are fetched alongside; failures
-// there only cost the tiles and unit links, never the table.
-func statsCmd(pm podman.Client) tea.Cmd {
-	return func() tea.Msg {
-		ctx := context.Background()
+// statsCtrsEvery is how many samples pass between container-label reads
+// (they only link rows to units and rarely change).
+const statsCtrsEvery = 6
+
+// statsLoad samples every container (running or stopped; stopped rows
+// read zero). Host info is read once per session and container labels on
+// open and every statsCtrsEvery samples — not one extra podman process
+// each per sample — alongside the sample; their failures only cost the
+// tiles and unit links, never the table.
+func (m Model) statsLoad(open bool) screenLoad {
+	pm := m.pm
+	withHost := m.stats.host.CPUs == 0
+	withCtrs := open || m.stats.ctrs == nil || len(m.stats.cpuHist)%statsCtrsEvery == 0
+	return func(ctx context.Context) tea.Msg {
+		var msg statsMsg
+		var wg sync.WaitGroup
+		if withHost {
+			wg.Go(func() { msg.host, _ = pm.Info(ctx) })
+		}
+		if withCtrs {
+			wg.Go(func() { msg.ctrs, _ = pm.Containers(ctx, false) })
+		}
 		entries, err := pm.Stats(ctx)
+		wg.Wait()
 		if err != nil {
 			return statsMsg{err: err}
 		}
-		host, _ := pm.Info(ctx)
-		ctrs, _ := pm.Containers(ctx, false)
-		return statsMsg{entries: entries, host: host, ctrs: ctrs}
+		msg.entries = entries
+		return msg
 	}
 }
 
@@ -327,7 +344,8 @@ func sparkline(vals []float64, width int) string {
 func (m Model) statsKeysIn(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	switch msg.String() {
 	case "r":
-		return m, tea.Batch(m.setBusy("stats"), statsCmd(m.pm)), true
+		cmd := m.loadScreen(modeStats, "stats", m.statsLoad(true))
+		return m, cmd, true
 	case "i":
 		m.stats.showIdle = !m.stats.showIdle
 		return m, nil, true

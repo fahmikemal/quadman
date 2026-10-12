@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"charm.land/bubbles/v2/textinput"
@@ -51,16 +52,22 @@ const secretClipboardTTL = 30 * time.Second
 
 type clipboardClearMsg struct{ secret string }
 
-func (m Model) secretsCmd() tea.Cmd {
+func (m Model) secretsLoad() screenLoad {
 	units := slices.Clone(m.units)
 	read := m.readUnitSources
 	pm := m.pm
-	return func() tea.Msg {
-		list, err := pm.SecretList(context.Background())
+	return func(ctx context.Context) tea.Msg {
+		// Reading the unit sources (one remote cat each over SSH) runs
+		// alongside the secret list.
+		var uses map[string][]secretUse
+		var wg sync.WaitGroup
+		wg.Go(func() { uses = secretUses(units, read) })
+		list, err := pm.SecretList(ctx)
+		wg.Wait()
 		if err != nil {
 			return secretsMsg{err: err}
 		}
-		return secretsMsg{data: secretsData{list: list, uses: secretUses(units, read), loadedAt: time.Now()}}
+		return secretsMsg{data: secretsData{list: list, uses: uses, loadedAt: time.Now()}}
 	}
 }
 
@@ -348,11 +355,11 @@ func (m Model) secretInputKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		value := []byte(val)
 		if !in.rotate {
 			pm := m.pm
-			return m, tea.Batch(m.setBusy("create secret "+in.name), m.actionCmdHint("create secret "+in.name,
+			return m, tea.Batch(m.setBusy("create secret "+in.name), m.actionThenReload(m.actionCmdHint("create secret "+in.name,
 				"reference it with Secret="+in.name+" in a .container file",
 				func(ctx context.Context) (string, error) {
 					return "", pm.SecretCreate(ctx, in.name, value, false)
-				}), m.secretsCmd()), true
+				}), m.secretsLoad())), true
 		}
 		return m.confirmRotate(in.name, value), nil, true
 	}
@@ -383,7 +390,7 @@ func (m Model) confirmRotate(name string, value []byte) Model {
 		lines: lines,
 		keeps: []string{"the secret's name and every Secret= reference"},
 		run: func(m Model) (tea.Model, tea.Cmd) {
-			return m, tea.Batch(m.setBusy("rotate secret "+name), m.actionCmdHint("rotate secret "+name, "dependent units restarted",
+			return m, tea.Batch(m.setBusy("rotate secret "+name), m.actionThenReload(m.actionCmdHint("rotate secret "+name, "dependent units restarted",
 				func(ctx context.Context) (string, error) {
 					if err := pm.SecretCreate(ctx, name, value, true); err != nil {
 						return "", err
@@ -394,7 +401,7 @@ func (m Model) confirmRotate(name string, value []byte) Model {
 						}
 					}
 					return "", nil
-				}), m.secretsCmd())
+				}), m.secretsLoad()))
 		},
 	}
 	return m
@@ -405,7 +412,8 @@ func (m Model) secretsKeysIn(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	k := msg.String()
 	switch k {
 	case "ctrl+r":
-		return m, tea.Batch(m.setBusy("podman secrets"), m.secretsCmd()), true
+		cmd := m.loadScreen(modeSecrets, "podman secrets", m.secretsLoad())
+		return m, cmd, true
 	case "n":
 		if m.refuse(capMutate) {
 			return m, nil, true
@@ -465,8 +473,8 @@ func (m Model) secretsKeysIn(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 			typed:  name,
 			run: func(m Model) (tea.Model, tea.Cmd) {
 				pm := m.pm
-				return m, tea.Batch(m.setBusy("remove secret "+name), m.actionCmd("remove secret "+name,
-					func(ctx context.Context) (string, error) { return "", pm.SecretRemove(ctx, name) }), m.secretsCmd())
+				return m, tea.Batch(m.setBusy("remove secret "+name), m.actionThenReload(m.actionCmd("remove secret "+name,
+					func(ctx context.Context) (string, error) { return "", pm.SecretRemove(ctx, name) }), m.secretsLoad()))
 			},
 		}
 		return m, nil, true

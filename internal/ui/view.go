@@ -62,6 +62,7 @@ func (m Model) tableWidth() int {
 func (m Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
+	v.ReportFocus = true // an unfocused terminal polls slowly (see idle)
 	if m.mouse {
 		v.MouseMode = tea.MouseModeCellMotion
 	}
@@ -277,11 +278,10 @@ func (m Model) topBar(w int) string {
 		onSurface(brightStyle).Render(" quadman") + sep +
 		onSurface(fgStyle).Render(scope) + sep +
 		onSurface(fgStyle).Render(m.target())
-	interval := m.pollInterval
-	if interval <= 0 {
-		interval = defaultPollInterval
+	right := glyph(gRefresh) + " " + m.pollEvery().String()
+	if m.idle() {
+		right += " idle"
 	}
-	right := glyph(gRefresh) + " " + interval.String()
 	if m.podmanVersion != "" {
 		right += " · podman " + m.podmanVersion
 	}

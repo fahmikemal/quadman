@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -49,9 +50,11 @@ type timerLogMsg struct {
 	err   error
 }
 
-func timersCmd(sys *systemd.Systemd) tea.Cmd {
-	return func() tea.Msg {
-		ctx := context.Background()
+// timerHistoryWorkers bounds the journal reads that run side by side.
+const timerHistoryWorkers = 4
+
+func timersLoad(sys *systemd.Systemd) screenLoad {
+	return func(ctx context.Context) tea.Msg {
 		list, err := sys.ListTimers(ctx)
 		if err != nil {
 			return timersMsg{err: err}
@@ -62,14 +65,28 @@ func timersCmd(sys *systemd.Systemd) tea.Cmd {
 			names = append(names, t.Unit)
 		}
 		if infos, err := sys.TimerDetails(ctx, names); err == nil {
+			// One journal read per triggered unit: a few at a time
+			// instead of one after another.
+			var mu sync.Mutex
+			var wg sync.WaitGroup
+			slots := make(chan struct{}, timerHistoryWorkers)
 			for i, ti := range infos {
 				d.info[ti.Unit] = ti
-				if ti.Triggers != "" && i < maxTimerHistory {
-					if runs, err := sys.RunHistory(ctx, ti.Triggers, 24); err == nil {
-						d.history[ti.Triggers] = runs
-					}
+				if ti.Triggers == "" || i >= maxTimerHistory {
+					continue
 				}
+				unit := ti.Triggers
+				wg.Go(func() {
+					slots <- struct{}{}
+					defer func() { <-slots }()
+					if runs, err := sys.RunHistory(ctx, unit, 24); err == nil {
+						mu.Lock()
+						d.history[unit] = runs
+						mu.Unlock()
+					}
+				})
 			}
+			wg.Wait()
 		}
 		return timersMsg{data: d}
 	}
@@ -390,7 +407,8 @@ func yesNo(b bool) string {
 func (m Model) timersKeysIn(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	k := msg.String()
 	if k == "r" {
-		return m, tea.Batch(m.setBusy("systemd timers"), timersCmd(m.sys)), true
+		cmd := m.loadScreen(modeTimers, "systemd timers", timersLoad(m.sys))
+		return m, cmd, true
 	}
 	r, ok := m.selectedRow()
 	if !ok {
@@ -402,7 +420,7 @@ func (m Model) timersKeysIn(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		if m.refuse(capMutate) {
 			return m, nil, true
 		}
-		return m, tea.Batch(m.setBusy(desc), m.actionCmd(desc, run), timersCmd(sys)), true
+		return m, tea.Batch(m.setBusy(desc), m.actionThenReload(m.actionCmd(desc, run), timersLoad(sys))), true
 	}
 	switch k {
 	case "n":

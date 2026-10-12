@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -34,22 +35,26 @@ type timerToggledMsg struct{ err error }
 // state. Works without podman: the screen then shows the timer only.
 // Podman is probed through the session's client, so SSH and compartment
 // sessions read the remote podman instead of the operator's PATH.
-func updatesCmd(sys *systemd.Systemd, pm podman.Client) tea.Cmd {
-	return func() tea.Msg {
-		ctx := context.Background()
-		msg := updatesMsg{}
-		if pm.Reachable(ctx) {
-			entries, err := pm.AutoUpdateDryRun(ctx)
-			if err != nil {
-				msg.err = err
-				return msg
+func updatesLoad(sys *systemd.Systemd, pm podman.Client) screenLoad {
+	return func(ctx context.Context) tea.Msg {
+		// The timer state reads alongside the dry run, which waits on
+		// every image's registry.
+		var msg updatesMsg
+		var wg sync.WaitGroup
+		wg.Go(func() {
+			msg.timerEnabled, _ = sys.IsEnabled(ctx, autoUpdateTimer)
+			msg.timerActive, _ = sys.IsActive(ctx, autoUpdateTimer)
+			if ti, err := sys.TimerDetails(ctx, []string{autoUpdateTimer}); err == nil && len(ti) == 1 {
+				msg.timer = ti[0]
 			}
-			msg.entries = entries
+		})
+		var err error
+		if pm.Reachable(ctx) {
+			msg.entries, err = pm.AutoUpdateDryRun(ctx)
 		}
-		msg.timerEnabled, _ = sys.IsEnabled(ctx, autoUpdateTimer)
-		msg.timerActive, _ = sys.IsActive(ctx, autoUpdateTimer)
-		if ti, err := sys.TimerDetails(ctx, []string{autoUpdateTimer}); err == nil && len(ti) == 1 {
-			msg.timer = ti[0]
+		wg.Wait()
+		if err != nil {
+			return updatesMsg{err: err}
 		}
 		return msg
 	}
@@ -217,7 +222,8 @@ func (m Model) updatesKeysIn(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 			return timerToggledMsg{err: err}
 		}), true
 	case "r":
-		return m, tea.Batch(m.setBusy("checking auto-updates"), updatesCmd(m.sys, m.pm)), true
+		cmd := m.loadScreen(modeUpdates, "checking auto-updates", updatesLoad(m.sys, m.pm))
+		return m, cmd, true
 	case "a":
 		if m.refuse(capMutate) {
 			return m, nil, true
@@ -239,7 +245,7 @@ func (m Model) updatesKeysIn(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 			lines: []string{"pull the new images", "restart " + strings.Join(pending, ", "), "roll a unit back to its old image if it fails to start"},
 			keeps: []string{"volumes and their data", "units without an AutoUpdate policy"},
 			run: func(m Model) (tea.Model, tea.Cmd) {
-				return m, tea.Batch(m.setBusy("podman auto-update"), applyUpdatesCmd(sys, pm))
+				return m, tea.Batch(m.setBusy("podman auto-update"), m.inSession(applyUpdatesCmd(sys, pm)))
 			},
 		}
 		return m, nil, true

@@ -28,7 +28,9 @@ func (m Model) Init() tea.Cmd {
 // Update routes msg, then re-syncs the list scroll window so the cursor
 // stays visible whichever handler moved it.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	wake := m.noteActivity(msg)
 	model, cmd := m.update(msg)
+	cmd = tea.Batch(cmd, wake)
 	if mm, ok := model.(Model); ok {
 		mm.syncListOffset()
 		mm.syncScreenOffset()
@@ -49,6 +51,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
+		if msg.gen != m.tickGen {
+			return m, nil // a slow chain replaced on wake
+		}
 		// Fade stale success notifications; errors stay put.
 		if m.statusLine != "" && !m.statusErr && time.Since(m.statusAt) > statusTTL {
 			m.clearStatus()
@@ -57,8 +62,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// daemon-reload); health refreshes on a slower cadence.
 		m.pollCount++
 		var extra tea.Cmd
-		if m.mode == modeStats && !m.busy {
-			extra = statsCmd(m.pm)
+		if m.mode == modeStats && !m.busy && !m.statsInFlight {
+			m.statsInFlight = true
+			extra = m.inSession(m.statsLoad(false).background())
 		}
 		// One poll refresh at a time: on a slow session (SSH over a long
 		// link) ticks must not stack refreshes faster than they finish.
@@ -74,6 +80,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshInFlight = true
 		req := m.refreshReq(level)
 		req.fromPoll = true
+		req.linger = req.linger || m.pollCount%lingerPollEvery == 0
 		return m, tea.Batch(req.cmd(), m.pollTick(), extra)
 
 	case spinner.TickMsg:
@@ -172,16 +179,22 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case updatesMsg:
-		m.busy = false
+		// The dashboard's AUTO-UPDATE tile uses these entries too, so they
+		// are kept even when the updates screen is no longer on display.
+		shown := m.screenLanded(modeUpdates)
 		if msg.applied {
+			m.busy = false
 			m.recordAction("podman auto-update", msg.err)
 		}
 		if msg.err != nil {
-			m.setStatus("auto-update: "+msg.err.Error(), true)
+			if shown || msg.applied {
+				m.screenFailed(modeUpdates, "auto-update", msg.err)
+			}
 			if !msg.applied {
 				return m, nil
 			}
 		}
+		m.markLoaded(modeUpdates)
 		m.updateEntries = msg.entries
 		if m.updateEntries == nil {
 			m.updateEntries = []podman.AutoUpdateEntry{}
@@ -193,7 +206,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.applied && msg.err == nil {
 			m.setStatus(fmt.Sprintf("auto-update ran on %d container(s)", len(msg.entries)), false)
 		}
-		m.enterScreen(modeUpdates)
 		return m, nil
 
 	case timerToggledMsg:
@@ -204,9 +216,27 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.setStatus("timer toggled", false)
-		return m, updatesCmd(m.sys, m.pm)
+		return m, m.inSession(updatesLoad(m.sys, m.pm).background())
 
-	// One-shot data screens (storage, stats, timers, secrets) share one
+	// Background results tagged with their session (screens.go).
+	case sessionMsg:
+		if msg.epoch != m.epoch || msg.msg == nil {
+			return m, nil // fetched for a previous session: never shown here
+		}
+		return m.update(msg.msg)
+
+	// A screen load's result: only the newest load, still awaited, lands.
+	case loadMsg:
+		if msg.seq != m.scrSeq || m.scrLoading == modeList || msg.msg == nil {
+			return m, nil // replaced, cancelled, or already answered
+		}
+		return m.update(msg.msg)
+
+	case statsMsg:
+		m.statsInFlight = false
+		return m.applyScreenMsg(msg)
+
+	// Async data screens (storage, stats, timers, secrets) share one
 	// transition; see screenMsg in screens.go.
 	case screenMsg:
 		return m.applyScreenMsg(msg)

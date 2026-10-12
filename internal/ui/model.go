@@ -37,6 +37,9 @@ const (
 	modeStats   // podman stats resource screen (o)
 )
 
+// modeCount bounds per-mode arrays; keep it one past the last mode.
+const modeCount = modeStats + 1
+
 // Detail tabs, cycled with [ and ].
 const (
 	tabOverview = iota
@@ -150,6 +153,7 @@ func New() Model {
 	// resolved Options.
 	m.setSession(localRunner(), false, "")
 	m.pollInterval = cfg.RefreshInterval()
+	m.lastInput = time.Now() // a fresh screen counts as attended
 	m.mouse = cfg.Settings.Mouse
 	switch {
 	case config.IsSettingsError(cfgErr):

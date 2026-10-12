@@ -79,7 +79,7 @@ func (m Model) updatesOpenKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if msg.String() != "u" {
 		return m, nil, false
 	}
-	return m, tea.Batch(m.setBusy("checking auto-updates"), updatesCmd(m.sys, m.pm)), true
+	return m.openScreen(modeUpdates, "checking auto-updates", updatesLoad(m.sys, m.pm))
 
 }
 

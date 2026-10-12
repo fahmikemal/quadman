@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -43,30 +44,39 @@ func (s storageMsg) apply(m *Model)          { m.storage = s.data }
 
 // storageCmd loads the inventory. Only the df summary is required; any
 // other fetch that fails is reported in the status line instead.
-func (m Model) storageCmd() tea.Cmd {
+func (m Model) storageLoad() screenLoad {
 	units := slices.Clone(m.units)
 	parse := m.parseUnitFile
 	pm := m.pm
-	return func() tea.Msg {
-		ctx := context.Background()
+	return func(ctx context.Context) tea.Msg {
+		// Every read is independent: they run side by side, so the screen
+		// waits for the slowest one (system df) instead of their sum.
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
 		var d storageData
-		var err error
-		if d.df, err = pm.SystemDfSummary(ctx); err != nil {
+		var imgErr, volErr, ctrErr, sizeErr error
+		var wg sync.WaitGroup
+		wg.Go(func() { d.images, imgErr = pm.Images(ctx) })
+		wg.Go(func() { d.volumes, volErr = pm.Volumes(ctx) })
+		wg.Go(func() { d.ctrs, ctrErr = pm.Containers(ctx, true) })
+		wg.Go(func() { d.volSizes, sizeErr = pm.VolumeSizes(ctx) })
+		wg.Go(func() { d.volumeUsers = volumeReferences(units, parse) })
+		df, err := pm.SystemDfSummary(ctx)
+		if err != nil {
+			cancel() // the screen cannot open without the summary
+			wg.Wait()
 			return storageMsg{err: err}
 		}
-		if d.images, err = pm.Images(ctx); err != nil {
-			d.partial = append(d.partial, "images")
+		wg.Wait()
+		d.df = df
+		for _, p := range []struct {
+			what string
+			err  error
+		}{{"images", imgErr}, {"volumes", volErr}, {"containers", ctrErr}, {"volume sizes", sizeErr}} {
+			if p.err != nil {
+				d.partial = append(d.partial, p.what)
+			}
 		}
-		if d.volumes, err = pm.Volumes(ctx); err != nil {
-			d.partial = append(d.partial, "volumes")
-		}
-		if d.ctrs, err = pm.Containers(ctx, true); err != nil {
-			d.partial = append(d.partial, "containers")
-		}
-		if d.volSizes, err = pm.VolumeSizes(ctx); err != nil {
-			d.partial = append(d.partial, "volume sizes")
-		}
-		d.volumeUsers = volumeReferences(units, parse)
 		d.loadedAt = time.Now()
 		return storageMsg{data: d}
 	}
@@ -526,7 +536,8 @@ func (m Model) containerDetail(r scrRow, _ int) []string {
 func (m Model) storageKeysIn(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	switch msg.String() {
 	case "r":
-		return m, tea.Batch(m.setBusy("system df"), m.storageCmd()), true
+		cmd := m.loadScreen(modeStorage, "system df", m.storageLoad())
+		return m, cmd, true
 	case "S":
 		m.scrSort = (m.scrSort + 1) % 2
 		return m, nil, true
@@ -619,9 +630,9 @@ func (m Model) storageRemove() (tea.Model, tea.Cmd, bool) {
 		danger: kind == "vol",
 		typed:  typed,
 		run: func(m Model) (tea.Model, tea.Cmd) {
-			return m, tea.Batch(m.setBusy("remove "+label), m.actionCmdHint("remove "+label, "", func(ctx context.Context) (string, error) {
+			return m, tea.Batch(m.setBusy("remove "+label), m.actionThenReload(m.actionCmdHint("remove "+label, "", func(ctx context.Context) (string, error) {
 				return "", run(ctx)
-			}), m.storageCmd())
+			}), m.storageLoad()))
 		},
 	}
 	return m, nil, true

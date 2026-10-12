@@ -174,11 +174,11 @@ func TestRunPendingPrune(t *testing.T) {
 	}
 }
 
-func TestStatsMsgOpensMode(t *testing.T) {
-	m := New()
+func TestStatsOpensAndFills(t *testing.T) {
+	m := press(New(), "o") // o opens the screen; the sample fills it
 	model, _ := m.Update(statsMsg{entries: []podman.StatEntry{{Name: "web", CPU: "1.50%", Mem: "12MB / 16GB"}}})
 	if model.(Model).mode != modeStats {
-		t.Error("statsMsg should switch to modeStats")
+		t.Error("the stats screen must stay open with its sample")
 	}
 	if rows := model.(Model).screenSpec().rows; len(rows) != 1 || rows[0].cells[0].text != "web" {
 		t.Errorf("stats rows = %+v", rows)
