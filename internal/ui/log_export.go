@@ -46,24 +46,31 @@ func parseLogLine(raw string, unit string, lineNo int) LogEntry {
 	return entry
 }
 
+// logLevelWords maps whole words (case-insensitive) to the syslog level
+// they announce, most severe first. Matching whole words keeps "interrupt",
+// "deferred", "server" or "traceroute" from posing as errors or traces.
+var logLevelWords = []struct {
+	level string
+	re    *regexp.Regexp
+}{
+	{"emerg", regexp.MustCompile(`(?i)\b(emerg(ency)?|fatal|panic)\b`)},
+	{"crit", regexp.MustCompile(`(?i)\b(crit(ical)?)\b`)},
+	{"err", regexp.MustCompile(`(?i)\b(err(or|ors)?|fail(ed|ure|s)?|exception)\b`)},
+	{"warning", regexp.MustCompile(`(?i)\b(warn(ing|ings)?)\b`)},
+	{"notice", regexp.MustCompile(`(?i)\bnotice\b`)},
+	{"debug", regexp.MustCompile(`(?i)\b(debug|trace)\b`)},
+}
+
+// detectLogLevel guesses a line's severity from the words it uses (the
+// short-iso journal format carries no priority field). It is a heuristic
+// for export metadata only; the journal view filters by real priority.
 func detectLogLevel(msg string) string {
-	lower := strings.ToLower(msg)
-	switch {
-	case strings.Contains(lower, "emerg"), strings.Contains(lower, "fatal"), strings.Contains(lower, "panic"):
-		return "emerg"
-	case strings.Contains(lower, "crit"):
-		return "crit"
-	case strings.Contains(lower, "error"), strings.Contains(lower, "err"), strings.Contains(lower, "failed"), strings.Contains(lower, "exception"):
-		return "err"
-	case strings.Contains(lower, "warn"), strings.Contains(lower, "warning"):
-		return "warning"
-	case strings.Contains(lower, "notice"):
-		return "notice"
-	case strings.Contains(lower, "debug"), strings.Contains(lower, "trace"):
-		return "debug"
-	default:
-		return "info"
+	for _, w := range logLevelWords {
+		if w.re.MatchString(msg) {
+			return w.level
+		}
 	}
+	return "info"
 }
 
 // defaultExportFilename returns a clean filename for exporting logs.

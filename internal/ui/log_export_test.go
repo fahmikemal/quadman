@@ -287,3 +287,24 @@ func TestExportConcurrentSameBase(t *testing.T) {
 		}
 	}
 }
+
+func TestDetectLogLevelWholeWords(t *testing.T) {
+	for msg, want := range map[string]string{
+		"failed to connect":                     "err",
+		"Error: listen tcp :80":                 "err",
+		"FATAL: out of memory":                  "emerg",
+		"critical section entered":              "crit",
+		"warning: deprecated flag":              "warning",
+		"handled interrupt request":             "info",
+		"deferred init done":                    "info",
+		"server started on :8080":               "info",
+		"traceroute finished":                   "info",
+		"debug: cache hit":                      "debug",
+		"forewarned is forearmed":               "info",
+		"0 errors, 0 warnings: everything fine": "err",
+	} {
+		if got := detectLogLevel(msg); got != want {
+			t.Errorf("detectLogLevel(%q) = %q, want %q", msg, got, want)
+		}
+	}
+}
