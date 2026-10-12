@@ -7,6 +7,41 @@ Semua perubahan penting quadman dicatat di sini. Format mengikuti
 
 ## [Unreleased]
 
+### Keamanan
+
+- **Sesi serve terisolasi.** Sesi `quadman serve` dulu berbagi runner
+  podman/podlet dan style UI: satu klien yang berpindah kompartemen
+  mengarahkan panggilan podman semua sesi lain (secrets, storage, prune)
+  ke user lain, dan koneksi bersamaan saling race di style. Kini setiap
+  sesi punya client sendiri, dan tampilan diset sekali sebelum sesi
+  pertama.
+- Klien `quadman --as <user> serve` bisa keluar dari kompartemen ke sesi
+  operator ("Use Own Session" selalu aktif, bahkan saat readonly) atau
+  pindah ke kompartemen lain. Sesi serve kini tidak bisa pindah sesi sama
+  sekali.
+- Auth password hanya loopback meski ada `--authorized-keys` (bind LAN
+  dengan keduanya dulu menerima password dari jaringan), dan percobaan
+  password gagal dibatasi per alamat klien.
+- Mode readonly tidak lagi membiarkan `I` menyiapkan install bundel. Handler
+  tombol dan palette kini berbagi satu kebijakan kapabilitas, yang juga
+  mengakhiri perbedaan palette/tombol untuk exec dan prune.
+- Mengulang aksi (`A`, `.`) dulu cukup `y` bahkan untuk aksi yang awalnya
+  dikonfirmasi dengan mengetik nama (delete, hapus secret, prune) dan bisa
+  diputar ulang setelah pindah sesi ke host atau user lain. Kini repeat
+  meminta konfirmasi aslinya dan ditolak lintas sesi.
+- Menghapus volume dan `system prune` kini wajib mengetik namanya (atau
+  `prune`), seperti menghapus unit.
+- Custom command dulu mengekspansi template sebelum dipecah, sehingga nilai
+  dari file unit (Image=…) bisa menambah argumen; kini dipecah dulu dan
+  setiap kata diekspansi sendiri. Perintah juga berjalan lewat runner sesi,
+  bukan selalu di host lokal.
+- Sudo kompartemen membawa variabel sesi sebagai argumen `VAR=value` sudo,
+  sehingga sudoers tidak lagi harus mengizinkan `/usr/bin/env` (yang
+  membolehkan perintah apa pun); probe memakai bentuk yang sama.
+- config.yaml yang tidak bisa dipakai (rusak atau key tak dikenal)
+  membuat TUI mulai readonly dan menghentikan `serve`; config.json yang
+  rusak tidak lagi menghapus pengaturan YAML (termasuk `readonly: true`).
+
 ### Diubah
 
 Desain ulang TUI (DESIGN.md v0.2). Chrome dan daftar unit:
@@ -109,12 +144,42 @@ sendiri. Tombol nav strip berpindah layar dari layar mana pun.
   gelap (`docs/logo/`); versi satu warna menggambar sel itu berongga.
   Logo ini menggantikan logo heksagon di header, beserta judul
   `### quadman` di bawahnya yang kini sudah terwakili oleh wordmark.
+- Perilaku `--ssh`: perintah remote di-quote untuk shell POSIX remote
+  (OpenSSH mem-parse ulang baris perintah); pemanggilan berbagi satu
+  koneksi multiplex (`ssh_multiplex: false` untuk menonaktifkan);
+  instansiasi template, install bundel, dan prune kini berjalan via SSH;
+  `quadman --ssh host list` menampilkan unit host. `--ssh` dengan `--as`,
+  dan `serve` dengan `--ssh`, ditolak.
+- `quadman --as <user>` berhenti saat startup bila kompartemen tidak bisa
+  dijangkau (seperti `list` dan `serve`), alih-alih membuka sesi operator.
+  Operator root boleh memakai `--as`; kompartemen selalu sesi user, juga
+  bila config.yaml berisi `system: true`.
+- Discovery memindai subdirektori setiap search path seperti generator;
+  direktori dan berkas symlink diikuti.
+- Nama section dan key bersifat case-sensitive, seperti systemd dan Quadlet.
+- Enable saat boot memakai `multi-user.target` untuk unit sistem, menambah
+  key ke section `[Install]` yang sudah ada, dan menghormati
+  `RequiredBy=`/`UpheldBy=`; disable mempertahankan key `[Install]` lain dan
+  menolak (dengan path-nya) bila unit di-enable oleh drop-in.
+- Berkas hasil generate ditulis ke `/etc/containers/systemd` di mode sistem,
+  hanya ekstensi Quadlet yang diterima dari `# FileName=` podlet, dan start
+  setelah menulis menghormati `ServiceName=`.
+- Start/stop/restart menunggu hingga 5 menit; job yang masih dijalankan
+  systemd setelahnya dilaporkan sebagai pending, bukan gagal.
+- Layar timers membaca nama dari `list-units --plain` dan waktu dari `show
+  --timestamp=unix`, bukan tabel `list-timers` yang dilokalisasi.
+- Level di ekspor log dicocokkan per kata utuh ("interrupt" tidak lagi
+  dianggap error).
+- CI mem-pin govulncheck dan gosec, mengacak urutan tes race, dan
+  mem-build modul e2e.
 
 ### Ditambahkan
 
 - Kolom UPTIME, dari `ActiveEnterTimestamp` systemd (dibaca dengan
   `systemctl show --timestamp=unix`).
 - Status systemd kini membawa `Result`, `ExecMainStatus`, dan `NRestarts`.
+- `NeedDaemonReload` di status (menggerakkan banner stale-reload),
+  pengaturan `ssh_multiplex`, `quadman --ssh host list`, dan `DESIGN.md`.
 
 ### Diperbaiki
 
@@ -128,6 +193,36 @@ sendiri. Tombol nav strip berpindah layar dari layar mana pun.
   days" menjadi "days", PASSED menjadi "in ago"); baris kini di-parse
   berdasarkan strukturnya.
 - Error podman kini menyertakan penjelasan stderr dari podman sendiri.
+- `podman quadlet list --format` terpecah oleh shell remote via SSH,
+  sehingga discovery jatuh ke daftar semua user service (dbus, pipewire, …)
+  sebagai "container"; fallback tanpa podman kini hanya menyimpan unit yang
+  `SourcePath=`-nya berkas Quadlet.
+- Linger via SSH menanyakan nama user lokal di host remote, dan di
+  kompartemen memakai linger operator; keduanya kini memakai user sesi itu
+  sendiri.
+- `sudo quadman --as <user>` gagal dengan "--system and --as cannot be
+  combined"; `quadman --ssh host list` diam-diam menampilkan unit lokal.
+- Banner stale-reload selalu muncul di kompartemen (operator tidak bisa
+  stat runtime dir user lain); deteksi stale kini memakai `NeedDaemonReload`
+  systemd, benar untuk sesi lokal, SSH, dan kompartemen. Validasi dan cek
+  secret juga berjalan lewat sesi.
+- Health, healthcheck, inspect, events, dan stats menebak container sebagai
+  `systemd-<nama file>`, meleset untuk `ContainerName=` dan `ServiceName=`;
+  kini label `PODMAN_SYSTEMD_UNIT` (lalu `ContainerName=`, lalu `systemd-%N`)
+  menamainya di semua tempat.
+- Enable/disable saat boot mengganti quadlet yang di-symlink menjadi berkas
+  biasa, melepasnya dari checkout git; penulisan kini mengikuti link,
+  fsync, dan mempertahankan mode (serta owner sebagai root).
+- Tick poll menumpuk refresh pada sesi lambat; kini hanya satu refresh poll
+  berjalan, setiap refresh dibatasi waktunya, dan hasil dari sesi lama atau
+  yang datang tidak berurutan dibuang.
+- Hapus unit memberi path ke `podman quadlet rm`, yang menerima nama; kini
+  hanya dipakai bila podman melaporkan berkas yang persis sama.
+- Layar secrets: `Secret = x` (dengan spasi) dan referensi di drop-in kini
+  ditemukan.
+- Dua tes bergantung pada `TERM` dan `/run/user/<uid>`; gosec G115 di
+  decoder byte-array journal.
+- `DESIGN.md`, yang dirujuk kode dan changelog ini, kini ada di repositori.
 
 ## [v0.1.0-dev1] - 2026-10-05
 

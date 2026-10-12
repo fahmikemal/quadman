@@ -83,6 +83,17 @@ feature tiers, patch bumps for accumulated fixes.
 - [x] **Remote drop-ins (read-only)**: enumerated through the session runner for SSH, compartment, and served sessions.
 - [x] **Mode guard**: `--system` and `--as` rejected together (CLI plus palette), since system units live outside any user's session.
 
+### Production hardening (✅ shipped, unreleased)
+
+- [x] **Session isolation**: per-session podman/podlet clients, copy-on-write session switches with an epoch, process-wide presentation set once — served sessions never race or re-target each other; served compartments stay pinned.
+- [x] **One capability policy** (`internal/ui/policy.go`) for keys and palette; repeats keep their confirmation and session; typed confirmation for every data loss (unit, volume, secret, prune).
+- [x] **Correct remote execution**: POSIX-quoted SSH commands, multiplexed connections, Quadlet-only discovery fallback, linger for the session's own user, `--ssh host list`.
+- [x] **Compartments without `/usr/bin/env`**: sudo `VAR=value` form, probe mirrors the real call, root operators supported, fail-fast `--as`.
+- [x] **Generator fidelity**: recursive discovery, case-sensitive parser, `NeedDaemonReload` stale detection, generator validation through the session, label-based container identity.
+- [x] **Safe files**: atomic, symlink-following, fsynced writes that keep mode/owner; boot toggles aware of `[Install]` keys and drop-ins.
+- [x] **Fail-closed config and serve**: strict config.yaml (TUI readonly / serve refuses on errors), loopback-only passwords with throttling.
+- [x] **Locale-proof timers**, word-boundary log levels, pinned CI scanners, `DESIGN.md`.
+
 ### Notable ecosystem notes (Sep 2026)
 
 - [podman-tui](https://github.com/containers/podman-tui) v2.0.0 (Sep 6, 2026)

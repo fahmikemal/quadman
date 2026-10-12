@@ -53,8 +53,9 @@ func Get(ver string) Definition {
 			{Usage: "quadman list", Description: "Non-interactive tab-delimited overview of all Quadlet source files and systemd states (for scripts/pipes)."},
 			{Usage: "quadman --system list", Description: "List system-wide Quadlet units non-interactively (flags go before the command)."},
 			{Usage: "quadman serve [-p 2222] [--readonly]", Description: "Run embedded Wish v2 SSH daemon to serve TUI over SSH (loopback-only by default; non-loopback binds require --authorized-keys). With no keys/password it forces readonly sessions."},
-			{Usage: "quadman --ssh user@host", Description: "Transparently manage remote rootless Quadlets over SSH client."},
-			{Usage: "quadman --as <user>", Description: "Manage another local user's Quadlets via non-interactive sudo (compartment); file edits stay disabled."},
+			{Usage: "quadman --ssh user@host", Description: "Transparently manage remote rootless Quadlets over the SSH client (one multiplexed connection; remote login shell must be POSIX)."},
+			{Usage: "quadman --ssh user@host list", Description: "Non-interactive overview of a remote host's Quadlet units (flags go before the command)."},
+			{Usage: "quadman --as <user>", Description: "Manage another local user's Quadlets via non-interactive sudo (compartment, needs NOPASSWD:SETENV or root); file edits stay disabled; fails fast when unreachable."},
 			{Usage: "quadman --as <user> list", Description: "Non-interactive compartment overview for scripts (flags go before the command)."},
 			{Usage: "quadman --readonly", Description: "Launch TUI with all state-changing actions disabled (monitoring mode)."},
 			{Usage: "quadman --skill", Description: "Print this Agent Skill definition as Markdown (for LLM coding agents)."},
@@ -73,6 +74,7 @@ func Get(ver string) Definition {
 				".quadlets (multi-document bundle)",
 			},
 			SearchPaths: []string{
+				"(every path is searched recursively like the generator; *.d drop-in dirs are not units)",
 				"$XDG_RUNTIME_DIR/containers/systemd (highest priority, ephemeral)",
 				"~/.config/containers/systemd (standard rootless user path)",
 				"/etc/containers/systemd/users/ (admin-defined rootless units)",
@@ -87,7 +89,8 @@ func Get(ver string) Definition {
 				"Secret= (secret injection, e.g. secret_name,type=env,target=VAR)",
 				"AutoUpdate=registry|local (auto-update configuration)",
 				"ImageVolume=anonymous|tmpfs (Podman 6.x volume control)",
-				"[Install] WantedBy=default.target (enable container at boot)",
+				"[Install] WantedBy=default.target (enable at boot; multi-user.target for system units)",
+				"Section and key names are case-sensitive (Image=, not image=)",
 			},
 		},
 		ToolSchema: []ToolDef{
@@ -103,7 +106,11 @@ func Get(ver string) Definition {
 						},
 						"as": map[string]interface{}{
 							"type":        "string",
-							"description": "Manage another local user's units via sudo compartment (e.g. svc-web).",
+							"description": "Manage another local user's units via sudo compartment (e.g. svc-web). Cannot be combined with system or ssh.",
+						},
+						"ssh": map[string]interface{}{
+							"type":        "string",
+							"description": "List a remote host's units over SSH (e.g. user@host). Cannot be combined with as.",
 						},
 					},
 				},

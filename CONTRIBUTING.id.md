@@ -19,8 +19,23 @@ Dalam praktiknya: kerjakan perubahan di branch `main`, kumpulkan perubahan, dan 
 ## Aturan Repositori (House Rules)
 
 - `make fmt vet test` wajib berstatus hijau (lulus) sebelum setiap push (divalidasi ketat oleh CI).
-- Jaga gate keamanan tetap hijau juga: `go run golang.org/x/vuln/cmd/govulncheck@latest ./...`
-  dan `go run github.com/securego/gosec/v2/cmd/gosec@latest -quiet ./...` (CI menjalankan keduanya).
+- Jaga gate keamanan tetap hijau juga, pada versi yang di-pin CI
+  (`.github/workflows/ci.yml`): `go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...`
+  dan `go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 -quiet ./...`. Naikkan
+  versinya secara sengaja di commit tersendiri.
+- Tes tidak boleh bergantung pada host: set `TERM`/mode glyph, runtime dir,
+  dan binary (tiruan di `PATH`, `SSHBin`) secara eksplisit, lalu jalankan
+  `go test -race -shuffle=on ./...` sebelum push.
+- Setiap aksi baru yang mengubah state atau berhak-istimewa menyatakan
+  kapabilitasnya lewat `m.refuse(...)` (tombol) dan `m.allowed(...)`
+  (palette) dari `internal/ui/policy.go`; jangan pernah memeriksa
+  `m.readonly` atau jenis sesi secara manual. Aksi destruktif dikonfirmasi
+  dengan THIS WILL / KEEPS, dan kehilangan data wajib mengetik namanya
+  (lihat `DESIGN.md`).
+- Jangan menambah state global yang bisa diubah dan terjangkau dari sesi:
+  sesi serve berjalan bersamaan dalam satu proses. Client yang terikat sesi
+  tinggal di model (`setSession`); tampilan tingkat proses lewat
+  `ui.Configure`, sekali, sebelum sesi mana pun dimulai.
 - Prefiks commit `docs:`, `test:`, `ci:`, dan `chore:` otomatis dikecualikan dari changelog yang dihasilkan (lihat `.goreleaser.yaml`).
 - Fitur atau perilaku baru wajib disertai pengujian (*unit tests*); pembungkus CLI (*wrapper*) diuji menggunakan binary tiruan (lihat pola di `internal/systemd/systemd_test.go`).
 - Perbarui tangkapan layar README setelah terjadi perubahan pada UI: ambil
