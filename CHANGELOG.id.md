@@ -7,6 +7,13 @@ Semua perubahan penting quadman dicatat di sini. Format mengikuti
 
 ## [Unreleased]
 
+## [v0.7.0-beta.1] - 2026-10-12
+
+Beta pertama. Semua versi sebelumnya (`v0.1.0` sampai `v0.6.0`, dan
+`v0.1.0-dev1`) ditarik (retract) di `go.mod`: kodenya lebih lama dari
+lini rilis ini, dan proxy modul Go tetap menyimpannya, sehingga lini ini
+berlanjut di atas nomor-nomor itu alih-alih memakainya ulang.
+
 ### Keamanan
 
 - **Sesi serve terisolasi.** Sesi `quadman serve` dulu berbagi runner
@@ -224,9 +231,9 @@ sendiri. Tombol nav strip berpindah layar dari layar mana pun.
   decoder byte-array journal.
 - `DESIGN.md`, yang dirujuk kode dan changelog ini, kini ada di repositori.
 
-## [v0.1.0-dev1] - 2026-10-05
+## [v0.1.0-dev1] - 2026-10-05 [YANKED]
 
-Prarilis awal.
+Prarilis awal, ditarik; seluruh isinya ikut dirilis di `v0.7.0-beta.1`.
 
 ### Ditambahkan
 

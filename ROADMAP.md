@@ -75,7 +75,7 @@ feature tiers, patch bumps for accumulated fixes.
 - [x] **Skill fixes**: self-documenting export entries, single-v version header, `--system list` form, serve bind policy description.
 - [x] **Charm stack refresh**: bubbletea v2.0.9 → v2.0.10; `govulncheck` and `gosec` green.
 
-### v0.1.0-dev1: serve passwords, serve --as & guards (✅ shipped)
+### Serve passwords, serve --as & guards (✅ shipped)
 
 - [x] **Serve password sources**: `--password-file`, `QUADMAN_SERVE_PASSWORD`, config `password_file` (exactly one); the secret never appears in argv.
 - [x] **serve --as**: serve another user's session through a sudo compartment with startup validation; isolated-session guards still apply.
@@ -83,7 +83,7 @@ feature tiers, patch bumps for accumulated fixes.
 - [x] **Remote drop-ins (read-only)**: enumerated through the session runner for SSH, compartment, and served sessions.
 - [x] **Mode guard**: `--system` and `--as` rejected together (CLI plus palette), since system units live outside any user's session.
 
-### Production hardening (✅ shipped, unreleased)
+### Production hardening (✅ shipped in v0.7.0-beta.1)
 
 - [x] **Session isolation**: per-session podman/podlet clients, copy-on-write session switches with an epoch, process-wide presentation set once — served sessions never race or re-target each other; served compartments stay pinned.
 - [x] **One capability policy** (`internal/ui/policy.go`) for keys and palette; repeats keep their confirmation and session; typed confirmation for every data loss (unit, volume, secret, prune).

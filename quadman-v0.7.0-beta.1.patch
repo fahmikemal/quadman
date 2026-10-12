@@ -1,0 +1,244 @@
+diff --git a/CHANGELOG.id.md b/CHANGELOG.id.md
+index 36cf1a2..410b8f3 100644
+--- a/CHANGELOG.id.md
++++ b/CHANGELOG.id.md
+@@ -7,6 +7,13 @@ Semua perubahan penting quadman dicatat di sini. Format mengikuti
+ 
+ ## [Unreleased]
+ 
++## [v0.7.0-beta.1] - 2026-10-12
++
++Beta pertama. Semua versi sebelumnya (`v0.1.0` sampai `v0.6.0`, dan
++`v0.1.0-dev1`) ditarik (retract) di `go.mod`: kodenya lebih lama dari
++lini rilis ini, dan proxy modul Go tetap menyimpannya, sehingga lini ini
++berlanjut di atas nomor-nomor itu alih-alih memakainya ulang.
++
+ ### Keamanan
+ 
+ - **Sesi serve terisolasi.** Sesi `quadman serve` dulu berbagi runner
+@@ -224,9 +231,9 @@ sendiri. Tombol nav strip berpindah layar dari layar mana pun.
+   decoder byte-array journal.
+ - `DESIGN.md`, yang dirujuk kode dan changelog ini, kini ada di repositori.
+ 
+-## [v0.1.0-dev1] - 2026-10-05
++## [v0.1.0-dev1] - 2026-10-05 [YANKED]
+ 
+-Prarilis awal.
++Prarilis awal, ditarik; seluruh isinya ikut dirilis di `v0.7.0-beta.1`.
+ 
+ ### Ditambahkan
+ 
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index f96ef0f..5faf992 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -7,6 +7,13 @@ All notable changes to quadman are documented here. The format follows
+ 
+ ## [Unreleased]
+ 
++## [v0.7.0-beta.1] - 2026-10-12
++
++First beta. Every earlier version (`v0.1.0` to `v0.6.0`, and
++`v0.1.0-dev1`) is retracted in `go.mod`: their code predates this
++release line, and the Go module proxy keeps them cached, so this line
++continues above them instead of reusing their numbers.
++
+ ### Security
+ 
+ - **Served sessions are isolated.** `quadman serve` sessions shared the
+@@ -223,9 +230,9 @@ Nav-strip keys switch views from any screen.
+ - `DESIGN.md`, referenced by the code and this changelog, is now in the
+   repository.
+ 
+-## [v0.1.0-dev1] - 2026-10-05
++## [v0.1.0-dev1] - 2026-10-05 [YANKED]
+ 
+-Initial prerelease.
++Initial prerelease, withdrawn; everything in it ships in `v0.7.0-beta.1`.
+ 
+ ### Added
+ 
+diff --git a/CONTRIBUTING.id.md b/CONTRIBUTING.id.md
+index e004f8a..29108b2 100644
+--- a/CONTRIBUTING.id.md
++++ b/CONTRIBUTING.id.md
+@@ -13,6 +13,12 @@ quadman mengelompokkan perubahan ke dalam rilis yang bermakna (*meaningful relea
+ - **Kelompok Perbaikan Bug (*Bugfix batch*)** (akumulasi beberapa perbaikan bug):
+   penaikan versi patch (`v0.N.M+1`).
+ - **Commit docs / test / chore / kosmetik**: di-push langsung ke `main`, **tanpa tag**.
++- **Prarilis**: identifier SemVer dengan titik — `-alpha.N`, `-beta.N`,
++  `-rc.N` (`beta.10` diurutkan setelah `beta.9`; `beta10` tidak). goreleaser
++  otomatis menandainya sebagai prarilis.
++- **Jangan pernah memakai ulang nomor versi.** Proxy modul Go menyimpan setiap
++  tag selamanya; `v0.1.0` sampai `v0.6.0` dan `v0.1.0-dev1` sudah terpakai dan
++  ditarik (retract).
+ 
+ Dalam praktiknya: kerjakan perubahan di branch `main`, kumpulkan perubahan, dan saat perubahan tersebut dirasa cukup signifikan bagi pengguna, buat tag rilis `vX.Y.Z` — alur kerja rilis otomatis (`.github/workflows/release.yml` + GoReleaser) akan memublikasikan binary multi-arsitektur dan checksum secara otomatis.
+ 
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+index d2e9622..ad535b3 100644
+--- a/CONTRIBUTING.md
++++ b/CONTRIBUTING.md
+@@ -13,6 +13,11 @@ small commit.
+   minor bump (`v0.N+1.0`).
+ - **Bugfix batch** (several accumulated fixes): patch bump (`v0.N.M+1`).
+ - **docs / test / chore / cosmetic commits**: pushed to `main`, **no tag**.
++- **Pre-releases**: SemVer identifiers with a dot — `-alpha.N`, `-beta.N`,
++  `-rc.N` (`beta.10` sorts after `beta.9`; `beta10` would not). goreleaser
++  marks them as prereleases on its own.
++- **Never reuse a version number.** The Go module proxy caches every tag
++  forever; `v0.1.0` to `v0.6.0` and `v0.1.0-dev1` are taken and retracted.
+ 
+ In practice: work on `main`, collect changes, and when the batch feels like
+ something a user would notice, tag `vX.Y.Z` — the release workflow
+diff --git a/README.id.md b/README.id.md
+index 723b336..51b483e 100644
+--- a/README.id.md
++++ b/README.id.md
+@@ -75,16 +75,20 @@ Penggunaan resource per kontainer (`podman stats`, tombol `o`) lengkap dengan ri
+ Unduh binary siap pakai (Linux amd64/arm64) dari halaman [Releases](https://github.com/fahmikemal/quadman/releases):
+ 
+ ```sh
+-curl -LO https://github.com/fahmikemal/quadman/releases/download/v0.1.0-dev1/quadman_0.1.0-dev1_linux_amd64.tar.gz
+-tar -xzf quadman_0.1.0-dev1_linux_amd64.tar.gz && sudo install quadman /usr/local/bin/
++curl -LO https://github.com/fahmikemal/quadman/releases/download/v0.7.0-beta.1/quadman_0.7.0-beta.1_linux_amd64.tar.gz
++tar -xzf quadman_0.7.0-beta.1_linux_amd64.tar.gz && sudo install quadman /usr/local/bin/
+ ```
+ 
+ Atau menggunakan Go:
+ 
+ ```sh
+-go install github.com/fahmikemal/quadman@latest
++go install github.com/fahmikemal/quadman@v0.7.0-beta.1
+ ```
+ 
++Sebutkan versinya untuk sementara: sampai `v0.7.0` dirilis, `@latest` masih
++mengarah ke rilis lama yang sudah ditarik (retracted) dan tetap tersimpan di
++cache proxy modul Go.
++
+ Atau kompilasi langsung dari repositori:
+ 
+ ```sh
+diff --git a/README.md b/README.md
+index bd819f6..98c57c5 100644
+--- a/README.md
++++ b/README.md
+@@ -146,16 +146,19 @@ Download a prebuilt binary (Linux amd64/arm64) from the
+ [Releases](https://github.com/fahmikemal/quadman/releases) page:
+ 
+ ```sh
+-curl -LO https://github.com/fahmikemal/quadman/releases/download/v0.1.0-dev1/quadman_0.1.0-dev1_linux_amd64.tar.gz
+-tar -xzf quadman_0.1.0-dev1_linux_amd64.tar.gz && sudo install quadman /usr/local/bin/
++curl -LO https://github.com/fahmikemal/quadman/releases/download/v0.7.0-beta.1/quadman_0.7.0-beta.1_linux_amd64.tar.gz
++tar -xzf quadman_0.7.0-beta.1_linux_amd64.tar.gz && sudo install quadman /usr/local/bin/
+ ```
+ 
+ Or with Go:
+ 
+ ```sh
+-go install github.com/fahmikemal/quadman@latest
++go install github.com/fahmikemal/quadman@v0.7.0-beta.1
+ ```
+ 
++Pin the version for now: until `v0.7.0` ships, `@latest` still resolves to
++an old, retracted release that the Go module proxy keeps cached.
++
+ Or build from a clone:
+ 
+ ```sh
+diff --git a/ROADMAP.id.md b/ROADMAP.id.md
+index 7ede705..3d12caf 100644
+--- a/ROADMAP.id.md
++++ b/ROADMAP.id.md
+@@ -70,7 +70,7 @@ quadman dirilis secara terstruktur dalam kelompok fitur (lihat [CONTRIBUTING.id.
+ - [x] **Perbaikan skill**: entri ekspor mandiri, header versi satu-v, bentuk `--system list`, deskripsi kebijakan bind serve.
+ - [x] **Refresh Charm stack**: bubbletea v2.0.9 → v2.0.10; `govulncheck` dan `gosec` hijau.
+ 
+-### v0.1.0-dev1: password serve, serve --as & guard (✅ Telah Dirilis)
++### Password serve, serve --as & guard (✅ Telah Dirilis)
+ 
+ - [x] **Sumber password serve**: `--password-file`, `QUADMAN_SERVE_PASSWORD`, config `password_file` (tepat satu); secret tidak pernah muncul di argv.
+ - [x] **serve --as**: menyajikan sesi milik user lain via kompartemen sudo dengan validasi startup; guard sesi terisolasi tetap berlaku.
+@@ -78,7 +78,7 @@ quadman dirilis secara terstruktur dalam kelompok fitur (lihat [CONTRIBUTING.id.
+ - [x] **Drop-in remote (read-only)**: dienumerasi via session runner untuk sesi SSH, kompartemen, dan serve.
+ - [x] **Guard mode**: `--system` dan `--as` ditolak bila digabung (CLI plus palette), karena unit sistem di luar sesi user mana pun.
+ 
+-### Hardening produksi (✅ Telah Dirilis, belum diberi tag)
++### Hardening produksi (✅ Dirilis di v0.7.0-beta.1)
+ 
+ - [x] **Isolasi sesi**: client podman/podlet per sesi, perpindahan sesi copy-on-write dengan epoch, tampilan tingkat proses diset sekali — sesi serve tidak pernah race atau saling mengarahkan ulang; kompartemen yang di-serve tetap terkunci.
+ - [x] **Satu kebijakan kapabilitas** (`internal/ui/policy.go`) untuk tombol dan palette; repeat mempertahankan konfirmasi dan sesinya; konfirmasi ketik untuk setiap kehilangan data (unit, volume, secret, prune).
+diff --git a/ROADMAP.md b/ROADMAP.md
+index 85fe40e..876dfc1 100644
+--- a/ROADMAP.md
++++ b/ROADMAP.md
+@@ -75,7 +75,7 @@ feature tiers, patch bumps for accumulated fixes.
+ - [x] **Skill fixes**: self-documenting export entries, single-v version header, `--system list` form, serve bind policy description.
+ - [x] **Charm stack refresh**: bubbletea v2.0.9 → v2.0.10; `govulncheck` and `gosec` green.
+ 
+-### v0.1.0-dev1: serve passwords, serve --as & guards (✅ shipped)
++### Serve passwords, serve --as & guards (✅ shipped)
+ 
+ - [x] **Serve password sources**: `--password-file`, `QUADMAN_SERVE_PASSWORD`, config `password_file` (exactly one); the secret never appears in argv.
+ - [x] **serve --as**: serve another user's session through a sudo compartment with startup validation; isolated-session guards still apply.
+@@ -83,7 +83,7 @@ feature tiers, patch bumps for accumulated fixes.
+ - [x] **Remote drop-ins (read-only)**: enumerated through the session runner for SSH, compartment, and served sessions.
+ - [x] **Mode guard**: `--system` and `--as` rejected together (CLI plus palette), since system units live outside any user's session.
+ 
+-### Production hardening (✅ shipped, unreleased)
++### Production hardening (✅ shipped in v0.7.0-beta.1)
+ 
+ - [x] **Session isolation**: per-session podman/podlet clients, copy-on-write session switches with an epoch, process-wide presentation set once — served sessions never race or re-target each other; served compartments stay pinned.
+ - [x] **One capability policy** (`internal/ui/policy.go`) for keys and palette; repeats keep their confirmation and session; typed confirmation for every data loss (unit, volume, secret, prune).
+diff --git a/SECURITY.id.md b/SECURITY.id.md
+index d8dfbce..cf4828d 100644
+--- a/SECURITY.id.md
++++ b/SECURITY.id.md
+@@ -4,10 +4,10 @@
+ 
+ ## Versi yang didukung
+ 
+-| Versi       | Didukung            |
+-|-------------|---------------------|
+-| v0.1.0-dev1 | Ya (terbaru, prarilis) |
+-| lama        | Tidak (mohon upgrade ke rilis terbaru) |
++| Versi         | Didukung                                   |
++|---------------|--------------------------------------------|
++| v0.7.0-beta.1 | Ya (terbaru, prarilis)                     |
++| lama          | Tidak (ditarik; mohon upgrade ke rilis terbaru) |
+ 
+ Perbaikan keamanan dirilis sebagai patch di `main` dan dipublikasikan
+ melalui GitHub Releases beserta checksum (lihat `.github/workflows/release.yml`).
+diff --git a/SECURITY.md b/SECURITY.md
+index 2315d63..42ed6d8 100644
+--- a/SECURITY.md
++++ b/SECURITY.md
+@@ -4,10 +4,10 @@
+ 
+ ## Supported versions
+ 
+-| Version     | Supported          |
+-|-------------|--------------------|
+-| v0.1.0-dev1 | Yes (latest, prerelease) |
+-| older       | No (please upgrade to the latest release) |
++| Version       | Supported                                  |
++|---------------|--------------------------------------------|
++| v0.7.0-beta.1 | Yes (latest, prerelease)                   |
++| older         | No (retracted; upgrade to the latest release) |
+ 
+ Security fixes ship as patch releases on `main` and are published through
+ GitHub Releases with checksums (see `.github/workflows/release.yml`).
+diff --git a/go.mod b/go.mod
+index 1cbe7f5..63af613 100644
+--- a/go.mod
++++ b/go.mod
+@@ -2,6 +2,9 @@ module github.com/fahmikemal/quadman
+ 
+ go 1.26.8
+ 
++// Pre-beta releases; superseded by the v0.7.0 line.
++retract [v0.1.0-dev1, v0.6.0]
++
+ require (
+ 	charm.land/bubbles/v2 v2.2.1
+ 	charm.land/bubbletea/v2 v2.0.10

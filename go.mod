@@ -2,6 +2,9 @@ module github.com/fahmikemal/quadman
 
 go 1.26.8
 
+// Pre-beta releases; superseded by the v0.7.0 line.
+retract [v0.1.0-dev1, v0.6.0]
+
 require (
 	charm.land/bubbles/v2 v2.2.1
 	charm.land/bubbletea/v2 v2.0.10

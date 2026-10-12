@@ -7,6 +7,13 @@ All notable changes to quadman are documented here. The format follows
 
 ## [Unreleased]
 
+## [v0.7.0-beta.1] - 2026-10-12
+
+First beta. Every earlier version (`v0.1.0` to `v0.6.0`, and
+`v0.1.0-dev1`) is retracted in `go.mod`: their code predates this
+release line, and the Go module proxy keeps them cached, so this line
+continues above them instead of reusing their numbers.
+
 ### Security
 
 - **Served sessions are isolated.** `quadman serve` sessions shared the
@@ -223,9 +230,9 @@ Nav-strip keys switch views from any screen.
 - `DESIGN.md`, referenced by the code and this changelog, is now in the
   repository.
 
-## [v0.1.0-dev1] - 2026-10-05
+## [v0.1.0-dev1] - 2026-10-05 [YANKED]
 
-Initial prerelease.
+Initial prerelease, withdrawn; everything in it ships in `v0.7.0-beta.1`.
 
 ### Added
 

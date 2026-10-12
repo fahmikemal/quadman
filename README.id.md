@@ -75,15 +75,19 @@ Penggunaan resource per kontainer (`podman stats`, tombol `o`) lengkap dengan ri
 Unduh binary siap pakai (Linux amd64/arm64) dari halaman [Releases](https://github.com/fahmikemal/quadman/releases):
 
 ```sh
-curl -LO https://github.com/fahmikemal/quadman/releases/download/v0.1.0-dev1/quadman_0.1.0-dev1_linux_amd64.tar.gz
-tar -xzf quadman_0.1.0-dev1_linux_amd64.tar.gz && sudo install quadman /usr/local/bin/
+curl -LO https://github.com/fahmikemal/quadman/releases/download/v0.7.0-beta.1/quadman_0.7.0-beta.1_linux_amd64.tar.gz
+tar -xzf quadman_0.7.0-beta.1_linux_amd64.tar.gz && sudo install quadman /usr/local/bin/
 ```
 
 Atau menggunakan Go:
 
 ```sh
-go install github.com/fahmikemal/quadman@latest
+go install github.com/fahmikemal/quadman@v0.7.0-beta.1
 ```
+
+Sebutkan versinya untuk sementara: sampai `v0.7.0` dirilis, `@latest` masih
+mengarah ke rilis lama yang sudah ditarik (retracted) dan tetap tersimpan di
+cache proxy modul Go.
 
 Atau kompilasi langsung dari repositori:
 

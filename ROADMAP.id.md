@@ -70,7 +70,7 @@ quadman dirilis secara terstruktur dalam kelompok fitur (lihat [CONTRIBUTING.id.
 - [x] **Perbaikan skill**: entri ekspor mandiri, header versi satu-v, bentuk `--system list`, deskripsi kebijakan bind serve.
 - [x] **Refresh Charm stack**: bubbletea v2.0.9 → v2.0.10; `govulncheck` dan `gosec` hijau.
 
-### v0.1.0-dev1: password serve, serve --as & guard (✅ Telah Dirilis)
+### Password serve, serve --as & guard (✅ Telah Dirilis)
 
 - [x] **Sumber password serve**: `--password-file`, `QUADMAN_SERVE_PASSWORD`, config `password_file` (tepat satu); secret tidak pernah muncul di argv.
 - [x] **serve --as**: menyajikan sesi milik user lain via kompartemen sudo dengan validasi startup; guard sesi terisolasi tetap berlaku.
@@ -78,7 +78,7 @@ quadman dirilis secara terstruktur dalam kelompok fitur (lihat [CONTRIBUTING.id.
 - [x] **Drop-in remote (read-only)**: dienumerasi via session runner untuk sesi SSH, kompartemen, dan serve.
 - [x] **Guard mode**: `--system` dan `--as` ditolak bila digabung (CLI plus palette), karena unit sistem di luar sesi user mana pun.
 
-### Hardening produksi (✅ Telah Dirilis, belum diberi tag)
+### Hardening produksi (✅ Dirilis di v0.7.0-beta.1)
 
 - [x] **Isolasi sesi**: client podman/podlet per sesi, perpindahan sesi copy-on-write dengan epoch, tampilan tingkat proses diset sekali — sesi serve tidak pernah race atau saling mengarahkan ulang; kompartemen yang di-serve tetap terkunci.
 - [x] **Satu kebijakan kapabilitas** (`internal/ui/policy.go`) untuk tombol dan palette; repeat mempertahankan konfirmasi dan sesinya; konfirmasi ketik untuk setiap kehilangan data (unit, volume, secret, prune).

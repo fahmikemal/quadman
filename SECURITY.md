@@ -4,10 +4,10 @@
 
 ## Supported versions
 
-| Version     | Supported          |
-|-------------|--------------------|
-| v0.1.0-dev1 | Yes (latest, prerelease) |
-| older       | No (please upgrade to the latest release) |
+| Version       | Supported                                  |
+|---------------|--------------------------------------------|
+| v0.7.0-beta.1 | Yes (latest, prerelease)                   |
+| older         | No (retracted; upgrade to the latest release) |
 
 Security fixes ship as patch releases on `main` and are published through
 GitHub Releases with checksums (see `.github/workflows/release.yml`).

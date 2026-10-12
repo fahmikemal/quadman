@@ -146,15 +146,18 @@ Download a prebuilt binary (Linux amd64/arm64) from the
 [Releases](https://github.com/fahmikemal/quadman/releases) page:
 
 ```sh
-curl -LO https://github.com/fahmikemal/quadman/releases/download/v0.1.0-dev1/quadman_0.1.0-dev1_linux_amd64.tar.gz
-tar -xzf quadman_0.1.0-dev1_linux_amd64.tar.gz && sudo install quadman /usr/local/bin/
+curl -LO https://github.com/fahmikemal/quadman/releases/download/v0.7.0-beta.1/quadman_0.7.0-beta.1_linux_amd64.tar.gz
+tar -xzf quadman_0.7.0-beta.1_linux_amd64.tar.gz && sudo install quadman /usr/local/bin/
 ```
 
 Or with Go:
 
 ```sh
-go install github.com/fahmikemal/quadman@latest
+go install github.com/fahmikemal/quadman@v0.7.0-beta.1
 ```
+
+Pin the version for now: until `v0.7.0` ships, `@latest` still resolves to
+an old, retracted release that the Go module proxy keeps cached.
 
 Or build from a clone:
 

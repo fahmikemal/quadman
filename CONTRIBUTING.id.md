@@ -13,6 +13,12 @@ quadman mengelompokkan perubahan ke dalam rilis yang bermakna (*meaningful relea
 - **Kelompok Perbaikan Bug (*Bugfix batch*)** (akumulasi beberapa perbaikan bug):
   penaikan versi patch (`v0.N.M+1`).
 - **Commit docs / test / chore / kosmetik**: di-push langsung ke `main`, **tanpa tag**.
+- **Prarilis**: identifier SemVer dengan titik — `-alpha.N`, `-beta.N`,
+  `-rc.N` (`beta.10` diurutkan setelah `beta.9`; `beta10` tidak). goreleaser
+  otomatis menandainya sebagai prarilis.
+- **Jangan pernah memakai ulang nomor versi.** Proxy modul Go menyimpan setiap
+  tag selamanya; `v0.1.0` sampai `v0.6.0` dan `v0.1.0-dev1` sudah terpakai dan
+  ditarik (retract).
 
 Dalam praktiknya: kerjakan perubahan di branch `main`, kumpulkan perubahan, dan saat perubahan tersebut dirasa cukup signifikan bagi pengguna, buat tag rilis `vX.Y.Z` — alur kerja rilis otomatis (`.github/workflows/release.yml` + GoReleaser) akan memublikasikan binary multi-arsitektur dan checksum secara otomatis.
 

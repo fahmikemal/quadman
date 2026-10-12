@@ -13,6 +13,11 @@ small commit.
   minor bump (`v0.N+1.0`).
 - **Bugfix batch** (several accumulated fixes): patch bump (`v0.N.M+1`).
 - **docs / test / chore / cosmetic commits**: pushed to `main`, **no tag**.
+- **Pre-releases**: SemVer identifiers with a dot — `-alpha.N`, `-beta.N`,
+  `-rc.N` (`beta.10` sorts after `beta.9`; `beta10` would not). goreleaser
+  marks them as prereleases on its own.
+- **Never reuse a version number.** The Go module proxy caches every tag
+  forever; `v0.1.0` to `v0.6.0` and `v0.1.0-dev1` are taken and retracted.
 
 In practice: work on `main`, collect changes, and when the batch feels like
 something a user would notice, tag `vX.Y.Z` — the release workflow

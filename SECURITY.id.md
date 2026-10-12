@@ -4,10 +4,10 @@
 
 ## Versi yang didukung
 
-| Versi       | Didukung            |
-|-------------|---------------------|
-| v0.1.0-dev1 | Ya (terbaru, prarilis) |
-| lama        | Tidak (mohon upgrade ke rilis terbaru) |
+| Versi         | Didukung                                   |
+|---------------|--------------------------------------------|
+| v0.7.0-beta.1 | Ya (terbaru, prarilis)                     |
+| lama          | Tidak (ditarik; mohon upgrade ke rilis terbaru) |
 
 Perbaikan keamanan dirilis sebagai patch di `main` dan dipublikasikan
 melalui GitHub Releases beserta checksum (lihat `.github/workflows/release.yml`).
