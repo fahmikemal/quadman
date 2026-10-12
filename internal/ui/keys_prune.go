@@ -41,7 +41,7 @@ func (m Model) inactiveQuadletUnits() []string {
 // inactive units at risk.
 func prunePrompt(inactive []string) string {
 	if len(inactive) == 0 {
-		return "system prune: remove stopped containers + unused images/networks? [y/N]"
+		return "system prune: remove stopped containers + unused images/networks? type prune to confirm (esc cancels)"
 	}
 	shown := inactive
 	rest := ""
@@ -49,7 +49,7 @@ func prunePrompt(inactive []string) string {
 		shown = inactive[:maxPruneNames]
 		rest = fmt.Sprintf(" + %d more", len(inactive)-maxPruneNames)
 	}
-	return fmt.Sprintf("system prune removes containers of %d inactive unit(s) (%s%s)? [y/N]",
+	return fmt.Sprintf("system prune removes containers of %d inactive unit(s) (%s%s)? type prune to confirm (esc cancels)",
 		len(inactive), strings.Join(shown, ", "), rest)
 }
 

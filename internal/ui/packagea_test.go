@@ -49,7 +49,7 @@ func TestGenerateLiveObjectNeedsName(t *testing.T) {
 }
 
 func TestPrunePrompt(t *testing.T) {
-	if got := prunePrompt(nil); !strings.Contains(got, "[y/N]") || strings.Contains(got, "inactive") {
+	if got := prunePrompt(nil); !strings.Contains(got, "type prune") || strings.Contains(got, "inactive") {
 		t.Errorf("empty prompt = %q", got)
 	}
 	got := prunePrompt([]string{"db.service"})
@@ -112,7 +112,7 @@ func TestPruneKeysArmsConfirmation(t *testing.T) {
 	if mm.pending == nil || mm.pending.verb != "prune" {
 		t.Fatalf("pending = %+v, want prune", mm.pending)
 	}
-	if !strings.Contains(mm.statusLine, "db.service") || !strings.Contains(mm.statusLine, "[y/N]") {
+	if !strings.Contains(mm.statusLine, "db.service") || !strings.Contains(mm.statusLine, "type prune") {
 		t.Errorf("status = %q", mm.statusLine)
 	}
 }

@@ -3,9 +3,8 @@ package systemd
 import (
 	"context"
 	"fmt"
-	"os/exec"
-	"regexp"
 	"strings"
+	"time"
 )
 
 // Timer represents one systemd timer entity and its schedule.
@@ -18,69 +17,105 @@ type Timer struct {
 	Passed    string `json:"passed"`
 }
 
-// listTimersCmd builds the list-timers invocation with a fixed C locale.
-// Column headers are localized by systemd, so parsing them requires a
-// known locale. The runner carries LC_ALL=C in every mode (local
-// environment, remote shell assignment, sudo VAR=value), so sudoers never
-// needs to allow /usr/bin/env.
-func (s *Systemd) listTimersCmd(ctx context.Context) *exec.Cmd {
-	args := s.args("list-timers", "--all", "--no-pager", "--full")
-	return s.Remote.CommandEnv(ctx, []string{"LC_ALL=C"}, s.bin(), args...) // #nosec G204 -- argv slice, fixed verbs
-}
+// timerStampLayout renders timer times like systemctl does in the C locale.
+const timerStampLayout = "Mon 2006-01-02 15:04:05 MST"
 
-// ListTimers returns all active or scheduled timers from systemctl list-timers.
+// ListTimers returns every loaded timer with its schedule. It only reads
+// systemctl's machine-oriented output: unit names from the first column
+// of `list-units --plain --no-legend`, times from `show --timestamp=unix`.
+// No localized, column-aligned table is parsed, so locale, column widths,
+// and timezone names cannot break it, locally or through any runner.
 func (s *Systemd) ListTimers(ctx context.Context) ([]Timer, error) {
 	ctx, cancel := s.timeoutCtx(ctx)
 	defer cancel()
-	cmd := s.listTimersCmd(ctx)
+	cmd := s.run(ctx, s.bin(), s.args("list-units", "--type=timer", "--all", "--plain", "--no-legend", "--no-pager")...) // #nosec G204 -- argv slice, fixed verbs
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("systemctl list-timers: %w: %s", err, strings.TrimSpace(stderr.String()))
+		return nil, fmt.Errorf("systemctl list-units --type=timer: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
-	return ParseTimers(string(out)), nil
+	names := timerUnitNames(string(out))
+	if len(names) == 0 {
+		return nil, nil
+	}
+	props, err := s.ShowProps(ctx, names, []string{"Unit", "NextElapseUSecRealtime", "LastTriggerUSec"})
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	timers := make([]Timer, 0, len(names))
+	for _, name := range names {
+		p := props[name]
+		get := func(k string) string {
+			if v := p[k]; len(v) > 0 {
+				return v[len(v)-1]
+			}
+			return ""
+		}
+		next := parseUnixTimestamp(get("NextElapseUSecRealtime"))
+		last := parseUnixTimestamp(get("LastTriggerUSec"))
+		t := Timer{Unit: name, Activates: orDash(get("Unit")), Next: "-", Left: "-", Last: "-", Passed: "-"}
+		if !next.IsZero() {
+			t.Next, t.Left = next.Format(timerStampLayout), Span(next.Sub(now))
+		}
+		if !last.IsZero() {
+			t.Last, t.Passed = last.Format(timerStampLayout), Span(now.Sub(last))+" ago"
+		}
+		timers = append(timers, t)
+	}
+	return timers, nil
 }
 
-// timerLine matches one data row of `list-timers --all --full` in the C
-// locale: NEXT and LAST are a timestamp ("Mon 2026-10-12 22:13:58 WIB")
-// or "-"/"n/a"; LEFT and PASSED are free-form spans ("20h", "4 weeks 2
-// days", "1h 16min ago"); UNIT and ACTIVATES are the last two fields.
-// Values are right-aligned under their headers, so a row cannot be cut at
-// header offsets ("6 days" starts left of the LEFT header).
-var timerLine = regexp.MustCompile(`^\s*(` + timerStamp + `|-|n/a)\s+(.*?)\s+(` + timerStamp + `|-|n/a)\s+(.*?)\s+(\S+)\s+(\S+)\s*$`)
-
-// timerStamp is "Day YYYY-MM-DD HH:MM:SS TZ".
-const timerStamp = `\S+ \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \S+`
-
-// ParseTimers parses tabular output from `systemctl list-timers --all --no-pager --full`.
-func ParseTimers(raw string) []Timer {
-	var timers []Timer
-	seenHeader := false
-	for _, l := range strings.Split(raw, "\n") {
-		l = strings.TrimRight(l, "\r")
-		if strings.Contains(l, "UNIT") && strings.Contains(l, "ACTIVATES") {
-			seenHeader = true
-			continue
+// timerUnitNames reads the unit names (first column) of `list-units
+// --plain --no-legend`, which never localizes or aligns that column.
+func timerUnitNames(out string) []string {
+	var names []string
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.Fields(line)
+		if len(f) > 0 && strings.HasSuffix(f[0], ".timer") {
+			names = append(names, f[0])
 		}
-		t := strings.TrimSpace(l)
-		if !seenHeader || t == "" || strings.HasSuffix(t, "timers listed.") || strings.HasSuffix(t, "timer listed.") {
-			continue
-		}
-		mt := timerLine.FindStringSubmatch(l)
-		if mt == nil {
-			continue
-		}
-		timers = append(timers, Timer{
-			Next:      mt[1],
-			Left:      orDash(mt[2]),
-			Last:      mt[3],
-			Passed:    orDash(mt[4]),
-			Unit:      mt[5],
-			Activates: mt[6],
-		})
 	}
-	return timers
+	return names
+}
+
+// Span renders a duration the way systemctl's LEFT/PASSED columns do, to
+// two units: "45s", "29min", "1h 16min", "6 days", "4 weeks 2 days".
+func Span(d time.Duration) string {
+	if d < 0 {
+		d = -d
+	}
+	units := []struct {
+		name string
+		size time.Duration
+	}{
+		{"weeks", 7 * 24 * time.Hour}, {"days", 24 * time.Hour}, {"h", time.Hour}, {"min", time.Minute}, {"s", time.Second},
+	}
+	var parts []string
+	for _, u := range units {
+		if n := d / u.size; n > 0 {
+			name := u.name
+			if n == 1 && (name == "weeks" || name == "days") {
+				name = strings.TrimSuffix(name, "s")
+			}
+			sep := ""
+			if name != "h" && name != "min" && name != "s" {
+				sep = " "
+			}
+			parts = append(parts, fmt.Sprintf("%d%s%s", n, sep, name))
+			d -= n * u.size
+			if len(parts) == 2 {
+				break
+			}
+		} else if len(parts) > 0 {
+			break // "1h 0min" reads worse than "1h"
+		}
+	}
+	if len(parts) == 0 {
+		return "0s"
+	}
+	return strings.Join(parts, " ")
 }
 
 func orDash(s string) string {
