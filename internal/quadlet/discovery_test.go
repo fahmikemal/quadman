@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestDiscoverDirs(t *testing.T) {
@@ -86,37 +85,94 @@ func TestDiscoverDirs(t *testing.T) {
 func TestUserDirs(t *testing.T) {
 	base := t.TempDir()
 	users := filepath.Join(base, "users")
-	for _, sub := range []string{"common", "1001", "1000"} {
-		if err := os.MkdirAll(filepath.Join(users, sub), 0o755); err != nil {
+	dirs := userDirs(base, "1000")
+	if len(dirs) != 2 || dirs[0] != users || dirs[1] != filepath.Join(users, "1000") {
+		t.Errorf("userDirs = %v, want shared users dir then the own UID dir", dirs)
+	}
+}
+
+// TestDiscoverRecursive mirrors the generator: subdirectories are searched
+// recursively, files of a dir come before its subdirs, drop-in dirs are
+// skipped, and other users' numeric dirs below users/ are never read.
+func TestDiscoverRecursive(t *testing.T) {
+	base := t.TempDir()
+	cfg := filepath.Join(base, "config")
+	users := filepath.Join(base, "users")
+	mk := func(rel, content string) {
+		p := filepath.Join(base, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
+	mk("config/apps/web/web.container", "[Container]\nImage=a\n")
+	mk("config/apps/db.container", "[Container]\nImage=db\n")
+	mk("config/zz.container", "[Container]\nImage=top\n")
+	mk("config/a/zz.container", "[Container]\nImage=nested\n")       // shadowed by the top-level file
+	mk("config/web.container.d/override.container", "[Container]\n") // inside a drop-in dir: never a unit
+	mk("users/shared/common.container", "[Container]\n")
+	mk("users/1001/other.container", "[Container]\n") // someone else's
+	mk("users/1000/mine.container", "[Container]\n")
 
-	dirs := userDirs(base, "1000")
-	want := []string{
-		users,
-		filepath.Join(users, "common"), // non-numeric subdir is shared
-		filepath.Join(users, "1000"),   // own UID dir last
+	units, err := DiscoverDirs([]string{cfg, users, filepath.Join(users, "1000")})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(dirs) != len(want) {
-		t.Fatalf("userDirs = %v, want %v", dirs, want)
+	got := map[string]string{}
+	for _, u := range units {
+		got[u.Name] = u.Path
 	}
-	for i := range want {
-		if dirs[i] != want[i] {
-			t.Errorf("userDirs[%d] = %q, want %q (numeric dirs of other users must be skipped)", i, dirs[i], want[i])
+	want := map[string]string{
+		"web":    filepath.Join(cfg, "apps", "web", "web.container"),
+		"db":     filepath.Join(cfg, "apps", "db.container"),
+		"zz":     filepath.Join(cfg, "zz.container"),
+		"common": filepath.Join(users, "shared", "common.container"),
+		"mine":   filepath.Join(users, "1000", "mine.container"),
+	}
+	if len(got) != len(want) {
+		t.Fatalf("units = %v, want %v", got, want)
+	}
+	for name, p := range want {
+		if got[name] != p {
+			t.Errorf("%s = %q, want %q", name, got[name], p)
 		}
 	}
 }
 
-func TestUserDirsMissing(t *testing.T) {
-	base := t.TempDir()
-	dirs := userDirs(base, "1000")
-	want := []string{
-		filepath.Join(base, "users"),
-		filepath.Join(base, "users", "1000"),
+func TestDiscoverSymlinks(t *testing.T) {
+	real := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(real, "sub"), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if len(dirs) != 2 || dirs[0] != want[0] || dirs[1] != want[1] {
-		t.Errorf("userDirs(missing base) = %v, want %v", dirs, want)
+	if err := os.WriteFile(filepath.Join(real, "sub", "web.container"), []byte("[Container]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "linked.container"), []byte("[Container]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(src, "linked.container"), filepath.Join(real, "linked.container")); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "systemd")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	units, err := DiscoverDirs([]string{link})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, u := range units {
+		got[u.Name] = u.Path
+	}
+	if got["web"] != filepath.Join(link, "sub", "web.container") {
+		t.Errorf("a symlinked search dir must be walked under its configured path, got %v", got)
+	}
+	if got["linked"] != filepath.Join(link, "linked.container") {
+		t.Errorf("symlinked unit files must be discovered, got %v", got)
 	}
 }
 
@@ -158,47 +214,6 @@ func TestSearchDirs(t *testing.T) {
 		if d == "/etc/containers/systemd" {
 			t.Errorf("SearchDirs must not include the system-only dir /etc/containers/systemd: %v", dirs)
 		}
-	}
-}
-
-func TestStaleUnits(t *testing.T) {
-	src := t.TempDir()
-	gen := t.TempDir()
-	write := func(dir, name string, mtime int64) string {
-		p := filepath.Join(dir, name)
-		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Chtimes(p, time.Unix(mtime, 0), time.Unix(mtime, 0)); err != nil {
-			t.Fatal(err)
-		}
-		return p
-	}
-	// fresh: generated unit newer than source; stale: generated older;
-	// missing: no generated unit at all.
-	write(src, "fresh.container", 1000)
-	write(gen, "fresh.service", 2000)
-	write(src, "stale.container", 3000)
-	write(gen, "stale.service", 1000)
-	write(src, "missing.container", 1000)
-
-	units := []Unit{
-		{Name: "fresh", Kind: KindContainer, Path: filepath.Join(src, "fresh.container"), UnitName: "fresh.service"},
-		{Name: "stale", Kind: KindContainer, Path: filepath.Join(src, "stale.container"), UnitName: "stale.service"},
-		{Name: "missing", Kind: KindContainer, Path: filepath.Join(src, "missing.container"), UnitName: "missing.service"},
-	}
-
-	stale := StaleUnits(units, gen)
-	if len(stale) != 2 {
-		t.Fatalf("stale = %+v, want stale+missing", stale)
-	}
-	for _, u := range stale {
-		if u.Name == "fresh" {
-			t.Errorf("fresh unit must not be stale: %+v", u)
-		}
-	}
-	if got := StaleUnits(units, ""); got != nil {
-		t.Errorf("empty generator dir must report nothing, got %+v", got)
 	}
 }
 

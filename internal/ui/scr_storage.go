@@ -46,23 +46,24 @@ func (s storageMsg) apply(m *Model)          { m.storage = s.data }
 func (m Model) storageCmd() tea.Cmd {
 	units := slices.Clone(m.units)
 	parse := m.parseUnitFile
+	pm := m.pm
 	return func() tea.Msg {
 		ctx := context.Background()
 		var d storageData
 		var err error
-		if d.df, err = podman.SystemDfSummary(ctx); err != nil {
+		if d.df, err = pm.SystemDfSummary(ctx); err != nil {
 			return storageMsg{err: err}
 		}
-		if d.images, err = podman.Images(ctx); err != nil {
+		if d.images, err = pm.Images(ctx); err != nil {
 			d.partial = append(d.partial, "images")
 		}
-		if d.volumes, err = podman.Volumes(ctx); err != nil {
+		if d.volumes, err = pm.Volumes(ctx); err != nil {
 			d.partial = append(d.partial, "volumes")
 		}
-		if d.ctrs, err = podman.Containers(ctx, true); err != nil {
+		if d.ctrs, err = pm.Containers(ctx, true); err != nil {
 			d.partial = append(d.partial, "containers")
 		}
-		if d.volSizes, err = podman.VolumeSizes(ctx); err != nil {
+		if d.volSizes, err = pm.VolumeSizes(ctx); err != nil {
 			d.partial = append(d.partial, "volume sizes")
 		}
 		d.volumeUsers = volumeReferences(units, parse)
@@ -107,7 +108,7 @@ func volumeReferences(units []quadlet.Unit, parse func(quadlet.Unit) (*quadlet.F
 			add(volName[u.Name], u.UnitName)
 			continue
 		}
-		for _, v := range f.Section(string(u.Kind)).GetAll("Volume") {
+		for _, v := range f.Section(u.Kind.Section()).GetAll("Volume") {
 			src, _, _ := strings.Cut(v, ":")
 			switch {
 			case strings.HasSuffix(src, ".volume"):
@@ -544,7 +545,7 @@ func (m Model) storageKeysIn(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		if !ok || m.scrTab != 0 {
 			return m, nil, true
 		}
-		if m.refuseReadonly() {
+		if m.refuse(capMutate) {
 			return m, nil, true
 		}
 		img, ok := m.imageByID(strings.TrimPrefix(r.id, "img:"))
@@ -553,8 +554,9 @@ func (m Model) storageKeysIn(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 		ref := img.Ref()
-		return m, tea.Batch(m.setBusy("pull "+ref), actionCmdHint("pull "+ref, "restart its units to run the new image",
-			func(ctx context.Context) (string, error) { return podman.PullImage(ctx, ref) })), true
+		pm := m.pm
+		return m, tea.Batch(m.setBusy("pull "+ref), m.actionCmdHint("pull "+ref, "restart its units to run the new image",
+			func(ctx context.Context) (string, error) { return pm.PullImage(ctx, ref) })), true
 	case "D":
 		return m.storageRemove()
 	}
@@ -564,9 +566,10 @@ func (m Model) storageKeysIn(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 // storageRemove arms removal of the selected image, volume or container.
 // Anything a quadlet unit still uses is refused with the reason.
 func (m Model) storageRemove() (tea.Model, tea.Cmd, bool) {
-	if m.refuseReadonly() {
+	if m.refuse(capMutate) {
 		return m, nil, true
 	}
+	pm := m.pm
 	r, ok := m.selectedRow()
 	if !ok {
 		return m, nil, true
@@ -579,10 +582,10 @@ func (m Model) storageRemove() (tea.Model, tea.Cmd, bool) {
 	case "img":
 		img, _ := m.imageByID(id)
 		users, label = m.imageUsers(img), "image "+img.Ref()
-		run = func(ctx context.Context) error { return podman.ImageRemove(ctx, id) }
+		run = func(ctx context.Context) error { return pm.ImageRemove(ctx, id) }
 	case "vol":
 		users, label = m.storage.volumeUsers[id], "volume "+id
-		run = func(ctx context.Context) error { return podman.VolumeRemove(ctx, id) }
+		run = func(ctx context.Context) error { return pm.VolumeRemove(ctx, id) }
 	case "ctr":
 		for _, c := range m.storage.ctrs {
 			if c.ID == id {
@@ -593,7 +596,7 @@ func (m Model) storageRemove() (tea.Model, tea.Cmd, bool) {
 				}
 			}
 		}
-		run = func(ctx context.Context) error { return podman.ContainerRemove(ctx, id) }
+		run = func(ctx context.Context) error { return pm.ContainerRemove(ctx, id) }
 	}
 	if len(users) > 0 {
 		m.setStatus(label+" is used by "+strings.Join(users, ", ")+" — remove or change those units first", true)
@@ -601,8 +604,12 @@ func (m Model) storageRemove() (tea.Model, tea.Cmd, bool) {
 	}
 	lines := []string{"remove " + label}
 	keeps := []string{"every quadlet file", "other images, volumes and containers"}
+	typed := ""
 	if kind == "vol" {
 		lines = append(lines, "delete the data stored in it — this cannot be undone")
+		// Deleting a volume deletes data for good: like unit deletion and
+		// prune, it waits for the volume's name to be typed.
+		typed = id
 	}
 	m.pending = &pendingAction{
 		verb:   "remove",
@@ -610,8 +617,9 @@ func (m Model) storageRemove() (tea.Model, tea.Cmd, bool) {
 		lines:  lines,
 		keeps:  keeps,
 		danger: kind == "vol",
+		typed:  typed,
 		run: func(m Model) (tea.Model, tea.Cmd) {
-			return m, tea.Batch(m.setBusy("remove "+label), actionCmdHint("remove "+label, "", func(ctx context.Context) (string, error) {
+			return m, tea.Batch(m.setBusy("remove "+label), m.actionCmdHint("remove "+label, "", func(ctx context.Context) (string, error) {
 				return "", run(ctx)
 			}), m.storageCmd())
 		},

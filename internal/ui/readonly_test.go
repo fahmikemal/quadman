@@ -118,3 +118,16 @@ func TestCustomMsgRecorded(t *testing.T) {
 		t.Errorf("status = %q", mm.statusLine)
 	}
 }
+
+// TestExpandCustomNoArgvInjection: values from unit files land inside the
+// word they were written in; they can never add or split arguments.
+func TestExpandCustomNoArgvInjection(t *testing.T) {
+	argv, err := expandCustom(`podman image inspect {{.Image}} --format "{{ .UnitName }} x"`, customData{UnitName: "web.service", Image: "evil --privileged 'q'"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"podman", "image", "inspect", "evil --privileged 'q'", "--format", "web.service x"}
+	if strings.Join(argv, "\x00") != strings.Join(want, "\x00") {
+		t.Errorf("argv = %q, want %q", argv, want)
+	}
+}

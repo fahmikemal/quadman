@@ -9,6 +9,7 @@ import (
 
 	"github.com/fahmikemal/quadman/internal/config"
 	"github.com/fahmikemal/quadman/internal/quadlet"
+	"github.com/fahmikemal/quadman/internal/remote"
 	"github.com/fahmikemal/quadman/internal/server"
 	"github.com/fahmikemal/quadman/internal/systemd"
 )
@@ -290,5 +291,104 @@ func TestMisplacedFlagExcept(t *testing.T) {
 		if got := misplacedFlagExcept(tc.args, "format", "json"); got != tc.want {
 			t.Errorf("misplacedFlagExcept(%v) = %q, want %q", tc.args, got, tc.want)
 		}
+	}
+}
+
+func TestResolveMode(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		systemFlag bool
+		as, ssh    string
+		cfgSystem  bool
+		uid        int
+		want       bool
+		wantErr    string
+	}{
+		{name: "default user session", uid: 1000},
+		{name: "root auto-detects system", uid: 0, want: true},
+		{name: "config system default", cfgSystem: true, uid: 1000, want: true},
+		{name: "flag", systemFlag: true, uid: 1000, want: true},
+		{name: "root operator may use a compartment", as: "svc-web", uid: 0},
+		{name: "config system never turns a compartment into system mode", as: "svc-web", cfgSystem: true, uid: 1000},
+		{name: "local root does not imply remote system", ssh: "h", uid: 0},
+		{name: "config system applies over ssh", ssh: "h", cfgSystem: true, uid: 1000, want: true},
+		{name: "system flag over ssh", ssh: "h", systemFlag: true, uid: 1000, want: true},
+		{name: "--system with --as", systemFlag: true, as: "svc", wantErr: "--system and --as"},
+		{name: "--ssh with --as", ssh: "h", as: "svc", wantErr: "--ssh and --as"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolveMode(tc.systemFlag, tc.as, tc.ssh, tc.cfgSystem, tc.uid)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("err = %v, want %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil || got != tc.want {
+				t.Errorf("resolveMode = %v, %v; want %v", got, err, tc.want)
+			}
+		})
+	}
+}
+
+// TestRunListRemote: `quadman --ssh host list` must list the host's units
+// through the runner, never the local ones.
+func TestRunListRemote(t *testing.T) {
+	dir := t.TempDir()
+	ssh := filepath.Join(dir, "ssh")
+	script := `#!/bin/sh
+for last; do :; done
+case "$last" in
+  "podman quadlet list"*) printf 'remote-web.container\tremote-web.service\t/home/u/.config/containers/systemd/remote-web.container\n' ;;
+  "cat -- "*) printf '[Container]\nImage=quay.io/remote:1\n' ;;
+  "systemctl --user show"*) printf 'Id=remote-web.service\nLoadState=loaded\nActiveState=active\nSubState=running\nNeedDaemonReload=yes\n' ;;
+  *) exit 1 ;;
+esac
+`
+	if err := os.WriteFile(ssh, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sys := systemd.New()
+	sys.Remote = remote.Runner{Target: "u@host", SSHBin: ssh}
+	var buf bytes.Buffer
+	if err := runList(&buf, sys, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{"remote-web", "remote-web.service", "active", "quay.io/remote:1"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("remote list missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestStaleNames(t *testing.T) {
+	units := []quadlet.Unit{
+		{Name: "fresh", UnitName: "fresh.service", Path: "/q/fresh.container"},
+		{Name: "changed", UnitName: "changed.service", Path: "/q/changed.container"},
+		{Name: "new", UnitName: "new.service", Path: "/q/new.container"},
+		{Name: "bundle", Path: "/q/bundle.quadlets"},
+	}
+	statuses := map[string]systemd.Status{
+		"fresh.service":   {Id: "fresh.service", LoadState: "loaded"},
+		"changed.service": {Id: "changed.service", LoadState: "loaded", NeedDaemonReload: true},
+		"new.service":     {Id: "new.service", LoadState: "not-found"},
+	}
+	if got := strings.Join(staleNames(units, statuses), ","); got != "changed,new" {
+		t.Errorf("staleNames = %q, want changed,new", got)
+	}
+}
+
+func TestReloadHint(t *testing.T) {
+	if got := reloadHint(systemd.New(), false); got != "systemctl --user daemon-reload" {
+		t.Errorf("local = %q", got)
+	}
+	s := systemd.New()
+	s.Remote = remote.Runner{Target: "u@h"}
+	if got := reloadHint(s, false); got != "ssh u@h systemctl --user daemon-reload" {
+		t.Errorf("ssh = %q", got)
+	}
+	if got := reloadHint(systemd.NewSystem(), true); got != "systemctl daemon-reload" {
+		t.Errorf("system = %q", got)
 	}
 }

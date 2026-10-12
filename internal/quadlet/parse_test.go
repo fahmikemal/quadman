@@ -35,7 +35,7 @@ Restart=always
 	}
 
 	c := f.Section("Container")
-	if got := c.Get("image"); got != "docker.io/library/nginx:latest" {
+	if got := c.Get("Image"); got != "docker.io/library/nginx:latest" {
 		t.Errorf("Image = %q, want nginx image", got)
 	}
 	if got := c.GetAll("PublishPort"); len(got) != 2 {
@@ -44,7 +44,7 @@ Restart=always
 	if got := c.Get("Environment"); got != "FOO=1 BAR=2 BAZ=3" {
 		t.Errorf("Environment = %q, want backslash-continued value", got)
 	}
-	if got := f.Section("unit").Get("Description"); got != "Web App" {
+	if got := f.Section("Unit").Get("Description"); got != "Web App" {
 		t.Errorf("Description = %q, want %q", got, "Web App")
 	}
 	if got := f.Section("Service").Get("Restart"); got != "always" {
@@ -55,6 +55,54 @@ Restart=always
 	}
 	if f.Section("Missing") != nil {
 		t.Error("Section(Missing) should be nil")
+	}
+}
+
+// TestParseCaseSensitive: systemd and Quadlet match section and key names
+// exactly, so quadman must not read a misspelled "image=" as Image=.
+func TestParseCaseSensitive(t *testing.T) {
+	f, err := ParseBytes("x.container", []byte("[container]\nImage=a\n[Container]\nimage=b\nImage=c\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := f.Section("Container").Get("Image"); got != "c" {
+		t.Errorf("Image = %q, want c (exact key only)", got)
+	}
+	if got := f.Section("Container").Get("image"); got != "b" {
+		t.Errorf("lowercase key must stay its own key, got %q", got)
+	}
+	if got := f.Section("container").Get("Image"); got != "a" {
+		t.Errorf("[container] is a different section, got %q", got)
+	}
+}
+
+func TestParseCRLF(t *testing.T) {
+	f, _ := ParseBytes("x.container", []byte("[Container]\r\nImage=nginx\r\n"))
+	if got := f.Image(); got != "nginx" {
+		t.Errorf("CRLF line endings: Image = %q", got)
+	}
+}
+
+func TestContainerName(t *testing.T) {
+	for _, tc := range []struct{ unit, override, want string }{
+		{"web.service", "", "systemd-web"},
+		{"custom.service", "", "systemd-custom"}, // ServiceName= changes %N
+		{"web.service", "web-main", "web-main"},
+		{"web@prod.service", "%p-%i", "web-prod"},
+		{"web.service", "%n|%%|%x", "web.service|%|%x"},
+	} {
+		if got := ContainerName(tc.unit, tc.override); got != tc.want {
+			t.Errorf("ContainerName(%q, %q) = %q, want %q", tc.unit, tc.override, got, tc.want)
+		}
+	}
+}
+
+func TestKindSection(t *testing.T) {
+	for k, want := range map[Kind]string{KindContainer: "Container", KindPod: "Pod", KindKube: "Kube", KindVolume: "Volume",
+		KindNetwork: "Network", KindImage: "Image", KindBuild: "Build", KindArtifact: "Artifact", KindQuadlets: ""} {
+		if got := k.Section(); got != want {
+			t.Errorf("%s.Section() = %q, want %q", k, got, want)
+		}
 	}
 }
 

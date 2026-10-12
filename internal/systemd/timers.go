@@ -3,7 +3,6 @@ package systemd
 import (
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -21,16 +20,12 @@ type Timer struct {
 
 // listTimersCmd builds the list-timers invocation with a fixed C locale.
 // Column headers are localized by systemd, so parsing them requires a
-// known locale; isolated sessions (SSH/sudo) carry it through `env`
-// because process environment cannot cross the runner boundary.
+// known locale. The runner carries LC_ALL=C in every mode (local
+// environment, remote shell assignment, sudo VAR=value), so sudoers never
+// needs to allow /usr/bin/env.
 func (s *Systemd) listTimersCmd(ctx context.Context) *exec.Cmd {
 	args := s.args("list-timers", "--all", "--no-pager", "--full")
-	if s.Remote.Isolated() {
-		return s.run(ctx, "env", append([]string{"LC_ALL=C", s.bin()}, args...)...) // #nosec G204 -- argv slice, no shell, fixed locale prefix
-	}
-	cmd := s.run(ctx, s.bin(), args...) // #nosec G204 -- argv slice, no shell, fixed verbs
-	cmd.Env = append(os.Environ(), "LC_ALL=C")
-	return cmd
+	return s.Remote.CommandEnv(ctx, []string{"LC_ALL=C"}, s.bin(), args...) // #nosec G204 -- argv slice, fixed verbs
 }
 
 // ListTimers returns all active or scheduled timers from systemctl list-timers.

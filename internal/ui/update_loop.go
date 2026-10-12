@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/fahmikemal/quadman/internal/podman"
+	"github.com/fahmikemal/quadman/internal/systemd"
 )
 
 // This file holds the Elm update loop: Init plus the Update message
@@ -56,7 +58,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pollCount++
 		var extra tea.Cmd
 		if m.mode == modeStats && !m.busy {
-			extra = statsCmd()
+			extra = statsCmd(m.pm)
+		}
+		// One poll refresh at a time: on a slow session (SSH over a long
+		// link) ticks must not stack refreshes faster than they finish.
+		if m.refreshInFlight {
+			return m, tea.Batch(m.pollTick(), extra)
 		}
 		level := enrichNone
 		if !m.podmanTried {
@@ -64,7 +71,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if m.pollCount%healthPollEvery == 0 {
 			level = enrichHealth
 		}
-		return m, tea.Batch(m.refresh(level), m.pollTick(), extra)
+		m.refreshInFlight = true
+		req := m.refreshReq(level)
+		req.fromPoll = true
+		return m, tea.Batch(req.cmd(), m.pollTick(), extra)
 
 	case spinner.TickMsg:
 		if !m.busy {
@@ -81,8 +91,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.busy = false
 		m.recordActionMsg(msg)
 		if msg.err != nil {
-			m.setStatus(msg.desc+": "+msg.err.Error(), true)
-			return m, nil
+			// A job systemd keeps running is not a failure: say so in a
+			// calm status and let the next refresh show where it went.
+			pending := errors.Is(msg.err, systemd.ErrJobPending)
+			m.setStatus(msg.desc+": "+msg.err.Error(), !pending)
+			return m, m.refresh(enrichHealth)
 		}
 		status := strings.TrimSpace(msg.desc + " ok " + msg.out)
 		if msg.hint != "" {
@@ -191,7 +204,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.setStatus("timer toggled", false)
-		return m, updatesCmd(m.sys, m.ssh)
+		return m, updatesCmd(m.sys, m.pm)
 
 	// One-shot data screens (storage, stats, timers, secrets) share one
 	// transition; see screenMsg in screens.go.

@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/fahmikemal/quadman/internal/podman"
+	"github.com/fahmikemal/quadman/internal/quadlet"
 )
 
 // Stats screen (o): host totals with a CPU sparkline, inline CPU bars,
@@ -63,15 +64,15 @@ func (s statsMsg) apply(m *Model) {
 // statsCmd samples every container (running or stopped; stopped rows read
 // zero). Host info and container labels are fetched alongside; failures
 // there only cost the tiles and unit links, never the table.
-func statsCmd() tea.Cmd {
+func statsCmd(pm podman.Client) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
-		entries, err := podman.Stats(ctx)
+		entries, err := pm.Stats(ctx)
 		if err != nil {
 			return statsMsg{err: err}
 		}
-		host, _ := podman.Info(ctx)
-		ctrs, _ := podman.Containers(ctx, false)
+		host, _ := pm.Info(ctx)
+		ctrs, _ := pm.Containers(ctx, false)
 		return statsMsg{entries: entries, host: host, ctrs: ctrs}
 	}
 }
@@ -217,9 +218,9 @@ func (m Model) statUnit(name string) string {
 			return m.ctrUnit(c)
 		}
 	}
-	if base, ok := strings.CutPrefix(name, "systemd-"); ok {
-		if i, ok := m.unitByName(base); ok {
-			return m.units[i].UnitName
+	for _, u := range m.units {
+		if u.Kind == quadlet.KindContainer && m.containerName(u) == name {
+			return u.UnitName
 		}
 	}
 	return ""
@@ -230,7 +231,7 @@ func (m Model) statRow(e podman.StatEntry, maxCPU float64) scrRow {
 	name := e.Name
 	unit := m.statUnit(e.Name)
 	if unit != "" {
-		if i, ok := m.unitByName(unit); ok && m.health["systemd-"+m.units[i].Name] == "unhealthy" {
+		if i, ok := m.unitByName(unit); ok && m.containerHealth(m.units[i]) == "unhealthy" {
 			name += " " + glyph(gUnhealthy)
 		}
 	}
@@ -326,7 +327,7 @@ func sparkline(vals []float64, width int) string {
 func (m Model) statsKeysIn(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	switch msg.String() {
 	case "r":
-		return m, tea.Batch(m.setBusy("stats"), statsCmd()), true
+		return m, tea.Batch(m.setBusy("stats"), statsCmd(m.pm)), true
 	case "i":
 		m.stats.showIdle = !m.stats.showIdle
 		return m, nil, true

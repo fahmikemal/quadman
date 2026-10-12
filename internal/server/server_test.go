@@ -9,9 +9,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"charm.land/ssh"
 	cryptossh "golang.org/x/crypto/ssh"
 )
 
@@ -376,3 +378,97 @@ func TestSSHClientInteractiveSession(t *testing.T) {
 		t.Errorf("stdout does not contain 'quadman': got %q", stdout.String())
 	}
 }
+
+func TestValidatePasswordLoopbackOnlyEvenWithKeys(t *testing.T) {
+	opts := Options{Address: "0.0.0.0:2222", HostKeyPath: filepath.Join(t.TempDir(), "k"),
+		AuthorizedKeysPath: writeAuthKeys(t), Password: "secret123"}
+	err := opts.Validate()
+	if err == nil || !strings.Contains(err.Error(), "loopback-only") {
+		t.Errorf("a network-reachable password must be refused even next to keys, got %v", err)
+	}
+	opts = Options{Address: "127.0.0.1:2222", HostKeyPath: filepath.Join(t.TempDir(), "k"),
+		AuthorizedKeysPath: writeAuthKeys(t), Password: "secret123"}
+	if err := opts.Validate(); err != nil {
+		t.Errorf("keys + password on loopback is fine: %v", err)
+	}
+}
+
+func TestAuthLimiter(t *testing.T) {
+	now := time.Unix(1000, 0)
+	l := newAuthLimiter()
+	l.now = func() time.Time { return now }
+	for i := range l.maxFails {
+		if !l.allow("10.0.0.1") {
+			t.Fatalf("attempt %d must be allowed", i+1)
+		}
+		l.fail("10.0.0.1")
+	}
+	if l.allow("10.0.0.1") {
+		t.Error("an address past maxFails must be locked out")
+	}
+	if !l.allow("10.0.0.2") {
+		t.Error("other addresses are unaffected")
+	}
+	now = now.Add(l.window + time.Second)
+	if !l.allow("10.0.0.1") {
+		t.Error("the lockout must expire with the window")
+	}
+	l.fail("10.0.0.3")
+	l.succeed("10.0.0.3")
+	if len(l.fails) != 0 {
+		t.Errorf("success clears the address, expired entries are dropped: %v", l.fails)
+	}
+}
+
+func TestPasswordHandlerThrottles(t *testing.T) {
+	l := newAuthLimiter()
+	l.delay = 0
+	h := passwordHandler("right", l)
+	ctx := &fakeSSHContext{addr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 4000}}
+	for range l.maxFails {
+		if h(ctx, "wrong") {
+			t.Fatal("a wrong password must fail")
+		}
+	}
+	if h(ctx, "right") {
+		t.Error("a locked-out address must be refused even with the right password")
+	}
+}
+
+// TestConcurrentSessionsShareNoState builds sessions in parallel the way
+// the Wish handler does; run with -race, it fails on any write to shared
+// state (styles, runners, extra dirs) from a per-session constructor.
+func TestConcurrentSessionsShareNoState(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	opts := Options{Readonly: true, Theme: "light", ASCII: true, QuadletDirs: []string{t.TempDir()}}
+	handler := teaHandler(opts)
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			m, _ := handler(&fakeSession{user: "u", addr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 4000 + i}})
+			_ = m.View()
+		}(i)
+	}
+	wg.Wait()
+}
+
+// fakeSSHContext implements just enough of ssh.Context for auth handlers;
+// the embedded nil interface panics if anything else is ever called.
+type fakeSSHContext struct {
+	ssh.Context
+	addr net.Addr
+}
+
+func (c *fakeSSHContext) RemoteAddr() net.Addr { return c.addr }
+
+// fakeSession implements just enough of ssh.Session for teaHandler.
+type fakeSession struct {
+	ssh.Session
+	user string
+	addr net.Addr
+}
+
+func (s *fakeSession) User() string         { return s.user }
+func (s *fakeSession) RemoteAddr() net.Addr { return s.addr }

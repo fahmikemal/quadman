@@ -116,10 +116,7 @@ func (m Model) modeDetailKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 	case "E":
-		if m.refuseRemoteWrite() {
-			return m, nil, true
-		}
-		if m.refuseReadonly() {
+		if m.refuse(capTargetFiles | capTerminal) {
 			return m, nil, true
 		}
 		mm, cmd := m.editSelected()

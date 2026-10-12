@@ -61,8 +61,15 @@ func splitGenerated(out string) ([]genFile, error) {
 	return files, nil
 }
 
-// quadletTargetDir is where generated files are written.
-func quadletTargetDir() (string, error) {
+// quadletTargetDir is where generated files are written: the first
+// writable directory of the generator's own search path for the session's
+// mode — ~/.config/containers/systemd for rootless users ($XDG_CONFIG_HOME
+// aware), /etc/containers/systemd for system units. Never an extra dir:
+// the generator would not see the files there.
+func quadletTargetDir(system bool) (string, error) {
+	if system {
+		return "/etc/containers/systemd", nil
+	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
@@ -90,9 +97,10 @@ func (m Model) generateCmd(input string) tea.Cmd {
 	system := m.system
 	searchDirs := m.searchDirs()
 	isolated := m.ssh.Isolated()
+	pl := m.pl
 	return func() tea.Msg {
 		ctx := context.Background()
-		out, err := generatePodlet(ctx, strings.TrimSpace(input))
+		out, err := generatePodlet(ctx, pl, strings.TrimSpace(input))
 		if err != nil {
 			return generateMsg{err: err}
 		}
@@ -171,7 +179,7 @@ func (m Model) localChecks(files []genFile) []genCheck {
 		}
 	}
 	var checks []genCheck
-	dir, _ := quadletTargetDir()
+	dir, _ := quadletTargetDir(m.system)
 	for _, f := range files {
 		var vals []string
 		for _, mt := range publishPortRe.FindAllStringSubmatch(f.content, -1) {
@@ -251,32 +259,49 @@ func (m Model) generateView(w int) string {
 	checks = append(checks, box(m.genBoot, "boot")+" "+box(m.genStart, "start"))
 	b.WriteString(ansi.Truncate(" "+strings.Join(checks, "   "), w, "…"))
 	b.WriteString("\n")
-	dir, _ := quadletTargetDir()
+	dir, _ := quadletTargetDir(m.system)
 	b.WriteString(ansi.Truncate(" "+mutedStyle.Render("→ ")+fgStyle.Render(dir+"/")+"   "+dimStyle.Render("nothing written yet"), w, "…"))
 	return b.String()
 }
 
-// withBoot adds [Install] WantedBy=default.target when missing.
-func withBoot(content string) string {
+// withBoot adds [Install] WantedBy=<target> when the file has no
+// [Install] section of its own.
+func withBoot(content, target string) string {
 	if strings.Contains(content, "[Install]") {
 		return content
 	}
-	return strings.TrimRight(content, "\n") + "\n\n[Install]\nWantedBy=default.target\n"
+	return strings.TrimRight(content, "\n") + "\n\n[Install]\nWantedBy=" + target + "\n"
 }
 
-// installGenerated writes every generated file into the user's quadlet
-// directory, reloads the generator, and optionally starts the units.
+// generatedUnitName is the unit the generator makes from a generated file,
+// honoring a ServiceName= the file declares.
+func generatedUnitName(f genFile) (string, quadlet.Kind) {
+	ext := filepath.Ext(f.name)
+	u := quadlet.Unit{Name: strings.TrimSuffix(f.name, ext), Kind: quadlet.Kind(strings.TrimPrefix(ext, "."))}
+	parsed, _ := quadlet.ParseBytes(f.name, []byte(f.content))
+	return quadlet.InfoOf(u, parsed).UnitName, u.Kind
+}
+
+// installGenerated writes every generated file into the session's quadlet
+// directory (atomically: a crash never leaves half a unit file), reloads
+// the generator, and optionally starts the container units.
 func (m Model) installGenerated() (tea.Model, tea.Cmd) {
 	if len(m.genFiles) == 0 {
 		m.setStatus("nothing to write", true)
 		return m, nil
 	}
+	dir, err := quadletTargetDir(m.system)
+	if err != nil {
+		m.setStatus("generate: "+err.Error(), true)
+		return m, nil
+	}
 	files := make([]genFile, len(m.genFiles))
 	copy(files, m.genFiles)
 	if m.genBoot {
+		target := m.bootTarget()
 		for i := range files {
 			if ext := filepath.Ext(files[i].name); ext == ".container" || ext == ".pod" || ext == ".kube" {
-				files[i].content = withBoot(files[i].content)
+				files[i].content = withBoot(files[i].content, target)
 			}
 		}
 	}
@@ -290,16 +315,12 @@ func (m Model) installGenerated() (tea.Model, tea.Cmd) {
 	m.mode = modeList
 	m.resize()
 	return m, tea.Batch(m.setBusy("write "+strings.Join(names, ", ")),
-		actionCmdHint(desc, "written to ~/.config/containers/systemd and reloaded", func(ctx context.Context) (string, error) {
-			dir, err := quadletTargetDir()
-			if err != nil {
-				return "", err
-			}
+		m.actionCmdHint(desc, "written to "+dir+" and reloaded", func(ctx context.Context) (string, error) {
 			if err := os.MkdirAll(dir, 0o750); err != nil {
 				return "", err
 			}
 			for _, f := range files {
-				if err := os.WriteFile(filepath.Join(dir, f.name), []byte(f.content), 0o644); err != nil { // #nosec G306 -- quadlet files are user config, not secrets
+				if err := quadlet.WriteFileAtomic(filepath.Join(dir, f.name), []byte(f.content), 0o644); err != nil { // #nosec G306 -- quadlet files are user config, not secrets
 					return "", err
 				}
 			}
@@ -308,10 +329,10 @@ func (m Model) installGenerated() (tea.Model, tea.Cmd) {
 			}
 			if start {
 				for _, f := range files {
-					if filepath.Ext(f.name) != ".container" {
+					unit, kind := generatedUnitName(f)
+					if kind != quadlet.KindContainer {
 						continue
 					}
-					unit := strings.TrimSuffix(f.name, ".container") + ".service"
 					if _, err := sys.UnitAction(ctx, "start", unit); err != nil {
 						return "", fmt.Errorf("written and reloaded, but start %s failed: %w", unit, err)
 					}
@@ -333,7 +354,7 @@ func (m Model) modeGenerateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) 
 		m.resize()
 		return m, nil, true
 	case "y":
-		if m.refuseReadonly() {
+		if m.refuse(capMutate | capTargetFiles) {
 			return m, nil, true
 		}
 		mm, cmd := m.installGenerated()

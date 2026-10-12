@@ -9,7 +9,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/fahmikemal/quadman/internal/podman"
-	"github.com/fahmikemal/quadman/internal/remote"
 	"github.com/fahmikemal/quadman/internal/systemd"
 )
 
@@ -33,14 +32,14 @@ type timerToggledMsg struct{ err error }
 
 // updatesCmd previews `podman auto-update --dry-run` and reads the timer
 // state. Works without podman: the screen then shows the timer only.
-// Podman is probed through the session runner, so SSH and compartment
+// Podman is probed through the session's client, so SSH and compartment
 // sessions read the remote podman instead of the operator's PATH.
-func updatesCmd(sys *systemd.Systemd, runner remote.Runner) tea.Cmd {
+func updatesCmd(sys *systemd.Systemd, pm podman.Client) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 		msg := updatesMsg{}
-		if podmanAvailable(ctx, runner) {
-			entries, err := podman.AutoUpdateDryRun(ctx)
+		if pm.Reachable(ctx) {
+			entries, err := pm.AutoUpdateDryRun(ctx)
 			if err != nil {
 				msg.err = err
 				return msg
@@ -57,10 +56,10 @@ func updatesCmd(sys *systemd.Systemd, runner remote.Runner) tea.Cmd {
 }
 
 // applyUpdatesCmd runs auto-update for real, then re-reads the timer.
-func applyUpdatesCmd(sys *systemd.Systemd) tea.Cmd {
+func applyUpdatesCmd(sys *systemd.Systemd, pm podman.Client) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
-		entries, err := podman.AutoUpdateApply(ctx)
+		entries, err := pm.AutoUpdateApply(ctx)
 		msg := updatesMsg{entries: entries, applied: true, err: err}
 		msg.timerEnabled, _ = sys.IsEnabled(ctx, autoUpdateTimer)
 		msg.timerActive, _ = sys.IsActive(ctx, autoUpdateTimer)
@@ -202,7 +201,7 @@ func (m Model) updateDetail(r scrRow, _ int) []string {
 func (m Model) updatesKeysIn(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	switch msg.String() {
 	case "U":
-		if m.refuseReadonly() {
+		if m.refuse(capMutate) {
 			return m, nil, true
 		}
 		target := m.timerEnabled != "enabled"
@@ -218,9 +217,9 @@ func (m Model) updatesKeysIn(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 			return timerToggledMsg{err: err}
 		}), true
 	case "r":
-		return m, tea.Batch(m.setBusy("checking auto-updates"), updatesCmd(m.sys, m.ssh)), true
+		return m, tea.Batch(m.setBusy("checking auto-updates"), updatesCmd(m.sys, m.pm)), true
 	case "a":
-		if m.refuseReadonly() {
+		if m.refuse(capMutate) {
 			return m, nil, true
 		}
 		var pending []string
@@ -233,14 +232,14 @@ func (m Model) updatesKeysIn(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 			m.setStatus("nothing pending — r re-checks the registries", false)
 			return m, nil, true
 		}
-		sys := m.sys
+		sys, pm := m.sys, m.pm
 		m.pending = &pendingAction{
 			verb:  "apply updates",
 			title: fmt.Sprintf("Apply %d update%s now?", len(pending), plural(len(pending))),
 			lines: []string{"pull the new images", "restart " + strings.Join(pending, ", "), "roll a unit back to its old image if it fails to start"},
 			keeps: []string{"volumes and their data", "units without an AutoUpdate policy"},
 			run: func(m Model) (tea.Model, tea.Cmd) {
-				return m, tea.Batch(m.setBusy("podman auto-update"), applyUpdatesCmd(sys))
+				return m, tea.Batch(m.setBusy("podman auto-update"), applyUpdatesCmd(sys, pm))
 			},
 		}
 		return m, nil, true

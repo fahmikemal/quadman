@@ -19,7 +19,7 @@ func TestSystemDfSummary(t *testing.T) {
 ]
 EOF
 `)
-	rows, err := SystemDfSummary(context.Background())
+	rows, err := local.SystemDfSummary(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestImagesDangling(t *testing.T) {
 ]
 EOF
 `)
-	imgs, err := Images(context.Background())
+	imgs, err := local.Images(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ cat <<'EOF'
 [{"Names":["systemd-web"],"Image":"nginx","ImageID":"93aa","State":"running","Status":"Up 2 hours","Labels":{"PODMAN_SYSTEMD_UNIT":"web.service"},"Created":1786531448,"Id":"215fa3a79d8f35a8","Size":{"rootFsSize":299969757,"rwSize":35362}}]
 EOF
 `)
-	cs, err := Containers(context.Background(), true)
+	cs, err := local.Containers(context.Background(), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestSecretCreateUsesStdin(t *testing.T) {
 	fakePodman(t, `echo "$@" > `+dir+`/args
 cat > `+dir+`/stdin
 `)
-	if err := SecretCreate(context.Background(), "db-pass", []byte("s3cret"), true); err != nil {
+	if err := local.SecretCreate(context.Background(), "db-pass", []byte("s3cret"), true); err != nil {
 		t.Fatal(err)
 	}
 	args, _ := os.ReadFile(filepath.Join(dir, "args"))

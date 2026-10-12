@@ -24,7 +24,7 @@ func TestStats(t *testing.T) {
 ]
 EOF
 `)
-	entries, err := Stats(context.Background())
+	entries, err := local.Stats(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ EOF
 func TestStatsEmpty(t *testing.T) {
 	for _, body := range []string{"echo '[]'\n", "echo ''\n", "echo 'null'\n"} {
 		fakePodman(t, body)
-		entries, err := Stats(context.Background())
+		entries, err := local.Stats(context.Background())
 		if err != nil {
 			t.Fatalf("%q: %v", body, err)
 		}
@@ -58,7 +58,7 @@ func TestContainerNames(t *testing.T) {
 ]
 EOF
 `)
-	names, err := ContainerNames(context.Background())
+	names, err := local.ContainerNames(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestResolveExecTargetExactOnly(t *testing.T) {
 func TestSystemPrune(t *testing.T) {
 	fakePodman(t, `if [ "$1" != "system" ] || [ "$2" != "prune" ] || [ "$3" != "-f" ]; then echo "wrong argv: $@"; exit 9; fi
 echo "Total reclaimed space: 1.2GB"`)
-	out, err := SystemPrune(context.Background())
+	out, err := local.SystemPrune(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ echo "Total reclaimed space: 1.2GB"`)
 
 func TestSystemPruneError(t *testing.T) {
 	fakePodman(t, "echo 'boom'; exit 1\n")
-	if _, err := SystemPrune(context.Background()); err == nil {
+	if _, err := local.SystemPrune(context.Background()); err == nil {
 		t.Error("expected error")
 	}
 }

@@ -127,3 +127,33 @@ Secret=missing_secret
 		t.Errorf("expected 0 issues when all secrets present, got %v", cleanIssues)
 	}
 }
+
+func TestValidateSessionThroughRunner(t *testing.T) {
+	// The fake ssh answers like a host whose first generator location is
+	// missing and whose second one reports a conversion error.
+	script := `#!/bin/sh
+for last; do :; done
+case "$last" in
+  /usr/lib/systemd/system-generators/*) echo "sh: 1: $last: not found"; exit 127 ;;
+  "/usr/libexec/podman/podman-system-generator -dryrun -user")
+    echo 'quadlet-generator[42]: converting "web.container": unsupported key '"'"'Foo'"'"' in group '"'"'Container'"'"' in /home/u/.config/containers/systemd/web.container'
+    exit 1 ;;
+esac
+exit 9
+`
+	issues, err := ValidateSession(context.Background(), fakeRunner(t, script), nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(issues) != 1 || issues[0].File != "web.container" || issues[0].Severity != SeverityError {
+		t.Fatalf("issues = %+v", issues)
+	}
+}
+
+func TestValidateSessionNoGenerator(t *testing.T) {
+	script := "#!/bin/sh\nfor last; do :; done\necho \"sh: 1: $last: not found\"\nexit 127\n"
+	issues, err := ValidateSession(context.Background(), fakeRunner(t, script), nil, true)
+	if err != nil || len(issues) != 0 {
+		t.Errorf("issues = %+v, err = %v", issues, err)
+	}
+}

@@ -53,25 +53,20 @@ func prunePrompt(inactive []string) string {
 		len(inactive), strings.Join(shown, ", "), rest)
 }
 
-// pruneKeys arms the system-prune confirmation (P, host scope). Read-only
-// and remote sessions are refused: prune is destructive and remote runs
-// cannot show the reclaimed-space report interactively.
+// pruneKeys arms the system-prune confirmation (P, host scope). Like every
+// action that destroys data, it waits for the confirmation word to be
+// typed. It runs through the session runner, so it prunes the storage of
+// the session's own user on the session's own host.
 func (m Model) pruneKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if msg.String() != "P" {
 		return m, nil, false
 	}
-	if m.refuseReadonly() {
+	if m.refuse(capMutate) {
 		return m, nil, true
 	}
-	if m.ssh.IsRemote() {
-		m.setStatus("prune unavailable over SSH (run podman system prune on the host)", true)
-		return m, nil, true
-	}
-	// Local sessions need the CLI on PATH; compartment sessions resolve it
-	// through sudo on the target, so only gate the local case here. Prune
-	// stays available in compartments: like stop, it only touches the
-	// target user's own storage.
-	if !m.compOn && !podman.Available() {
+	// Local sessions need the CLI on PATH; isolated sessions resolve it on
+	// the target when the prune runs.
+	if !m.ssh.Isolated() && !podman.Available() {
 		m.setStatus("podman not found — prune needs the podman CLI", true)
 		return m, nil, true
 	}
@@ -81,8 +76,9 @@ func (m Model) pruneKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 }
 
 // pruneCmd runs the confirmed prune and reports reclaimed space.
-func pruneCmd() tea.Cmd {
-	return actionCmdHint("system prune", "stopped containers and unused data removed", func(ctx context.Context) (string, error) {
-		return podman.SystemPrune(ctx)
+func (m Model) pruneCmd() tea.Cmd {
+	pm := m.pm
+	return m.actionCmdHint("system prune", "stopped containers and unused data removed", func(ctx context.Context) (string, error) {
+		return pm.SystemPrune(ctx)
 	})
 }

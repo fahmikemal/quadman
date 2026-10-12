@@ -3,6 +3,7 @@ package systemd
 import (
 	"bufio"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,6 +56,7 @@ ActiveEnterTimestamp=@1700000000
 Result=exit-code
 ExecMainStatus=137
 NRestarts=3
+NeedDaemonReload=yes
 
 Id=cache-volume.service
 LoadState=not-found
@@ -88,6 +90,12 @@ EOF
 	}
 	if cache.Loaded() {
 		t.Errorf("cache should not be loaded: %+v", cache)
+	}
+	if !web.NeedDaemonReload || !web.NeedsReload() {
+		t.Errorf("webapp must report NeedDaemonReload: %+v", web)
+	}
+	if cache.NeedDaemonReload || !cache.NeedsReload() {
+		t.Errorf("a never-generated unit needs a reload without the flag: %+v", cache)
 	}
 
 	args := readArgs(t, argsFile)
@@ -464,5 +472,33 @@ func TestGeneratorDirOverride(t *testing.T) {
 	s2 := &Systemd{User: true}
 	if got := s2.GeneratorDir(); got != UserGeneratorDir() {
 		t.Errorf("empty override must derive: %q", got)
+	}
+}
+
+func TestUnitActionJobPending(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "systemctl")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexec sleep 5\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := &Systemd{User: true, Bin: bin, JobTimeout: 50 * time.Millisecond}
+	_, err := s.UnitAction(context.Background(), "start", "slow.service")
+	if !errors.Is(err, ErrJobPending) {
+		t.Fatalf("a job outliving the wait must report ErrJobPending, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "slow.service") {
+		t.Errorf("err must name the unit: %v", err)
+	}
+}
+
+func TestJournalStringByteArrays(t *testing.T) {
+	if got := journalString([]byte(`[104,105]`)); got != "hi" {
+		t.Errorf("byte array = %q", got)
+	}
+	if got := journalString([]byte(`[104,300]`)); got != "" {
+		t.Errorf("out-of-range values must not be truncated into bytes, got %q", got)
+	}
+	if got := journalString([]byte(`null`)); got != "" {
+		t.Errorf("null = %q", got)
 	}
 }

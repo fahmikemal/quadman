@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fahmikemal/quadman/internal/remote"
 )
 
 func fakeBin(t *testing.T, name, body string) string {
@@ -123,5 +125,67 @@ func TestCurrentUser(t *testing.T) {
 	}
 	if name == "" {
 		t.Error("CurrentUser should not return an empty name")
+	}
+}
+
+// TestResolveCompartmentUser: an empty user name in a compartment means the
+// sudo target, never the operator running quadman.
+func TestResolveCompartmentUser(t *testing.T) {
+	dir := t.TempDir()
+	record := filepath.Join(dir, "argv")
+	sudo := "#!/bin/sh\nprintf '%s ' \"$@\" > " + record + "\necho yes\n"
+	if err := os.WriteFile(filepath.Join(dir, "sudo"), []byte(sudo), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	l := &Loginctl{Bin: "loginctl", Remote: remote.Runner{As: "svc-web"}}
+	on, err := l.Enabled(context.Background(), "")
+	if err != nil || !on {
+		t.Fatalf("Enabled = %v, %v", on, err)
+	}
+	raw, _ := os.ReadFile(record)
+	if !strings.HasSuffix(strings.TrimSpace(string(raw)), "show-user --property=Linger --value -- svc-web") {
+		t.Errorf("compartment linger must query the target user, sudo argv = %q", raw)
+	}
+}
+
+// TestResolveRemoteUser: over SSH the remote login name comes from the
+// remote host (id -un), once, then every call reuses it.
+func TestResolveRemoteUser(t *testing.T) {
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	ssh := filepath.Join(dir, "ssh")
+	script := `#!/bin/sh
+for last; do :; done
+echo "$last" >> ` + calls + `
+case "$last" in
+  "id -un") echo ubuntu ;;
+  *) echo no ;;
+esac
+`
+	if err := os.WriteFile(ssh, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	l := &Loginctl{Bin: "loginctl", Remote: remote.Runner{Target: "ubuntu@host", SSHBin: ssh}}
+	for range 2 {
+		if _, err := l.Enabled(context.Background(), ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	raw, _ := os.ReadFile(calls)
+	got := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	want := []string{"id -un", "loginctl show-user --property=Linger --value -- ubuntu", "loginctl show-user --property=Linger --value -- ubuntu"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("remote calls = %q, want %q", got, want)
+	}
+}
+
+func TestResolvePinnedUser(t *testing.T) {
+	l := &Loginctl{User: "bob", Remote: remote.Runner{As: "svc"}}
+	if got, err := l.resolve(context.Background(), ""); err != nil || got != "bob" {
+		t.Errorf("pinned user = %q, %v", got, err)
+	}
+	if got, _ := l.resolve(context.Background(), "carol"); got != "carol" {
+		t.Errorf("explicit user must win, got %q", got)
 	}
 }

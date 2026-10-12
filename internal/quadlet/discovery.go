@@ -2,13 +2,16 @@
 package quadlet
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
-	"time"
+	"sync"
 )
 
 // Kind is the Quadlet file type, named after its extension.
@@ -44,16 +47,25 @@ type Unit struct {
 // match wins) stay intact: same-name files in the standard path keep
 // shadowing the extra ones.
 //
+// It is process-wide configuration: set it once at startup through
+// AddExtraDirs, before any session runs, and read it through
+// ExtraDirList. Assigning it directly is reserved for tests.
+//
 // NOTE: systemd's generator does not read these directories, so units that
 // exist only here cannot be started until their files are also visible to
 // the generator (copy them or symlink them into a search-path directory).
 // quadman lists, previews, and validates them anyway, and marks them.
 var ExtraDirs []string
 
+// extraMu guards ExtraDirs against a late AddExtraDirs racing readers.
+var extraMu sync.RWMutex
+
 // AddExtraDirs appends user-configured Quadlet source directories to the
 // discovery search path. Empty and duplicate entries are ignored, so
-// calling it from both main and the TUI constructor is safe.
+// calling it from several startup paths is safe.
 func AddExtraDirs(dirs []string) {
+	extraMu.Lock()
+	defer extraMu.Unlock()
 	seen := map[string]bool{}
 	for _, d := range ExtraDirs {
 		seen[d] = true
@@ -65,6 +77,13 @@ func AddExtraDirs(dirs []string) {
 		seen[d] = true
 		ExtraDirs = append(ExtraDirs, d)
 	}
+}
+
+// ExtraDirList returns a copy of the configured extra directories.
+func ExtraDirList() []string {
+	extraMu.RLock()
+	defer extraMu.RUnlock()
+	return slices.Clone(ExtraDirs)
 }
 
 // SearchDirs returns the Quadlet source directories for the current user, in
@@ -92,7 +111,7 @@ func SearchDirsMode(system bool) []string {
 			"/etc/containers/systemd",
 			"/usr/share/containers/systemd",
 		}
-		return append(dirs, ExtraDirs...)
+		return append(dirs, ExtraDirList()...)
 	}
 	var dirs []string
 	if rt := os.Getenv("XDG_RUNTIME_DIR"); rt != "" {
@@ -105,7 +124,7 @@ func SearchDirsMode(system bool) []string {
 	for _, base := range []string{"/etc/containers/systemd", "/usr/share/containers/systemd"} {
 		dirs = append(dirs, userDirs(base, uid)...)
 	}
-	return append(dirs, ExtraDirs...)
+	return append(dirs, ExtraDirList()...)
 }
 
 // SearchDirsFor returns the Quadlet source directories for an arbitrary
@@ -124,25 +143,17 @@ func SearchDirsFor(home, uid, runtimeDir string) []string {
 	for _, base := range []string{"/etc/containers/systemd", "/usr/share/containers/systemd"} {
 		dirs = append(dirs, userDirs(base, uid)...)
 	}
-	return append(dirs, ExtraDirs...)
+	return append(dirs, ExtraDirList()...)
 }
 
-// userDirs lists the per-user directories below one generator base dir, in
-// lookup order: the users dir itself, its non-numeric subdirectories (shared
-// units), then the invoking user's own UID dir. Numeric subdirectories that
-// belong to other users are skipped, like the generator does.
+// userDirs lists the per-user search-path entries below one generator
+// base dir, in the generator's lookup order: the shared users dir, then
+// the invoking user's own UID dir. Discovery walks each entry recursively;
+// below users/ it skips the numeric dirs, which belong to individual users
+// (the own one is searched as its own entry).
 func userDirs(base, uid string) []string {
 	users := filepath.Join(base, "users")
-	dirs := []string{users}
-	if entries, err := os.ReadDir(users); err == nil {
-		for _, e := range entries {
-			if !e.IsDir() || isNumeric(e.Name()) {
-				continue
-			}
-			dirs = append(dirs, filepath.Join(users, e.Name()))
-		}
-	}
-	return append(dirs, filepath.Join(users, uid))
+	return []string{users, filepath.Join(users, uid)}
 }
 
 func isNumeric(s string) bool {
@@ -193,36 +204,6 @@ func UnitFileName(name string, kind Kind) string {
 	return name + suffix + ".service"
 }
 
-// staleTolerance absorbs filesystem timestamp granularity when comparing
-// source and generated unit mtimes.
-const staleTolerance = time.Second
-
-// StaleUnits returns the units whose source file is newer than the unit the
-// generator produced in genDir (or that have no generated unit yet) — in
-// other words, the ones a `systemctl --user daemon-reload` would change.
-// An empty genDir (runtime dir unknown) never reports stale units.
-func StaleUnits(units []Unit, genDir string) []Unit {
-	if genDir == "" {
-		return nil
-	}
-	var stale []Unit
-	for _, u := range units {
-		gen, err := os.Stat(filepath.Join(genDir, u.UnitName))
-		if err != nil || !gen.ModTime().Add(staleTolerance).After(u.mtime()) {
-			stale = append(stale, u)
-		}
-	}
-	return stale
-}
-
-// mtime is the source file's modification time (zero when unreadable).
-func (u Unit) mtime() time.Time {
-	if fi, err := os.Stat(u.Path); err == nil {
-		return fi.ModTime()
-	}
-	return time.Time{}
-}
-
 // Discover scans the Quadlet search directories for the user (rootless) session.
 // Like the generator, the first directory in lookup order wins for a given
 // name+kind pair.
@@ -245,44 +226,113 @@ func DiscoverMode(system bool) ([]Unit, error) {
 	return units, nil
 }
 
-// DiscoverDirs scans an explicit list of directories for Quadlet files.
+// DiscoverDirs scans an explicit list of search-path entries for Quadlet
+// files, exactly like the generator: each entry is walked recursively
+// (see unitDirs), and the first file found for a given name and kind wins.
 func DiscoverDirs(dirs []string) ([]Unit, error) {
 	var units []Unit
 	seen := map[string]bool{}
-	for _, dir := range dirs {
-		entries, err := os.ReadDir(dir)
+	for _, base := range dirs {
+		walked, err := unitDirs(base)
 		if err != nil {
-			if os.IsNotExist(err) || os.IsPermission(err) {
-				continue
-			}
-			return nil, fmt.Errorf("read %s: %w", dir, err)
+			return nil, err
 		}
-		for _, e := range entries {
-			if e.IsDir() {
-				continue // drop-in directories (.d) are not scanned for now
+		for _, dir := range walked {
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				continue // vanished or unreadable subdir: the generator skips it too
 			}
-			ext := filepath.Ext(e.Name())
-			kind, ok := kindByExt[ext]
-			if !ok {
-				continue // skips drop-ins (.conf) and unrelated files
+			for _, e := range entries {
+				if !isUnitFile(dir, e) {
+					continue
+				}
+				ext := filepath.Ext(e.Name())
+				kind, ok := kindByExt[ext]
+				if !ok {
+					continue // skips drop-ins (.conf) and unrelated files
+				}
+				name := strings.TrimSuffix(e.Name(), ext)
+				key := name + "/" + string(kind)
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				unitName := UnitFileName(name, kind)
+				if kind == KindQuadlets {
+					unitName = "" // install bundles map to N units, not one
+				}
+				units = append(units, Unit{
+					Name:     name,
+					Kind:     kind,
+					Path:     filepath.Join(dir, e.Name()),
+					UnitName: unitName,
+				})
 			}
-			name := strings.TrimSuffix(e.Name(), ext)
-			key := name + "/" + string(kind)
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			unitName := UnitFileName(name, kind)
-			if kind == KindQuadlets {
-				unitName = "" // install bundles map to N units, not one
-			}
-			units = append(units, Unit{
-				Name:     name,
-				Kind:     kind,
-				Path:     filepath.Join(dir, e.Name()),
-				UnitName: unitName,
-			})
 		}
 	}
 	return units, nil
+}
+
+// isUnitFile reports a regular file, or a symlink to one (Quadlet supports
+// symlinks inside the search paths).
+func isUnitFile(dir string, e fs.DirEntry) bool {
+	switch {
+	case e.Type().IsRegular():
+		return true
+	case e.Type()&fs.ModeSymlink != 0:
+		fi, err := os.Stat(filepath.Join(dir, e.Name()))
+		return err == nil && fi.Mode().IsRegular()
+	}
+	return false
+}
+
+// unitDirs expands one search-path entry into the directories the
+// generator loads, in its order: the entry itself, then every
+// subdirectory depth-first in lexical order. Drop-in directories (*.d) are
+// skipped, and so are the numeric per-UID dirs directly below a users/
+// entry (other users' units; the own UID dir is an entry of its own). A
+// symlinked entry is followed, but paths keep the configured spelling.
+// A missing or unreadable entry yields no dirs; other errors are returned.
+func unitDirs(base string) ([]string, error) {
+	root, err := filepath.EvalSymlinks(base)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read %s: %w", base, err)
+	}
+	usersEntry := filepath.Base(base) == "users"
+	var dirs []string
+	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if p == root {
+				return err
+			}
+			return nil // unreadable subtree: skip it, keep the rest
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		if p != root {
+			if strings.HasSuffix(d.Name(), ".d") {
+				return fs.SkipDir
+			}
+			if usersEntry && filepath.Dir(p) == root && isNumeric(d.Name()) {
+				return fs.SkipDir
+			}
+		}
+		rel, rerr := filepath.Rel(root, p)
+		if rerr != nil {
+			return nil
+		}
+		dirs = append(dirs, filepath.Join(base, rel))
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read %s: %w", base, err)
+	}
+	return dirs, nil
 }

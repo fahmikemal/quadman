@@ -5,9 +5,10 @@
 // through non-interactive sudo (`sudo -n -u <user>`), never a shell.
 //
 // A compartment needs no daemon and no new credentials: if
-// `sudo -n -u <user> true` works (NOPASSWD sudoers or root operator),
-// quadman works. Target users need a runtime dir (/run/user/<uid>),
-// which lingering (`loginctl enable-linger <user>`) guarantees.
+// `sudo -n -u <user> XDG_RUNTIME_DIR=… HOME=… -- true` works (a NOPASSWD
+// rule with the SETENV tag for the CLIs quadman runs, or a root operator),
+// quadman works. Target users need a runtime dir (/run/user/<uid>), which
+// lingering (`loginctl enable-linger <user>`) guarantees.
 package compartment
 
 import (
@@ -108,13 +109,40 @@ func (c Compartment) GeneratorDir() string {
 // ProbeSudo verifies non-interactive sudo to user works, failing fast with
 // an actionable message instead of hanging on a password prompt.
 func ProbeSudo(ctx context.Context, username string) error {
+	c, err := Resolve(username)
+	if err != nil {
+		return err
+	}
+	return c.Probe(ctx)
+}
+
+// Probe runs `true` exactly the way every compartment command runs — the
+// same sudo user and the same VAR=value session variables — so a sudoers
+// rule that lacks NOPASSWD or SETENV fails here, before anything else.
+func (c Compartment) Probe(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, ProbeTimeout)
 	defer cancel()
-	r := remote.Runner{As: username}
-	if _, err := r.Output(ctx, "true"); err != nil {
-		return fmt.Errorf("sudo -n -u %s: %w (configure NOPASSWD sudoers or run as root)", username, err)
+	if _, err := c.Runner().Output(ctx, "true"); err != nil {
+		return fmt.Errorf("sudo -n -u %s: %w (needs a NOPASSWD:SETENV sudoers rule for %s, or run as root)", c.User, err, c.User)
 	}
 	return nil
+}
+
+// Setup resolves, probes, and runtime-checks a compartment: the shared
+// all-or-nothing rule of the TUI, `list`, and `serve`. Any failure is
+// returned before anything runs as the target user.
+func Setup(ctx context.Context, username string) (Compartment, error) {
+	c, err := Resolve(username)
+	if err != nil {
+		return Compartment{}, err
+	}
+	if err := c.Probe(ctx); err != nil {
+		return Compartment{}, err
+	}
+	if !c.RuntimeReady() {
+		return Compartment{}, fmt.Errorf("compartment %s: no runtime dir %s (linger the user or log in once)", c.User, c.RuntimeDir)
+	}
+	return c, nil
 }
 
 // UIDInt parses the numeric uid for callers that need it.

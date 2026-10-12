@@ -10,7 +10,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/fahmikemal/quadman/internal/podman"
 	"github.com/fahmikemal/quadman/internal/quadlet"
 )
 
@@ -78,9 +77,10 @@ func (m Model) cycleTab(dir int) (tea.Model, tea.Cmd) {
 			m.viewport.GotoTop()
 			return m, nil
 		}
-		container := "systemd-" + u.Name
+		container := m.containerName(u)
+		pm := m.pm
 		return m, tea.Batch(m.setBusy("inspect "+container), func() tea.Msg {
-			text, err := podman.Inspect(context.Background(), container)
+			text, err := pm.Inspect(context.Background(), container)
 			if err != nil {
 				text = err.Error()
 			}
@@ -200,7 +200,7 @@ func (m Model) overviewContent(u quadlet.Unit) string {
 	if img := m.images[u.UnitName]; img != "" {
 		v := fgStyle.Render(img)
 		if ferr == nil {
-			if pol := f.Section(string(u.Kind)).Get("AutoUpdate"); pol != "" {
+			if pol := f.Section(u.Kind.Section()).Get("AutoUpdate"); pol != "" {
 				v += mutedStyle.Render(" · AutoUpdate=" + pol)
 			}
 		}
@@ -210,7 +210,7 @@ func (m Model) overviewContent(u quadlet.Unit) string {
 		row("APP / POD", kindStyle.Render(strings.TrimSpace(prefixed("app ", e.App)+"  "+prefixed("pod ", e.Pod))))
 	}
 	if ferr == nil {
-		sec := f.Section(string(u.Kind))
+		sec := f.Section(u.Kind.Section())
 		if ports := sec.GetAll("PublishPort"); len(ports) > 0 {
 			row("PORTS", fgStyle.Render(strings.Join(ports, ", ")))
 		}

@@ -17,14 +17,14 @@ const PullTimeout = 10 * time.Minute
 // `podman image exists` (exit 0 = present, exit 1 = absent). Any other
 // failure (no daemon, broken storage) is returned as an error so callers
 // never mistake "podman is broken" for "image is missing".
-func ImageExists(ctx context.Context, image string) (bool, error) {
+func (c Client) ImageExists(ctx context.Context, image string) (bool, error) {
 	image = strings.TrimSpace(image)
 	if image == "" {
 		return false, fmt.Errorf("empty image reference")
 	}
 	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
-	err := runCmd(ctx, "podman", "image", "exists", image).Run() // #nosec G204 -- argv slice, no shell
+	err := c.cmd(ctx, "image", "exists", image).Run() // #nosec G204 -- argv slice, no shell
 	if err == nil {
 		return true, nil
 	}
@@ -38,14 +38,14 @@ func ImageExists(ctx context.Context, image string) (bool, error) {
 // PullImage runs `podman pull` and returns its output. Long timeout, and
 // the UI gates it behind readonly checks; the image reference comes from
 // the unit file via argv, never a shell.
-func PullImage(ctx context.Context, image string) (string, error) {
+func (c Client) PullImage(ctx context.Context, image string) (string, error) {
 	image = strings.TrimSpace(image)
 	if image == "" {
 		return "", fmt.Errorf("empty image reference")
 	}
 	ctx, cancel := context.WithTimeout(ctx, PullTimeout)
 	defer cancel()
-	out, err := runCmd(ctx, "podman", "pull", image).CombinedOutput() // #nosec G204 -- argv slice, no shell
+	out, err := c.cmd(ctx, "pull", image).CombinedOutput() // #nosec G204 -- argv slice, no shell
 	if err != nil {
 		return "", fmt.Errorf("podman pull %s: %w: %s", image, err, strings.TrimSpace(string(out)))
 	}

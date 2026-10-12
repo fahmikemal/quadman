@@ -2,68 +2,132 @@ package quadlet
 
 import (
 	"context"
+	"path"
 	"sort"
 	"strings"
 
 	"github.com/fahmikemal/quadman/internal/remote"
 )
 
-// DiscoverRemote lists Quadlet units on a remote host. It prefers
-// `podman quadlet list` (name, kind inferred from the file extension,
-// generated unit, source path on the remote) and falls back to
-// `systemctl list-units` when podman is absent remotely. Unit.Path is the
-// remote path: file contents are read on demand with Runner.Cat, never
-// synced locally.
-// DiscoverRemote lists Quadlet units on a remote host for the user (rootless) session.
+// DiscoverRemote lists Quadlet units on a remote host for the user
+// (rootless) session.
 func DiscoverRemote(ctx context.Context, r remote.Runner) ([]Unit, error) {
 	return DiscoverRemoteMode(ctx, r, false)
 }
 
-// DiscoverRemoteMode lists Quadlet units on a remote host for either user or system session.
-// It prefers `podman quadlet list` (name, kind inferred from the file extension,
-// generated unit, source path on the remote) and falls back to
-// `systemctl list-units` (with or without --user) when podman is absent remotely.
+// DiscoverRemoteMode lists the Quadlet units of an isolated session (SSH
+// host or sudo compartment) for either the user or the system instance.
+//
+// It prefers `podman quadlet list`, which reports every quadlet the
+// generator sees together with its source path. Without podman it asks
+// systemd: the units the generator produced (`list-unit-files
+// --state=generated`) and, from `systemctl show`, the SourcePath= Quadlet
+// stamps on each of them. Only units whose source is a Quadlet file are
+// kept, so other generators' output (and ordinary services) never show up
+// as quadlets. Unit.Path is the path on the session's side: file contents
+// are read on demand through the runner, never synced locally.
 func DiscoverRemoteMode(ctx context.Context, r remote.Runner, system bool) ([]Unit, error) {
 	if out, err := r.Output(ctx, "podman", "quadlet", "list", "--format", "{{.Name}}\t{{.UnitName}}\t{{.Path}}"); err == nil {
 		return parseQuadletList(out), nil
 	}
-	args := []string{"list-units", "--type=service", "--all", "--plain", "--no-legend", "--no-pager"}
-	if !system {
-		args = append([]string{"--user"}, args...)
+	scope := func(args ...string) []string {
+		if system {
+			return args
+		}
+		return append([]string{"--user"}, args...)
 	}
-	out, err := r.Output(ctx, "systemctl", args...)
+	out, err := r.Output(ctx, "systemctl", scope("list-unit-files", "--type=service", "--state=generated", "--no-legend", "--plain", "--no-pager")...)
 	if err != nil {
 		return nil, err
 	}
-	return parseListUnits(out), nil
+	names := generatedUnitNames(out)
+	if len(names) == 0 {
+		return nil, nil
+	}
+	show, err := r.Output(ctx, "systemctl", scope(append([]string{"show", "--property=Id,SourcePath", "--no-pager", "--"}, names...)...)...)
+	if err != nil {
+		return nil, err
+	}
+	return parseSourcePaths(show), nil
 }
 
-// InspectRemote resolves one unit's Info by catting its source file through
+// generatedUnitNames reads the unit names (first column) of
+// `systemctl list-unit-files --no-legend --plain`.
+func generatedUnitNames(out []byte) []string {
+	var names []string
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) > 0 && strings.HasSuffix(f[0], ".service") {
+			names = append(names, f[0])
+		}
+	}
+	return names
+}
+
+// parseSourcePaths turns `systemctl show --property=Id,SourcePath` blocks
+// into units, keeping those generated from a Quadlet source file.
+func parseSourcePaths(out []byte) []Unit {
+	var units []Unit
+	id, src := "", ""
+	flush := func() {
+		if id != "" && src != "" {
+			ext := path.Ext(src)
+			if kind, ok := kindByExt[ext]; ok && kind != KindQuadlets {
+				units = append(units, Unit{
+					Name:     strings.TrimSuffix(path.Base(src), ext),
+					Kind:     kind,
+					Path:     src,
+					UnitName: id,
+				})
+			}
+		}
+		id, src = "", ""
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		k, v, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if !ok {
+			if strings.TrimSpace(line) == "" {
+				flush()
+			}
+			continue
+		}
+		switch k {
+		case "Id":
+			flush()
+			id = v
+		case "SourcePath":
+			src = v
+		}
+	}
+	flush()
+	sort.Slice(units, func(i, j int) bool { return units[i].Name < units[j].Name })
+	return units
+}
+
+// InspectRemote resolves one unit's Info by reading its source file through
 // the session runner (SSH or sudo compartment). Failures keep the default
 // generated name, matching the uncached local fallback.
 func InspectRemote(ctx context.Context, r remote.Runner, u Unit) Info {
-	info := Info{UnitName: UnitFileName(u.Name, u.Kind)}
+	info, _ := InspectRemoteFile(ctx, r, u)
+	return info
+}
+
+// InspectRemoteFile is InspectRemote that also returns the parsed file
+// (nil when it could not be read), so one read per refresh serves both the
+// list and validation.
+func InspectRemoteFile(ctx context.Context, r remote.Runner, u Unit) (Info, *File) {
 	if u.Path == "" {
-		return info
+		return InfoOf(u, nil), nil
 	}
 	data, err := r.Cat(ctx, u.Path)
 	if err != nil {
-		return info
+		return InfoOf(u, nil), nil
 	}
 	f, err := ParseBytes(u.Path, data)
 	if err != nil {
-		return info
+		return InfoOf(u, nil), nil
 	}
-	sec := f.Section(string(u.Kind))
-	if sn := sec.Get("ServiceName"); sn != "" {
-		info.UnitName = sn + ".service"
-	}
-	if u.Kind == KindBuild {
-		info.Image = sec.Get("ImageTag")
-	} else {
-		info.Image = sec.Get("Image")
-	}
-	return info
+	return InfoOf(u, f), f
 }
 
 func parseQuadletList(out []byte) []Unit {
@@ -73,85 +137,23 @@ func parseQuadletList(out []byte) []Unit {
 		if len(fields) != 3 {
 			continue
 		}
-		name, unit, path := strings.TrimSpace(fields[0]), strings.TrimSpace(fields[1]), strings.TrimSpace(fields[2])
+		name, unit, p := strings.TrimSpace(fields[0]), strings.TrimSpace(fields[1]), strings.TrimSpace(fields[2])
 		if name == "" {
 			continue
 		}
 		kind := KindContainer
-		if i := strings.LastIndex(name, "."); i >= 0 {
-			if k, ok := kindByName(name[i+1:]); ok {
-				kind = k
-			}
-		}
 		base := name
-		if i := strings.LastIndex(base, "."); i >= 0 {
-			base = base[:i]
-		}
-		units = append(units, Unit{Name: base, Kind: kind, Path: path, UnitName: unit})
-	}
-	sort.Slice(units, func(i, j int) bool { return units[i].Name < units[j].Name })
-	return units
-}
-
-func kindByName(ext string) (Kind, bool) {
-	for e, k := range kindByExt {
-		if strings.TrimPrefix(e, ".") == ext {
-			return k, true
-		}
-	}
-	return "", false
-}
-
-func parseListUnits(out []byte) []Unit {
-	var units []Unit
-	for _, line := range strings.Split(string(out), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) == 0 {
-			continue
-		}
-		name := fields[0]
-		if !strings.HasSuffix(name, ".service") {
-			continue
-		}
-		base := strings.TrimSuffix(name, ".service")
-		units = append(units, Unit{Name: base, Kind: KindContainer, Path: "", UnitName: name})
-	}
-	sort.Slice(units, func(i, j int) bool { return units[i].Name < units[j].Name })
-	return units
-}
-
-// ParseBytes parses Quadlet file content already read into memory (e.g. via
-// Runner.Cat from a remote host). It shares the line parser with Parse.
-func ParseBytes(path string, data []byte) (*File, error) {
-	f := &File{Path: path, Sections: map[string]*Section{}}
-	var cur *Section
-	lines := strings.Split(string(data), "\n")
-	for i := 0; i < len(lines); i++ {
-		line := strings.TrimSpace(lines[i])
-		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
-			continue
-		}
-		for strings.HasSuffix(line, "\\") && i+1 < len(lines) {
-			i++
-			line = strings.TrimRight(strings.TrimSuffix(line, "\\"), " \t") + " " + strings.TrimSpace(lines[i])
-		}
-		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			name := strings.TrimSpace(line[1 : len(line)-1])
-			lower := strings.ToLower(name)
-			if sec, exists := f.Sections[lower]; exists {
-				cur = sec
-			} else {
-				cur = &Section{Name: name, keys: map[string][]string{}}
-				f.Sections[lower] = cur
+		if i := strings.LastIndex(name, "."); i >= 0 {
+			if k, ok := kindByExt[name[i:]]; ok {
+				kind = k
+				base = name[:i]
 			}
-			continue
 		}
-		key, val, ok := strings.Cut(line, "=")
-		if !ok || cur == nil {
-			continue
+		if kind == KindQuadlets {
+			unit = ""
 		}
-		key = strings.ToLower(strings.TrimSpace(key))
-		cur.keys[key] = append(cur.keys[key], strings.TrimSpace(val))
+		units = append(units, Unit{Name: base, Kind: kind, Path: p, UnitName: unit})
 	}
-	return f, nil
+	sort.Slice(units, func(i, j int) bool { return units[i].Name < units[j].Name })
+	return units
 }

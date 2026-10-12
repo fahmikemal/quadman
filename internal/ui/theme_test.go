@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/fahmikemal/quadman/internal/config"
 )
 
 func TestResolveTheme(t *testing.T) {
@@ -52,9 +54,26 @@ func TestThemeFromConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer applyTheme(ThemeDark)
+	before := activeTheme
 	m := New()
+	if activeTheme != before {
+		t.Error("New must never touch the process-wide theme (served sessions would race on it)")
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	Configure("", false, nil, cfg, true)
 	if activeTheme != ThemeColorblind {
 		t.Errorf("theme = %q, want colorblind from YAML", activeTheme)
+	}
+	Configure("light", false, nil, cfg, true)
+	if activeTheme != ThemeLight {
+		t.Errorf("--theme must win over config.yaml, got %q", activeTheme)
+	}
+	Configure("auto", false, nil, cfg, false)
+	if activeTheme != ThemeDark {
+		t.Errorf("a daemon without a terminal resolves auto to dark, got %q", activeTheme)
 	}
 	if !m.mouse {
 		t.Error("mouse from YAML must apply")

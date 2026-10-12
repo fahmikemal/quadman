@@ -33,8 +33,8 @@ type StatEntry struct {
 }
 
 // Stats returns resource usage for every container, running or stopped.
-func Stats(ctx context.Context) ([]StatEntry, error) {
-	out, err := runPodman(ctx, "stats", "--no-stream", "--all", "--format", "json")
+func (c Client) Stats(ctx context.Context) ([]StatEntry, error) {
+	out, err := c.run(ctx, "stats", "--no-stream", "--all", "--format", "json")
 	if err != nil {
 		return nil, err
 	}
@@ -52,8 +52,8 @@ func Stats(ctx context.Context) ([]StatEntry, error) {
 // ContainerNames returns every known container name, oldest first as
 // `podman ps -a` reports them. Used to confirm an exec target exists
 // before handing the terminal over.
-func ContainerNames(ctx context.Context) ([]string, error) {
-	out, err := runPodman(ctx, "ps", "-a", "--format", "json")
+func (c Client) ContainerNames(ctx context.Context) ([]string, error) {
+	out, err := c.run(ctx, "ps", "-a", "--format", "json")
 	if err != nil {
 		return nil, err
 	}
@@ -93,10 +93,10 @@ func ResolveExecTarget(names []string, want string) bool {
 // SystemPrune runs `podman system prune -f` and returns its report.
 // Destructive: the UI must refuse readonly/remote sessions and show the
 // inactive-Quadlet warning before calling.
-func SystemPrune(ctx context.Context) (string, error) {
+func (c Client) SystemPrune(ctx context.Context) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, PruneTimeout)
 	defer cancel()
-	out, err := runCmd(ctx, "podman", "system", "prune", "-f").CombinedOutput() // #nosec G204 -- argv slice, no shell; fixed subcommand
+	out, err := c.cmd(ctx, "system", "prune", "-f").CombinedOutput() // #nosec G204 -- argv slice, no shell; fixed subcommand
 	if err != nil {
 		return "", fmt.Errorf("podman system prune: %w: %s", err, strings.TrimSpace(string(out)))
 	}

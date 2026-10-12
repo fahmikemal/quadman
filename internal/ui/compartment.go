@@ -2,44 +2,26 @@ package ui
 
 import (
 	"context"
-	"fmt"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/fahmikemal/quadman/internal/compartment"
-	"github.com/fahmikemal/quadman/internal/podlet"
-	"github.com/fahmikemal/quadman/internal/podman"
 	"github.com/fahmikemal/quadman/internal/quadlet"
-	"github.com/fahmikemal/quadman/internal/remote"
 )
 
 // applyCompartment re-points every CLI client at the target OS user's
 // session via non-interactive sudo, then aims discovery and staleness at
 // that user's own directories. It returns false (with a status explaining
-// why) when sudo cannot reach the user, so the TUI keeps showing the
-// operator's own session instead of a half-switched one.
+// why) when the compartment cannot be reached, so the TUI keeps showing
+// the operator's own session instead of a half-switched one.
 func (m *Model) applyCompartment(username string) bool {
-	if err := compartment.ProbeSudo(context.Background(), username); err != nil {
+	c, err := compartment.Setup(context.Background(), username)
+	if err != nil {
 		m.setStatus("compartment "+username+": "+err.Error(), true)
 		return false
 	}
-	c, err := compartment.Resolve(username)
-	if err != nil {
-		m.setStatus("compartment: "+err.Error(), true)
-		return false
-	}
-	if !c.RuntimeReady() {
-		m.setStatus(fmt.Sprintf("compartment %s: no runtime dir %s (linger the user or log in once)", username, c.RuntimeDir), true)
-		return false
-	}
-	r := c.Runner()
-	m.ssh = r
-	m.sys.Remote = r
-	m.lc.Remote = r
-	podman.SetRunner(r)
-	podlet.SetRunner(r)
-	m.sys.User = true
-	m.sys.GenDir = c.GeneratorDir()
+	m.system = false // compartments are user sessions
+	m.setSession(c.Runner(), false, c.GeneratorDir())
 	m.comp = c
 	m.compOn = true
 	m.setStatus("compartment: now managing "+username+" (file edits disabled, like SSH mode)", false)
@@ -48,12 +30,8 @@ func (m *Model) applyCompartment(username string) bool {
 
 // leaveCompartment returns all clients to the operator's own session.
 func (m *Model) leaveCompartment() {
-	m.ssh = remote.Runner{}
-	m.sys.Remote = m.ssh
-	m.lc.Remote = m.ssh
-	podman.SetRunner(m.ssh)
-	podlet.SetRunner(m.ssh)
-	m.sys.GenDir = ""
+	m.setSession(localRunner(), m.system, "")
+	m.comp = compartment.Compartment{}
 	m.compOn = false
 	m.setStatus("compartment: back to own session", false)
 }
@@ -79,18 +57,12 @@ func (m Model) compartmentPaletteActions() []paletteAction {
 			category:    "Compartments",
 			description: "Manage " + username + "'s Quadlet units via sudo (needs NOPASSWD or root)",
 			enabled: func(m Model) (bool, string) {
-				if m.readonly {
-					return false, "readonly"
-				}
-				if m.ssh.IsRemote() {
-					return false, "unavailable over SSH"
-				}
-				if m.system {
-					return false, "unavailable in system mode"
-				}
-				return true, ""
+				return m.allowed(capSwitchSession)
 			},
 			run: func(m Model) (tea.Model, tea.Cmd, bool) {
+				if m.refuse(capSwitchSession) {
+					return m, nil, true
+				}
 				if m.applyCompartment(username) {
 					return m, m.refresh(enrichFull), true
 				}
@@ -105,8 +77,11 @@ func (m Model) compartmentPaletteActions() []paletteAction {
 			shortcut:    "",
 			category:    "Compartments",
 			description: "Leave the compartment, back to your own units",
-			enabled:     func(m Model) (bool, string) { return true, "" },
+			enabled:     func(m Model) (bool, string) { return m.allowed(capSwitchSession) },
 			run: func(m Model) (tea.Model, tea.Cmd, bool) {
+				if m.refuse(capSwitchSession) {
+					return m, nil, true
+				}
 				m.leaveCompartment()
 				return m, m.refresh(enrichFull), true
 			},

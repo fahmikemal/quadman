@@ -20,6 +20,20 @@ type actionMsg struct {
 	took time.Duration
 	// run is the work itself, kept so the actions screen can repeat it.
 	run func(context.Context) (string, error)
+	// epoch is the session the action ran against; guard is the
+	// confirmation it passed (nil when it needed none).
+	epoch uint64
+	guard *confirmGuard
+}
+
+// confirmGuard is the confirmation level an action passed: repeating it
+// must ask the same way (danger tint, typed name), never with a bare y.
+type confirmGuard struct {
+	title  string
+	lines  []string
+	keeps  []string
+	danger bool
+	typed  string
 }
 
 type logsMsg struct {

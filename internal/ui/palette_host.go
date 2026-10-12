@@ -17,6 +17,9 @@ func (m Model) hostPaletteActions() []paletteAction {
 		category:    "System",
 		description: "Re-run systemd's Quadlet generator (systemctl --user daemon-reload)",
 		enabled: func(m Model) (bool, string) {
+			if ok, why := m.allowed(capMutate); !ok {
+				return false, why
+			}
 			if len(m.stale) > 0 {
 				return true, fmt.Sprintf("%d file(s) changed", len(m.stale))
 			}
@@ -37,8 +40,8 @@ func (m Model) hostPaletteActions() []paletteAction {
 			if m.system {
 				return false, "rootless only"
 			}
-			if m.readonly {
-				return false, "readonly"
+			if ok, why := m.allowed(capMutate); !ok {
+				return false, why
 			}
 			if m.lingerKnown {
 				if m.linger {

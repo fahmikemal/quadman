@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -20,6 +21,7 @@ import (
 	"charm.land/wish/v2/bubbletea"
 	"charm.land/wish/v2/logging"
 
+	"github.com/fahmikemal/quadman/internal/config"
 	"github.com/fahmikemal/quadman/internal/ui"
 )
 
@@ -54,8 +56,13 @@ type Options struct {
 	// Mouse enables click-to-select and scrolling for connected sessions.
 	Mouse bool
 
-	// Theme selects the color scheme: auto, dark, light, or colorblind.
+	// Theme selects the color scheme: dark, light, or colorblind. It is
+	// process-wide (every session shares the styles), and "auto" resolves
+	// to dark: a daemon has no terminal of its own to probe.
 	Theme string
+
+	// ASCII selects the ASCII glyph set for every session.
+	ASCII bool
 
 	// QuadletDirs lists extra Quadlet source directories to expose.
 	QuadletDirs []string
@@ -145,8 +152,10 @@ func IsWildcardAddr(addr string) bool {
 //
 //   - open-auth (no authorized_keys and no password) always forces readonly,
 //     even on loopback;
-//   - any non-loopback bind requires an existing authorized_keys file, so
-//     open-auth and password-only binds are loopback-only.
+//   - any non-loopback bind requires an existing authorized_keys file;
+//   - password auth is loopback-only, even next to authorized_keys: a
+//     password reachable from the network is a brute-force target, so a
+//     LAN bind authenticates with keys alone.
 //
 // Validation lives here — not just in the CLI — so every caller fails
 // closed by construction.
@@ -164,13 +173,17 @@ func (o *Options) Validate() error {
 	if o.AuthorizedKeysPath == "" && o.Password == "" {
 		o.Readonly = true
 	}
-	if !IsLoopbackAddr(o.Address) && o.AuthorizedKeysPath == "" {
+	if !IsLoopbackAddr(o.Address) {
 		_, port, _ := net.SplitHostPort(o.Address)
 		hint := net.JoinHostPort(DefaultHost, port)
-		if o.Password != "" {
+		switch {
+		case o.Password != "" && o.AuthorizedKeysPath != "":
+			return fmt.Errorf("refusing password auth on non-loopback address %q: passwords are loopback-only; drop the password to serve the LAN with --authorized-keys alone, or bind loopback (-a %s)", o.Address, hint)
+		case o.Password != "":
 			return fmt.Errorf("refusing password-only bind on non-loopback address %q: password auth alone is loopback-only; provide --authorized-keys or bind loopback (-a %s)", o.Address, hint)
+		case o.AuthorizedKeysPath == "":
+			return fmt.Errorf("refusing open-auth bind on non-loopback address %q: provide --authorized-keys or bind loopback (-a %s)", o.Address, hint)
 		}
-		return fmt.Errorf("refusing open-auth bind on non-loopback address %q: provide --authorized-keys or bind loopback (-a %s)", o.Address, hint)
 	}
 	return nil
 }
@@ -227,13 +240,98 @@ func New(opts Options) (*ssh.Server, error) {
 	}
 
 	if opts.Password != "" {
-		want := []byte(opts.Password)
-		serverOpts = append(serverOpts, wish.WithPasswordAuth(func(ctx ssh.Context, password string) bool {
-			return subtle.ConstantTimeCompare([]byte(password), want) == 1
-		}))
+		serverOpts = append(serverOpts, wish.WithPasswordAuth(passwordHandler(opts.Password, newAuthLimiter())))
 	}
 
 	return wish.NewServer(serverOpts...)
+}
+
+// passwordHandler checks a password in constant time and throttles
+// guessing: each failure costs the client a delay, and an address that
+// keeps failing is locked out for a while (see authLimiter).
+func passwordHandler(password string, limiter *authLimiter) func(ssh.Context, string) bool {
+	want := []byte(password)
+	return func(ctx ssh.Context, got string) bool {
+		host := remoteHost(ctx.RemoteAddr())
+		if !limiter.allow(host) {
+			return false
+		}
+		if subtle.ConstantTimeCompare([]byte(got), want) == 1 {
+			limiter.succeed(host)
+			return true
+		}
+		limiter.fail(host)
+		time.Sleep(limiter.delay)
+		return false
+	}
+}
+
+func remoteHost(addr net.Addr) string {
+	if addr == nil {
+		return ""
+	}
+	host, _, err := net.SplitHostPort(addr.String())
+	if err != nil {
+		return addr.String()
+	}
+	return host
+}
+
+// authLimiter tracks failed password attempts per client address. After
+// maxFails failures inside window, the address is refused (without even
+// comparing) until its oldest failure ages out of the window.
+type authLimiter struct {
+	mu       sync.Mutex
+	fails    map[string][]time.Time
+	maxFails int
+	window   time.Duration
+	delay    time.Duration
+	now      func() time.Time
+}
+
+func newAuthLimiter() *authLimiter {
+	return &authLimiter{
+		fails:    map[string][]time.Time{},
+		maxFails: 5,
+		window:   time.Minute,
+		delay:    500 * time.Millisecond,
+		now:      time.Now,
+	}
+}
+
+// recent drops failures older than the window; callers hold mu.
+func (l *authLimiter) recent(host string) []time.Time {
+	cutoff := l.now().Add(-l.window)
+	kept := l.fails[host][:0]
+	for _, t := range l.fails[host] {
+		if t.After(cutoff) {
+			kept = append(kept, t)
+		}
+	}
+	if len(kept) == 0 {
+		delete(l.fails, host)
+		return nil
+	}
+	l.fails[host] = kept
+	return kept
+}
+
+func (l *authLimiter) allow(host string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.recent(host)) < l.maxFails
+}
+
+func (l *authLimiter) fail(host string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.fails[host] = append(l.recent(host), l.now())
+}
+
+func (l *authLimiter) succeed(host string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.fails, host)
 }
 
 // uiOptions builds the TUI options for one incoming session.
@@ -265,11 +363,15 @@ func teaHandler(opts Options) bubbletea.Handler {
 
 // Serve starts the SSH server and blocks until the context is canceled or a
 // fatal server error occurs. It performs a graceful shutdown when ctx is done.
+// The process-wide presentation (theme, glyphs, extra dirs) is configured
+// once here, before the first session can start, so concurrent sessions
+// only ever read it.
 func Serve(ctx context.Context, opts Options) error {
 	srv, err := New(opts)
 	if err != nil {
 		return fmt.Errorf("init server: %w", err)
 	}
+	ui.Configure(opts.Theme, opts.ASCII, opts.QuadletDirs, config.Config{}, false)
 
 	errCh := make(chan error, 1)
 	go func() {

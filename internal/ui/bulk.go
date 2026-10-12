@@ -67,12 +67,12 @@ func (m Model) markKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if m.mode != modeList {
 		return m, nil, false
 	}
-	if m.refuseReadonly() {
+	if m.refuse(capMutate) {
 		return m, nil, true
 	}
 	m.toggleMark()
 	if lbl := m.bulkLabel(); lbl != "" {
-		m.setStatus(lbl+" - s/x/r/e/d/R act on all marked", false)
+		m.setStatus(lbl+" - s/x/r act on all marked (esc clears)", false)
 	} else {
 		m.setStatus("unmarked", false)
 	}

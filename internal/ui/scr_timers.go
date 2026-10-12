@@ -399,10 +399,10 @@ func (m Model) timersKeysIn(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	t, ti, _ := m.timerByID(r.id)
 	sys := m.sys
 	act := func(desc string, run func(context.Context) (string, error)) (tea.Model, tea.Cmd, bool) {
-		if m.refuseReadonly() {
+		if m.refuse(capMutate) {
 			return m, nil, true
 		}
-		return m, tea.Batch(m.setBusy(desc), actionCmd(desc, run), timersCmd(sys)), true
+		return m, tea.Batch(m.setBusy(desc), m.actionCmd(desc, run), timersCmd(sys)), true
 	}
 	switch k {
 	case "n":

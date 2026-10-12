@@ -10,10 +10,10 @@ import (
 
 func TestSudoArgv(t *testing.T) {
 	r := Runner{As: "svc", Env: []string{"XDG_RUNTIME_DIR=/run/user/1001", "HOME=/home/svc"}}
-	got := r.sudoArgv("systemctl", []string{"--user", "show", "web.service"})
-	want := []string{"-n", "-u", "svc", "--", "env",
-		"XDG_RUNTIME_DIR=/run/user/1001", "HOME=/home/svc",
-		"systemctl", "--user", "show", "web.service"}
+	got := r.sudoArgv([]string{"LC_ALL=C"}, "systemctl", []string{"--user", "show", "web.service"})
+	want := []string{"-n", "-u", "svc",
+		"XDG_RUNTIME_DIR=/run/user/1001", "HOME=/home/svc", "LC_ALL=C",
+		"--", "systemctl", "--user", "show", "web.service"}
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		t.Errorf("argv = %q", got)
 	}
@@ -21,13 +21,13 @@ func TestSudoArgv(t *testing.T) {
 
 func TestSudoArgvNoEnv(t *testing.T) {
 	r := Runner{As: "svc"}
-	got := r.sudoArgv("true", nil)
-	if len(got) != 5 || got[0] != "-n" || got[4] != "true" {
+	got := r.sudoArgv(nil, "true", nil)
+	if strings.Join(got, " ") != "-n -u svc -- true" {
 		t.Errorf("argv = %q", got)
 	}
 	for _, a := range got {
 		if a == "env" {
-			t.Error("env carrier must be omitted when Env is empty")
+			t.Error("sudo must carry variables itself, never through /usr/bin/env")
 		}
 	}
 	if (Runner{}).Isolated() {
@@ -64,7 +64,7 @@ func TestSudoCommandRunsSudo(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := strings.TrimSpace(string(b))
-	if !strings.HasPrefix(got, "-n -u svc -- env HOME=/home/svc true") {
+	if got != "-n -u svc HOME=/home/svc -- true" {
 		t.Errorf("sudo argv = %q", got)
 	}
 }

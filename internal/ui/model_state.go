@@ -7,6 +7,7 @@ import (
 
 	"github.com/fahmikemal/quadman/internal/compartment"
 	"github.com/fahmikemal/quadman/internal/config"
+	"github.com/fahmikemal/quadman/internal/podlet"
 	"github.com/fahmikemal/quadman/internal/podman"
 	"github.com/fahmikemal/quadman/internal/quadlet"
 	"github.com/fahmikemal/quadman/internal/remote"
@@ -24,7 +25,14 @@ type listState struct {
 	filtered []quadlet.Unit
 	images   map[string]string
 	status   map[string]systemd.Status
-	health   map[string]string
+	// health maps container name → healthcheck state (podman ps).
+	health map[string]string
+	// ctrNames maps a unit to its running container's real name, from
+	// the PODMAN_SYSTEMD_UNIT label (ContainerName= aware).
+	ctrNames map[string]string
+	// ctrOverride maps a unit to its ContainerName= value (from the file),
+	// the fallback identity while the container is not running.
+	ctrOverride map[string]string
 	// marks holds marked unit names for bulk actions (space toggles).
 	marks       map[string]bool
 	podmanInfo  map[string]podman.Entry
@@ -32,9 +40,13 @@ type listState struct {
 	stale       []quadlet.Unit
 	loading     bool
 	pollCount   int
-	filtering   bool
-	filterStr   string
-	filterIn    textinput.Model
+	// refreshInFlight keeps poll ticks from stacking refreshes on a slow
+	// session; lastRefresh drops results older than the last one applied.
+	refreshInFlight bool
+	lastRefresh     time.Time
+	filtering       bool
+	filterStr       string
+	filterIn        textinput.Model
 
 	// rowView is the render model of the table rows (same order as filtered).
 	rowView []unitRow
@@ -62,6 +74,10 @@ type logState struct {
 	searchStr     string
 	searchMatches int
 	matchPos      int
+	// logCap bounds the follow buffer; logTail is the snapshot size of a
+	// new follow stream (config log_buffer / log_tail).
+	logCap  int
+	logTail int
 }
 
 // detailState is the unified detail view tab (source/status/journal/inspect).
@@ -128,6 +144,9 @@ type confirmState struct {
 	// armedFor is the pending action the modal was last prepared for.
 	armedFor *pendingAction
 	confirm  confirmUI
+	// confirming is set while a confirmed action builds its commands, so
+	// they record the confirmation they passed (see actionCmdHint).
+	confirming *confirmGuard
 }
 
 // sessionState is the first-use editor picker and persisted config.
@@ -211,6 +230,12 @@ type screenData struct {
 // SSH target (--ssh) or sudo compartment (--as).
 type compartmentState struct {
 	ssh remote.Runner
+	// pm and pl are the podman and podlet clients bound to ssh.
+	pm podman.Client
+	pl podlet.Client
+	// epoch numbers the session target; setSession bumps it, and results
+	// stamped with an older epoch are dropped.
+	epoch uint64
 	// comp is the active compartment (sudo target user); compOn reports it.
 	// compList holds configured compartment names for the palette switcher.
 	comp     compartment.Compartment

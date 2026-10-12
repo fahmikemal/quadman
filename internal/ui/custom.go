@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
+	"regexp"
 	"strings"
 	"text/template"
 	"time"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/fahmikemal/quadman/internal/config"
 	"github.com/fahmikemal/quadman/internal/quadlet"
+	"github.com/fahmikemal/quadman/internal/remote"
 	"github.com/fahmikemal/quadman/internal/shellwords"
 )
 
@@ -69,9 +70,11 @@ func customKeyConflicts(custom []config.CustomCommand) []string {
 	return out
 }
 
-// customCmd expands cc.Run as a Go template over the selected unit, splits
-// it quote-aware into argv, and runs it without a shell.
-func customCmd(cc config.CustomCommand, u quadlet.Unit, images map[string]string) tea.Cmd {
+// customCmd splits cc.Run quote-aware into argv, expands each word as a Go
+// template over the selected unit, and runs it without a shell through
+// the session runner — so a custom command acts on the session's host and
+// user (SSH target, compartment) exactly like the built-in actions.
+func customCmd(runner remote.Runner, cc config.CustomCommand, u quadlet.Unit, images map[string]string) tea.Cmd {
 	return func() tea.Msg {
 		desc := "custom " + cc.Name
 		argv, err := expandCustom(cc.Run, customDataOf(u, images))
@@ -83,7 +86,7 @@ func customCmd(cc config.CustomCommand, u quadlet.Unit, images map[string]string
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), customTimeout)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) // #nosec G204 -- argv from the user's own config file, no shell
+		cmd := runner.Command(ctx, argv[0], argv[1:]...) // #nosec G204 -- argv from the user's own config file, no shell
 		var stdout, stderr strings.Builder
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
@@ -98,18 +101,41 @@ func customCmd(cc config.CustomCommand, u quadlet.Unit, images map[string]string
 	}
 }
 
-// expandCustom renders run as a Go template with data, then splits the
-// result quote-aware into argv.
+// templateAction matches one {{ … }} action, spaces inside included.
+var templateAction = regexp.MustCompile(`\{\{.*?\}\}`)
+
+// expandCustom splits run quote-aware into words first, then renders each
+// word as its own Go template. Splitting before expanding means a value
+// from a unit file (an Image= with spaces or quotes) always stays inside
+// the one argument it was written in and can never add arguments. Template
+// actions are shielded from the split, so `{{ .UnitName }}` with spaces
+// stays one action.
 func expandCustom(run string, data customData) ([]string, error) {
-	tmpl, err := template.New("custom").Parse(run)
+	var actions []string
+	masked := templateAction.ReplaceAllStringFunc(run, func(a string) string {
+		actions = append(actions, a)
+		return fmt.Sprintf("\x00%d\x00", len(actions)-1)
+	})
+	words, err := shellwords.Split(masked)
 	if err != nil {
-		return nil, fmt.Errorf("bad template: %w", err)
+		return nil, err
 	}
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return nil, fmt.Errorf("template failed: %w", err)
+	argv := make([]string, 0, len(words))
+	for _, w := range words {
+		for i, a := range actions {
+			w = strings.ReplaceAll(w, fmt.Sprintf("\x00%d\x00", i), a)
+		}
+		tmpl, err := template.New("custom").Parse(w)
+		if err != nil {
+			return nil, fmt.Errorf("bad template: %w", err)
+		}
+		var buf bytes.Buffer
+		if err := tmpl.Execute(&buf, data); err != nil {
+			return nil, fmt.Errorf("template failed: %w", err)
+		}
+		argv = append(argv, buf.String())
 	}
-	return shellwords.Split(buf.String())
+	return argv, nil
 }
 
 // runCustom looks up the custom command for key and runs it on the selected
@@ -129,9 +155,9 @@ func (m Model) runCustom(key string) (tea.Model, tea.Cmd, bool) {
 	if !ok {
 		return m, nil, true
 	}
-	if m.refuseReadonly() {
+	if m.refuse(capMutate) {
 		return m, nil, true
 	}
 	images := m.images
-	return m, tea.Batch(m.setBusy("custom "+cc.Name), customCmd(*cc, u, images)), true
+	return m, tea.Batch(m.setBusy("custom "+cc.Name), customCmd(m.ssh, *cc, u, images)), true
 }

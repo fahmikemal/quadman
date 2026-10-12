@@ -25,6 +25,9 @@ func (m Model) bundleKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 			m.resize()
 			return m, nil, true
 		case "I":
+			if m.refuse(capMutate) {
+				return m, nil, true
+			}
 			m.pending = &pendingAction{verb: "install", unit: u}
 			m.setStatus("install "+filepath.Base(u.Path)+" via podman quadlet install? [y/N]", false)
 			return m, nil, true

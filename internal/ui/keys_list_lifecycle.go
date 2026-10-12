@@ -12,7 +12,7 @@ func (m Model) startRestartKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) 
 	if msg.String() != "s" && msg.String() != "r" {
 		return m, nil, false
 	}
-	if m.refuseReadonly() {
+	if m.refuse(capMutate) {
 		return m, nil, true
 	}
 	verb := map[string]string{"s": "start", "r": "restart"}[msg.String()]
@@ -42,7 +42,7 @@ func (m Model) startRestartKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) 
 	}
 	sys := m.sys
 	return m, tea.Batch(m.setBusy(verb+" "+u.UnitName),
-		actionCmd(verb+" "+u.UnitName, func(ctx context.Context) (string, error) {
+		m.actionCmd(verb+" "+u.UnitName, func(ctx context.Context) (string, error) {
 			return sys.UnitAction(ctx, verb, u.UnitName)
 		})), true
 }
@@ -51,7 +51,7 @@ func (m Model) stopKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if msg.String() != "x" {
 		return m, nil, false
 	}
-	if m.refuseReadonly() {
+	if m.refuse(capMutate) {
 		return m, nil, true
 	}
 	if marked := m.markedUnits(); len(marked) > 0 {
