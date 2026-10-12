@@ -118,8 +118,9 @@ func drain() {
 }
 
 func main() {
-	// Hygiene: pulihkan state dari siklus sebelumnya (restart loop, rate
-	// limit systemd, container mati bernama sama) agar run deterministik.
+	// Hygiene: reset state left by earlier runs (restart loops, systemd
+	// start rate limits, dead containers with the same name) so the run is
+	// deterministic.
 	run0("systemctl", "--user", "reset-failed", "demo-web.service")
 	run0("podman", "rm", "-f", "systemd-demo-web")
 	run0("systemctl", "--user", "stop", "demo-web.service")
@@ -166,9 +167,9 @@ func main() {
 				if err == io.EOF {
 					return
 				}
-				// Transient PTY read errors (mis. EIO saat mode switch tty di
-				// child) tidak boleh membunuh pump — kalau tidak, semua check
-				// berikutnya membaca buffer basi/kosong.
+				// Transient PTY read errors (e.g. EIO while the child switches
+				// tty modes) must not kill the pump — otherwise every later
+				// check reads a stale or empty buffer.
 				time.Sleep(50 * time.Millisecond)
 			}
 		}
@@ -180,7 +181,7 @@ func main() {
 	listOut := runOut("./quadman", "list")
 	check("discovery+names", waitFor("demo-data", 10*time.Second) && strings.Contains(last(), "demo-net") &&
 		strings.Contains(listOut, "demo-data-volume.service") && strings.Contains(listOut, "demo-net-network.service"),
-		"semua unit terdaftar; quadman list memakai naming generator yang benar")
+		"every unit listed; quadman list uses the generator's naming")
 
 	// 2. Filter '/' live.
 	send(f, "/")
@@ -193,7 +194,7 @@ func main() {
 	repaint(f, 120, 42)
 	l := last()
 	onlyWeb := strings.Contains(l, "demo-web") && !strings.Contains(l, "demo-data") && !strings.Contains(l, "demo-net")
-	check("filter /", onlyWeb, "ketik 'web' menyaring daftar menjadi demo-web saja")
+	check("filter /", onlyWeb, "typing 'web' narrows the list to demo-web")
 	send(f, "\r") // keep filter
 	time.Sleep(400 * time.Millisecond)
 
@@ -207,10 +208,10 @@ func main() {
 	send(f, "h")
 	ok := waitFor("healthy", 20*time.Second)
 	if !ok {
-		send(f, "h") // healthcheck pertama bisa lambat saat container baru start
+		send(f, "h") // the first healthcheck can be slow right after the container starts
 		ok = waitFor("healthy", 15*time.Second)
 	}
-	check("healthcheck h", ok, "status menampilkan healthy")
+	check("healthcheck h", ok, "status shows healthy")
 
 	// 5. Follow logs 'l', pause 'f', back 'q'.
 	drain()
@@ -220,14 +221,14 @@ func main() {
 	time.Sleep(1500 * time.Millisecond)
 	drain()
 	send(f, "f")
-	check("logs pause f", waitFor("pause", 5*time.Second), "follow di-pause (renderer diferensial menulis fragmen 'pause')")
+	check("logs pause f", waitFor("pause", 5*time.Second), "follow paused (the differential renderer writes the 'pause' fragment)")
 
 	// 5b. Search in logs: '/', query, matches counted, 'n' navigates, esc clears.
 	send(f, "/")
 	time.Sleep(300 * time.Millisecond)
 	send(f, "demo-web")
 	ok = waitFor("matches", 5*time.Second)
-	check("logs search /", ok, "hasil pencarian ter-highlight dan terhitung")
+	check("logs search /", ok, "search matches are highlighted and counted")
 	send(f, "n")
 	time.Sleep(300 * time.Millisecond)
 	send(f, "\x1b") // esc clears search
@@ -235,13 +236,13 @@ func main() {
 
 	send(f, "q")
 	time.Sleep(400 * time.Millisecond)
-	check("logs back", waitFor("QUADLET", 3*time.Second), "kembali ke daftar")
+	check("logs back", waitFor("QUADLET", 3*time.Second), "back to the list")
 
 	// 6. Stop with y/N confirmation.
 	drain()
 	send(f, "x")
 	ok = waitFor("y/N", 3*time.Second)
-	check("stop confirm", ok, "prompt konfirmasi muncul")
+	check("stop confirm", ok, "confirmation prompt appears")
 	send(f, "y")
 	check("stop unit", waitFor("container removed", 25*time.Second), "stop + hint container terhapus")
 
@@ -249,7 +250,7 @@ func main() {
 	drain()
 	send(f, "e")
 	ok = waitFor("[Install]", 3*time.Second)
-	check("enable confirm", ok, "prompt [Install] muncul")
+	check("enable confirm", ok, "[Install] prompt appears")
 	send(f, "y")
 	ok = waitFor("starts on login", 10*time.Second)
 	_, statErr := os.Stat("/run/user/1000/systemd/generator/default.target.wants/demo-web.service")
@@ -259,37 +260,37 @@ func main() {
 	drain()
 	send(f, "d")
 	ok = waitFor("remove [Install]", 3*time.Second)
-	check("disable confirm", ok, "prompt hapus [Install] muncul")
+	check("disable confirm", ok, "remove-[Install] prompt appears")
 	send(f, "y")
 	ok = waitFor("still running", 10*time.Second)
 	_, statErr = os.Stat("/run/user/1000/systemd/generator/default.target.wants/demo-web.service")
-	check("disable at boot", ok && os.IsNotExist(statErr), "[Install] dihapus + symlink hilang")
+	check("disable at boot", ok && os.IsNotExist(statErr), "[Install] removed and the wants symlink gone")
 
 	// 9. Auto-update screen 'u' (demo-web has AutoUpdate=registry and was restarted by enable).
 	drain()
 	send(f, "u")
-	ok = waitFor("NEXT RUN", 20*time.Second) // dry-run memanggil registry, bisa lambat
-	check("updates screen", ok, "layar auto-update + status timer")
+	ok = waitFor("NEXT RUN", 20*time.Second) // the dry-run queries the registry and can be slow
+	check("updates screen", ok, "auto-update screen with the timer state")
 	hasEntry := strings.Contains(last(), "demo-web") || strings.Contains(last(), "registry")
 	if !hasEntry {
-		// container mungkin belum terlihat dry-run saat pertama; segarkan
+		// the container may not show in the first dry-run yet; refresh
 		send(f, "r")
 		hasEntry = waitFor("demo-web", 20*time.Second)
 	}
 	if !hasEntry {
-		// Dry-run memanggil registry live (rate-limit docker.io anonim sangat
-		// mungkin setelah banyak pull) — retry sekali dengan window lebar,
-		// lalu gate ke ground truth: layar menang kalau registry kooperatif,
-		// skip dengan catatan kalau tidak.
+		// The dry-run queries a live registry (anonymous docker.io rate
+		// limits are likely after many pulls) — retry once with a wider
+		// window, then gate on ground truth: the screen wins when the
+		// registry cooperates, otherwise skip with a note.
 		send(f, "r")
 		hasEntry = waitFor("demo-web", 30*time.Second)
 	}
 	if hasEntry {
-		check("updates entry", true, "entri unit ber-AutoUpdate=registry tampil di layar")
+		check("updates entry", true, "the AutoUpdate=registry unit is listed on the screen")
 	} else {
 		out, err := exec.Command("podman", "auto-update", "--dry-run", "--format", "json").Output()
 		gt := err == nil && strings.Contains(string(out), "demo-web")
-		check("updates entry", true, fmt.Sprintf("SKIP: entri tidak stabil via registry live (ground truth saat ini: entries=%v)", gt))
+		check("updates entry", true, fmt.Sprintf("SKIP: entries are unstable against a live registry (ground truth now: entries=%v)", gt))
 	}
 	send(f, "q")
 	time.Sleep(400 * time.Millisecond)
@@ -298,12 +299,12 @@ func main() {
 	drain()
 	now := time.Now()
 	_ = os.Chtimes(os.ExpandEnv("$HOME/.config/containers/systemd/demo-data.volume"), now, now)
-	check("stale banner", waitFor("changed since last daemon-reload", 8*time.Second), "banner daemon-reload muncul setelah file disentuh")
+	check("stale banner", waitFor("changed since last daemon-reload", 8*time.Second), "daemon-reload banner appears after the file is touched")
 
 	// 11. daemon-reload 'R' clears the banner.
 	send(f, "R")
 	ok = waitFor("daemon-reload ok", 8*time.Second)
-	check("daemon-reload R", ok, "reload sukses (banner hilang di refresh berikutnya)")
+	check("daemon-reload R", ok, "reload succeeds (banner gone on the next refresh)")
 
 	// 12. Clear filter, check full list again.
 	send(f, "\x1b") // esc clears filter
@@ -313,15 +314,15 @@ func main() {
 	drain()
 	send(f, "L")
 	ok = waitForAny([]string{"linger: on", "linger: off"}, 5*time.Second)
-	check("linger toggle 1", ok, "linger berhasil ditoggle")
+	check("linger toggle 1", ok, "linger toggled")
 	send(f, "L")
 	ok = waitForAny([]string{"linger: on", "linger: off"}, 5*time.Second)
-	check("linger toggle 2", ok, "linger berhasil ditoggle kembali")
+	check("linger toggle 2", ok, "linger toggled back")
 
 	// 14. Full help '?'.
 	drain()
 	send(f, "?")
-	check("full help ?", waitFor("search order", 3*time.Second), "help lengkap tampil")
+	check("full help ?", waitFor("search order", 3*time.Second), "full help shown")
 	send(f, "?")
 	time.Sleep(300 * time.Millisecond)
 
@@ -338,13 +339,13 @@ func main() {
 	drain()
 	send(f, "E")
 	ok = waitFor("Choose an editor", 3*time.Second)
-	check("editor picker", ok, "picker pertama kali muncul")
+	check("editor picker", ok, "first-use picker appears")
 	send(f, "i") // choose vi
 	time.Sleep(800 * time.Millisecond)
 	send(f, ":q!\r") // quit vi without saving
 	ok = waitFor("no changes", 5*time.Second)
 	savedCfg, _ := os.ReadFile(cfgPath)
-	check("editor flow", ok && strings.Contains(string(savedCfg), "vi"), "vi terbuka, kembali ke quadman, pilihan tersimpan")
+	check("editor flow", ok && strings.Contains(string(savedCfg), "vi"), "vi opens, quadman resumes, the choice is saved")
 	if len(cfgBackup) > 0 {
 		_ = os.WriteFile(cfgPath, cfgBackup, 0o600) // restore user's choice
 	} else {
@@ -416,9 +417,9 @@ func launchArgs(cols, rows uint16, argv []string, extraEnv ...string) (*exec.Cmd
 				if err == io.EOF {
 					return
 				}
-				// Transient PTY read errors (mis. EIO saat mode switch tty di
-				// child) tidak boleh membunuh pump — kalau tidak, semua check
-				// berikutnya membaca buffer basi/kosong.
+				// Transient PTY read errors (e.g. EIO while the child switches
+				// tty modes) must not kill the pump — otherwise every later
+				// check reads a stale or empty buffer.
 				time.Sleep(50 * time.Millisecond)
 			}
 		}
@@ -572,7 +573,7 @@ func scenarioStorage() {
 	waitFor("QUADLET", 12*time.Second)
 	send(f, "g")
 	ok := waitFor("STORAGE", 10*time.Second)
-	check("storage screen", ok && (strings.Contains(last(), "space usage") || strings.Contains(last(), "REPOSITORY") || strings.Contains(last(), "No images")), "df menampilkan penggunaan disk")
+	check("storage screen", ok && (strings.Contains(last(), "space usage") || strings.Contains(last(), "REPOSITORY") || strings.Contains(last(), "No images")), "df shows disk usage")
 	send(f, "q")
 	time.Sleep(300 * time.Millisecond)
 }
@@ -586,17 +587,17 @@ func scenarioEvents(quadletDir string) {
 	send(f, "w")
 	ok := waitFor("EVENTS", 5*time.Second)
 	if !ok {
-		check("events screen", false, "layar events tidak terbuka")
+		check("events screen", false, "events screen did not open")
 		return
 	}
 	time.Sleep(2 * time.Second) // biarkan listener events attach dulu
 	drain()
 	run0("systemctl", "--user", "restart", "demo-web.service")
-	// JSON event terpotong lebar viewport sebelum field Status — marker
-	// yang pasti terlihat: nama container dari event podman, atau unit
-	// dari pesan systemd di timeline yang sama.
+	// The JSON event is cut at the viewport width before its Status field —
+	// markers that are always visible: the container name from the podman
+	// event, or the unit from the systemd message in the same timeline.
 	ok = waitForAny([]string{"systemd-demo-web", "demo-web.service"}, 15*time.Second)
-	check("events stream", ok, "event restart terlihat mengalir live")
+	check("events stream", ok, "the restart event streams in live")
 	send(f, "f")
 	time.Sleep(200 * time.Millisecond)
 	send(f, "q")
@@ -617,7 +618,7 @@ func scenarioGenerate(quadletDir string) {
 	send(f, "n")
 	ok := waitFor("generate from", 3*time.Second)
 	if !ok {
-		check("generate flow", false, "input generate tidak muncul")
+		check("generate flow", false, "generate input did not appear")
 		return
 	}
 	send(f, "podman run --name e2egen docker.io/library/busybox:latest sleep 600")
@@ -628,7 +629,7 @@ func scenarioGenerate(quadletDir string) {
 	ok = waitFor("written to", 12*time.Second)
 	_, statErr := os.Stat(quadletDir + "/" + target)
 	ok2 := waitFor("e2egen", 12*time.Second)
-	check("generate install", ok && statErr == nil && ok2, "file tertulis + unit muncul di daftar setelah reload")
+	check("generate install", ok && statErr == nil && ok2, "file written and the unit listed after the reload")
 }
 
 // scenarioTabs: the detail view cycles source -> status -> journal -> inspect
@@ -646,23 +647,23 @@ func scenarioTabs(quadletDir string) {
 
 	send(f, "\r") // enter -> source tab
 	ok := waitFor("source", 5*time.Second)
-	check("tab source", ok && strings.Contains(last(), "status") && strings.Contains(last(), "journal"), "tab bar tampil dengan 4 tab")
+	check("tab source", ok && strings.Contains(last(), "status") && strings.Contains(last(), "journal"), "tab bar shows the detail tabs")
 
 	send(f, "]")
 	ok = waitFor("Loaded", 8*time.Second)
-	check("tab status", ok, "STATUS menampilkan systemctl status")
+	check("tab status", ok, "STATUS shows systemctl status")
 
 	send(f, "]")
 	ok = waitFor("live", 5*time.Second)
-	check("tab journal", ok, "JOURNAL tab dengan indikator live")
+	check("tab journal", ok, "JOURNAL tab with the live indicator")
 
 	send(f, "]")
 	ok = waitFor("busybox", 12*time.Second)
-	check("tab inspect", ok, "INSPECT menampilkan podman inspect")
+	check("tab inspect", ok, "INSPECT shows podman inspect")
 
 	send(f, "]") // wrap back to source
 	ok = waitFor("Image=docker", 5*time.Second)
-	check("tab wrap source", ok, "wrap kembali ke SOURCE")
+	check("tab wrap source", ok, "wraps back to SOURCE")
 	send(f, "q")
 	time.Sleep(300 * time.Millisecond)
 }
@@ -682,7 +683,7 @@ func scenarioQuadletsBundle(quadletDir string) {
 	cmd, f := launch(120, 42)
 	defer quit(cmd, f)
 	if !waitFor("e2eq", 12*time.Second) {
-		check("quadlets bundle", false, "bundle tidak ter-discover")
+		check("quadlets bundle", false, "bundle not discovered")
 		return
 	}
 	send(f, "/")
@@ -693,17 +694,17 @@ func scenarioQuadletsBundle(quadletDir string) {
 	// Preview.
 	send(f, "\r")
 	ok := waitFor("FileName=e2eqweb", 5*time.Second)
-	check("bundle preview", ok, "preview menampilkan dokumen bundle")
+	check("bundle preview", ok, "preview shows the bundle documents")
 	send(f, "q")
 	time.Sleep(300 * time.Millisecond)
 
 	// Install.
 	send(f, "I")
 	ok = waitFor("y/N", 3*time.Second)
-	check("bundle install confirm", ok, "prompt install muncul")
+	check("bundle install confirm", ok, "install prompt appears")
 	send(f, "y")
 	ok = waitFor("e2eqweb", 15*time.Second)
-	check("bundle install", ok, "unit hasil install (e2eqweb) muncul di daftar")
+	check("bundle install", ok, "the installed unit (e2eqweb) is listed")
 }
 
 // scenarioValidation: a broken quadlet file must surface in the problems
@@ -718,16 +719,16 @@ func scenarioValidation(quadletDir string) {
 	cmd, f := launch(120, 42)
 	defer quit(cmd, f)
 	if !waitFor("e2e-bad", 12*time.Second) {
-		check("validation", false, "bad unit tidak muncul di daftar")
+		check("validation", false, "bad unit not listed")
 		return
 	}
 	send(f, "R") // daemon-reload -> enrichFull -> validation pass
 	ok := waitFor("\u2717", 15*time.Second)
-	check("validation marker", ok, "marker X di kolom nama")
+	check("validation marker", ok, "X marker in the name column")
 	drain()
 	send(f, "v")
 	ok = waitFor("BadKey", 8*time.Second)
-	check("problems view", ok, "PROBLEMS menampilkan error generator")
+	check("problems view", ok, "PROBLEMS shows the generator error")
 	send(f, "\x1b")
 	time.Sleep(300 * time.Millisecond)
 }
@@ -755,14 +756,14 @@ func scenarioTreeDropinCopy(quadletDir string) {
 	// Tree view.
 	send(f, "t")
 	ok := waitFor("groups ·", 5*time.Second)
-	check("tree view", ok && strings.Contains(last(), "demo-web"), "TREE menampilkan unit")
+	check("tree view", ok && strings.Contains(last(), "demo-web"), "TREE shows the units")
 	send(f, "\x1b")
 	time.Sleep(300 * time.Millisecond)
 
 	// File view with drop-in.
 	send(f, "\r")
 	ok = waitFor("drop-in:", 5*time.Second)
-	check("drop-in in file view", ok, "konten drop-in tampil di FILE view")
+	check("drop-in in file view", ok, "drop-in content shown in the file view")
 	send(f, "q")
 	time.Sleep(300 * time.Millisecond)
 
@@ -770,7 +771,7 @@ func scenarioTreeDropinCopy(quadletDir string) {
 	drain()
 	send(f, "y")
 	ok = waitFor("copied", 5*time.Second)
-	check("clipboard y", ok, "status copied setelah y")
+	check("clipboard y", ok, "status says copied after y")
 }
 
 // scenarioTemplate: instantiating a template starts web@<instance>.service.
@@ -785,7 +786,7 @@ func scenarioTemplate(quadletDir string) {
 	cmd, f := launch(120, 42)
 	defer quit(cmd, f)
 	if !waitFor("e2e@", 12*time.Second) {
-		check("template instantiate", false, "template tidak muncul di daftar")
+		check("template instantiate", false, "template not listed")
 		return
 	}
 	send(f, "/")
@@ -795,7 +796,7 @@ func scenarioTemplate(quadletDir string) {
 	send(f, "i")
 	ok := waitFor("instance", 3*time.Second)
 	if !ok {
-		check("template instantiate", false, "input instance tidak muncul")
+		check("template instantiate", false, "instance input did not appear")
 		return
 	}
 	send(f, "inst")
@@ -810,14 +811,14 @@ func scenarioTemplate(quadletDir string) {
 func scenarioDelete(quadletDir string) {
 	writeUnit(quadletDir, "e2e-junk.container", "[Container]\nImage=docker.io/library/busybox:latest\nExec=sleep 600\n")
 	reload()
-	defer removeUnit(quadletDir, "e2e-junk.container") // safety net kalau delete gagal
+	defer removeUnit(quadletDir, "e2e-junk.container") // safety net if the delete fails
 	defer reload()
 
 	drain()
 	cmd, f := launch(120, 42)
 	defer quit(cmd, f)
 	if !waitFor("e2e-junk", 12*time.Second) {
-		check("delete unit", false, "junk unit tidak muncul")
+		check("delete unit", false, "junk unit not listed")
 		return
 	}
 	send(f, "/")
@@ -826,18 +827,18 @@ func scenarioDelete(quadletDir string) {
 	time.Sleep(400 * time.Millisecond)
 	send(f, "D")
 	ok := waitFor("to confirm", 3*time.Second)
-	check("delete confirm", ok, "modal delete meminta nama unit diketik")
+	check("delete confirm", ok, "the delete modal asks for the unit name")
 	// y alone must not delete: the modal wants the unit name typed.
 	send(f, "y")
 	time.Sleep(500 * time.Millisecond)
 	_, statErr := os.Stat(quadletDir + "/e2e-junk.container")
-	check("delete needs typed name", statErr == nil, "y saja tidak menghapus file")
+	check("delete needs typed name", statErr == nil, "y alone does not delete the file")
 	send(f, "\x7f") // backspace the stray y
 	send(f, "e2e-junk")
 	send(f, "\r")
 	time.Sleep(3 * time.Second)
 	_, statErr = os.Stat(quadletDir + "/e2e-junk.container")
-	check("delete unit", os.IsNotExist(statErr), "file quadlet terhapus setelah nama unit diketik + enter")
+	check("delete unit", os.IsNotExist(statErr), "quadlet file deleted after typing the unit name + enter")
 }
 
 // scenarioLiveFollow: a ticker unit emits a line every 2s; new lines must
@@ -861,7 +862,7 @@ Exec=sh -c 'while true; do echo tickmark; sleep 2; done'
 	cmd, f := launch(120, 42)
 	defer quit(cmd, f)
 	if !waitFor("e2e-tick", 12*time.Second) {
-		check("live follow", false, "ticker tidak muncul di daftar")
+		check("live follow", false, "ticker not listed")
 		return
 	}
 	// The list sorts problems first, so select the ticker by filtering.
@@ -870,18 +871,18 @@ Exec=sh -c 'while true; do echo tickmark; sleep 2; done'
 	send(f, "\r")
 	time.Sleep(400 * time.Millisecond)
 	if !waitFor("running", 15*time.Second) {
-		check("live follow", false, "ticker tidak berada di state running")
+		check("live follow", false, "ticker is not running")
 		return
 	}
 	send(f, "l")
 	if !waitFor("journal", 5*time.Second) {
-		check("live follow", false, "tidak masuk view journal")
+		check("live follow", false, "journal view did not open")
 		return
 	}
 	before := countOccurrences(last(), "tickmark")
 	time.Sleep(5500 * time.Millisecond)
 	after := countOccurrences(last(), "tickmark")
-	check("live follow", after > before, fmt.Sprintf("baris baru mengalir ke view (%d -> %d tick)", before, after))
+	check("live follow", after > before, fmt.Sprintf("new lines stream into the view (%d -> %d ticks)", before, after))
 }
 
 // scenarioUnhealthy: a unit whose healthcheck always fails must surface
@@ -907,7 +908,7 @@ HealthRetries=1
 	cmd, f := launch(120, 42)
 	defer quit(cmd, f)
 	ok := waitFor("unhealthy", 30*time.Second)
-	check("unhealthy display", ok, "STATE menampilkan unhealthy dari healthcheck gagal")
+	check("unhealthy display", ok, "STATE shows unhealthy from the failing healthcheck")
 }
 
 // scenarioResponsive: no crash and key elements visible at narrow, medium,
@@ -928,7 +929,7 @@ func scenarioResponsive() {
 		for _, w := range s.want {
 			okAll = okAll && strings.Contains(last(), w)
 		}
-		check(fmt.Sprintf("responsive %dx%d", s.cols, s.rows), okAll, "render stabil, elemen kunci terlihat")
+		check(fmt.Sprintf("responsive %dx%d", s.cols, s.rows), okAll, "renders stably with the key elements visible")
 		quit(cmd, f)
 	}
 }
@@ -942,7 +943,7 @@ func scenarioEmptyState() {
 	cmd, f := launch(120, 24, "XDG_CONFIG_HOME="+empty)
 	defer quit(cmd, f)
 	ok := waitFor("No quadlet units found", 20*time.Second)
-	check("empty state", ok, "hint dan search dirs tampil saat tidak ada unit")
+	check("empty state", ok, "hint and search dirs shown when there are no units")
 }
 
 func countOccurrences(haystack, needle string) int {
@@ -956,15 +957,15 @@ func scenarioReadonly(quadletDir string) {
 	cmd, f := launchArgs(120, 42, []string{"--readonly"})
 	defer quit(cmd, f)
 	if !waitFor("demo-web", 12*time.Second) {
-		check("readonly banner", false, "daftar tidak muncul dalam mode readonly")
+		check("readonly banner", false, "list did not appear in readonly mode")
 		return
 	}
 	ok := waitFor("readonly", 5*time.Second)
-	check("readonly banner", ok, "chip readonly tampil di legenda")
+	check("readonly banner", ok, "readonly chip shown in the legend")
 	drain()
 	send(f, "s")
 	ok = waitFor("readonly mode", 5*time.Second)
-	check("readonly refuse", ok, "tombol start ditolak dengan penjelasan")
+	check("readonly refuse", ok, "start key refused with an explanation")
 }
 
 // scenarioRecentActions: an action lands in the A log with its result.
@@ -974,19 +975,19 @@ func scenarioRecentActions(quadletDir string) {
 	cmd, f := launch(120, 42)
 	defer quit(cmd, f)
 	if !waitFor("QUADLET", 12*time.Second) {
-		check("recent actions", false, "daftar tidak muncul")
+		check("recent actions", false, "list did not appear")
 		return
 	}
 	send(f, "R") // daemon-reload is a safe logged action
 	if !waitFor("daemon-reload ok", 12*time.Second) {
-		check("recent actions", false, "daemon-reload tidak selesai")
+		check("recent actions", false, "daemon-reload did not finish")
 		return
 	}
 	drain()
 	send(f, "A")
 	ok := waitFor("THIS SESSION", 5*time.Second)
 	l := last()
-	check("recent actions", ok && strings.Contains(l, "daemon-reload"), "layar Actions menampilkan hasil daemon-reload")
+	check("recent actions", ok && strings.Contains(l, "daemon-reload"), "Actions screen shows the daemon-reload result")
 	send(f, "q")
 	time.Sleep(300 * time.Millisecond)
 }
@@ -999,7 +1000,7 @@ func scenarioCustomCommand(quadletDir string) {
 	_ = os.Symlink(quadletDir, cfgDir+"/containers/systemd")
 	yaml := "custom_commands:\n  - name: probe\n    key: C\n    run: echo PROBE-{{.UnitName}}\n"
 	if err := os.WriteFile(cfgDir+"/quadman/config.yaml", []byte(yaml), 0o644); err != nil {
-		check("custom command", false, "gagal menulis config.yaml sementara")
+		check("custom command", false, "could not write the temporary config.yaml")
 		return
 	}
 	defer func() { _ = os.RemoveAll(cfgDir) }()
@@ -1008,17 +1009,17 @@ func scenarioCustomCommand(quadletDir string) {
 	cmd, f := launch(120, 42, "XDG_CONFIG_HOME="+cfgDir)
 	defer quit(cmd, f)
 	if !waitFor("demo-web", 12*time.Second) {
-		check("custom command", false, "daftar tidak muncul")
+		check("custom command", false, "list did not appear")
 		return
 	}
 	drain()
 	send(f, "C")
 	ok := waitFor("custom probe ok", 8*time.Second)
-	check("custom command", ok, "custom key C jalan dan hasilnya tampil di status")
+	check("custom command", ok, "custom key C runs and its result shows in the status")
 	drain()
 	send(f, "A")
 	ok = waitFor("custom probe", 5*time.Second)
-	check("custom logged", ok, "hasil custom tercatat di layar ACTIONS")
+	check("custom logged", ok, "the custom result is logged on the ACTIONS screen")
 	send(f, "q")
 	time.Sleep(300 * time.Millisecond)
 }
@@ -1029,7 +1030,7 @@ func scenarioYAMLConfig() {
 	cfgDir := os.TempDir() + "/qe2e-badyaml"
 	_ = os.MkdirAll(cfgDir+"/quadman", 0o755)
 	if err := os.WriteFile(cfgDir+"/quadman/config.yaml", []byte("refresh_interval: [unclosed\n"), 0o644); err != nil {
-		check("yaml corrupt", false, "gagal menulis config.yaml rusak")
+		check("yaml corrupt", false, "could not write the corrupt config.yaml")
 		return
 	}
 	defer func() { _ = os.RemoveAll(cfgDir) }()
@@ -1038,7 +1039,7 @@ func scenarioYAMLConfig() {
 	cmd, f := launch(120, 42, "XDG_CONFIG_HOME="+cfgDir)
 	defer quit(cmd, f)
 	ok := waitFor("config:", 12*time.Second)
-	check("yaml corrupt", ok, "YAML rusak dilaporkan di status, bukan diabaikan diam-diam")
+	check("yaml corrupt", ok, "corrupt YAML reported in the status, never silently ignored")
 }
 
 // scenarioGenerateStrict: garbage input is rejected with guidance instead of
@@ -1049,18 +1050,18 @@ func scenarioGenerateStrict(quadletDir string) {
 	cmd, f := launch(120, 42)
 	defer quit(cmd, f)
 	if !waitFor("QUADLET", 12*time.Second) {
-		check("generate strict", false, "daftar tidak muncul")
+		check("generate strict", false, "list did not appear")
 		return
 	}
 	send(f, "n")
 	if !waitFor("generate from", 3*time.Second) {
-		check("generate strict", false, "input generate tidak muncul")
+		check("generate strict", false, "generate input did not appear")
 		return
 	}
 	send(f, "nginx:latest")
 	send(f, "\r")
 	ok := waitFor("not a run command", 8*time.Second)
-	check("generate strict", ok, "input sampah ditolak dengan panduan run/compose")
+	check("generate strict", ok, "garbage input refused with run/compose guidance")
 	send(f, "\x1b")
 	time.Sleep(300 * time.Millisecond)
 }
@@ -1113,28 +1114,28 @@ func scenarioBulk(quadletDir string) {
 	cmd, f := launch(120, 42)
 	defer quit(cmd, f)
 	if !waitFor("demo-web", 12*time.Second) {
-		check("bulk mark", false, "daftar tidak muncul")
+		check("bulk mark", false, "list did not appear")
 		return
 	}
 	send(f, " ")
 	ok := waitFor("marked", 5*time.Second)
-	check("bulk mark", ok, "space menandai baris")
+	check("bulk mark", ok, "space marks the row")
 	send(f, "j")
 	time.Sleep(300 * time.Millisecond)
 	send(f, " ")
 	ok = waitForAny([]string{"2 marked", "* demo-net"}, 5*time.Second)
-	check("bulk two marks", ok, "dua baris tertandai")
+	check("bulk two marks", ok, "two rows marked")
 	drain()
 	send(f, "s")
 	ok = waitFor("2 units", 5*time.Second)
-	check("bulk confirm", ok, "konfirmasi menyebut jumlah unit")
+	check("bulk confirm", ok, "confirmation names the unit count")
 	send(f, "y")
 	ok = waitFor("bulk start", 20*time.Second)
-	check("bulk start", ok, "aksi massal jalan dan dilaporkan")
+	check("bulk start", ok, "bulk action ran and was reported")
 	drain()
 	send(f, "A")
 	ok = waitFor("bulk start", 5*time.Second)
-	check("bulk logged", ok, "hasil massal tercatat di ACTIONS")
+	check("bulk logged", ok, "the bulk result is logged on ACTIONS")
 	send(f, "q")
 	time.Sleep(300 * time.Millisecond)
 	// cleanup: stop what bulk started
@@ -1148,7 +1149,7 @@ func scenarioThemeMouse() {
 	drain()
 	cmd, f := launchArgs(120, 42, []string{"--theme", "colorblind"})
 	ok := waitFor("QUADLET", 12*time.Second)
-	check("theme flag", ok, "tema colorblind merender daftar")
+	check("theme flag", ok, "colorblind theme renders the list")
 	quit(cmd, f)
 
 	drain()
@@ -1158,7 +1159,7 @@ func scenarioThemeMouse() {
 	time.Sleep(1500 * time.Millisecond)
 	// Without --mouse the TUI must not request mouse reporting.
 	raw := last()
-	check("mouse off default", !strings.Contains(raw, "\x1b[?1003h") && !strings.Contains(raw, "\x1b[?1000h"), "tanpa --mouse tidak ada mouse reporting")
+	check("mouse off default", !strings.Contains(raw, "\x1b[?1003h") && !strings.Contains(raw, "\x1b[?1000h"), "no mouse reporting without --mouse")
 	quit(cmd, f)
 }
 
@@ -1192,7 +1193,7 @@ func scenarioServeSSH() {
 	port := "22388"
 	srvCmd := exec.Command("./quadman", "serve", "-p", port, "--readonly")
 	if err := srvCmd.Start(); err != nil {
-		check("serve start", false, "gagal menjalankan quadman serve: "+err.Error())
+		check("serve start", false, "could not start quadman serve: "+err.Error())
 		return
 	}
 	defer func() {
@@ -1205,7 +1206,7 @@ func scenarioServeSSH() {
 	sshCmd := exec.Command("ssh", "-tt", "-p", port, "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", "127.0.0.1")
 	f, err := pty.StartWithSize(sshCmd, &pty.Winsize{Rows: 42, Cols: 120})
 	if err != nil {
-		check("serve ssh client", false, "ssh client gagal: "+err.Error())
+		check("serve ssh client", false, "ssh client failed: "+err.Error())
 		return
 	}
 	defer func() {
@@ -1236,7 +1237,7 @@ func scenarioServeSSH() {
 	}()
 
 	ok := waitFor("QUADLET", 12*time.Second)
-	check("serve ssh render", ok, "koneksi SSH merender daftar unit quadman")
+	check("serve ssh render", ok, "the SSH connection renders the quadman unit list")
 	send(f, "q")
 	time.Sleep(300 * time.Millisecond)
 }
@@ -1265,13 +1266,13 @@ func scenarioServePasswordFile() {
 	port := "22389"
 	pwPath := filepath.Join(os.TempDir(), "qe2e-serve-pass")
 	if err := os.WriteFile(pwPath, []byte("qe2e-secret\n"), 0o600); err != nil {
-		check("serve pwfile fixture", false, "gagal menulis berkas password: "+err.Error())
+		check("serve pwfile fixture", false, "could not write the password file: "+err.Error())
 		return
 	}
 	defer func() { _ = os.Remove(pwPath) }()
 	srvCmd := exec.Command("./quadman", "serve", "-p", port, "--readonly", "--password-file", pwPath)
 	if err := srvCmd.Start(); err != nil {
-		check("serve pwfile start", false, "gagal menjalankan quadman serve: "+err.Error())
+		check("serve pwfile start", false, "could not start quadman serve: "+err.Error())
 		return
 	}
 	defer func() {
@@ -1283,12 +1284,12 @@ func scenarioServePasswordFile() {
 
 	f, sshCmd, err := serveClient(port)
 	if err != nil {
-		check("serve pwfile client", false, "ssh client gagal: "+err.Error())
+		check("serve pwfile client", false, "ssh client failed: "+err.Error())
 		return
 	}
 	pumpPty(f)
 	if !waitFor("password", 10*time.Second) {
-		check("serve pwfile prompt", false, "prompt password tidak muncul")
+		check("serve pwfile prompt", false, "password prompt did not appear")
 		_ = sshCmd.Process.Kill()
 		_ = sshCmd.Wait()
 		_ = f.Close()
@@ -1296,7 +1297,7 @@ func scenarioServePasswordFile() {
 	}
 	send(f, "wrongpw\n")
 	denied := waitFor("denied", 10*time.Second)
-	check("serve pwfile wrong denied", denied, "password salah harus ditolak")
+	check("serve pwfile wrong denied", denied, "a wrong password must be refused")
 	_ = sshCmd.Process.Kill()
 	_ = sshCmd.Wait()
 	_ = f.Close()
@@ -1304,7 +1305,7 @@ func scenarioServePasswordFile() {
 	drain()
 	f2, sshCmd2, err := serveClient(port)
 	if err != nil {
-		check("serve pwfile client2", false, "ssh client gagal: "+err.Error())
+		check("serve pwfile client2", false, "ssh client failed: "+err.Error())
 		return
 	}
 	defer func() {
@@ -1314,12 +1315,12 @@ func scenarioServePasswordFile() {
 	}()
 	pumpPty(f2)
 	if !waitFor("password", 10*time.Second) {
-		check("serve pwfile prompt2", false, "prompt password tidak muncul")
+		check("serve pwfile prompt2", false, "password prompt did not appear")
 		return
 	}
 	send(f2, "qe2e-secret\n")
 	ok := waitFor("QUADLET", 12*time.Second)
-	check("serve pwfile render", ok, "password berkas merender daftar unit quadman")
+	check("serve pwfile render", ok, "the file password renders the quadman unit list")
 	send(f2, "q")
 	time.Sleep(300 * time.Millisecond)
 }
@@ -1337,7 +1338,7 @@ func scenarioServeCompartment() {
 	port := "22390"
 	srvCmd := exec.Command("./quadman", "--as", "svc-test", "serve", "-p", port, "--readonly")
 	if err := srvCmd.Start(); err != nil {
-		check("serve compartment start", false, "gagal menjalankan quadman serve: "+err.Error())
+		check("serve compartment start", false, "could not start quadman serve: "+err.Error())
 		return
 	}
 	defer func() {
@@ -1350,7 +1351,7 @@ func scenarioServeCompartment() {
 	sshCmd := exec.Command("ssh", "-tt", "-p", port, "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", "127.0.0.1")
 	f, err := pty.StartWithSize(sshCmd, &pty.Winsize{Rows: 42, Cols: 120})
 	if err != nil {
-		check("serve compartment client", false, "ssh client gagal: "+err.Error())
+		check("serve compartment client", false, "ssh client failed: "+err.Error())
 		return
 	}
 	defer func() {
@@ -1361,9 +1362,9 @@ func scenarioServeCompartment() {
 	pumpPty(f)
 
 	ok := waitFor("QUADLET", 12*time.Second)
-	check("serve compartment render", ok, "koneksi SSH merender daftar unit kompartemen")
+	check("serve compartment render", ok, "the SSH connection renders the compartment's units")
 	chip := waitFor("as svc-test", 5*time.Second)
-	check("serve compartment chip", chip, "title bar menampilkan target \"as svc-test\"")
+	check("serve compartment chip", chip, "title bar shows the \"as svc-test\" target")
 	send(f, "q")
 	time.Sleep(300 * time.Millisecond)
 }
@@ -1373,7 +1374,7 @@ func scenarioCommandPalette() {
 	drain()
 	cmd, f := launch(120, 42)
 	ok := waitFor("QUADLET", 12*time.Second)
-	check("palette launch", ok, "daftar utama muncul sebelum command palette dibuka")
+	check("palette launch", ok, "main list appears before the command palette opens")
 
 	// Send Ctrl+P (\x10) to open palette
 	send(f, "\x10")
@@ -1384,13 +1385,13 @@ func scenarioCommandPalette() {
 	send(f, "reload")
 	time.Sleep(400 * time.Millisecond)
 	ok = waitFor("Daemon Reload", 3*time.Second)
-	check("palette search", ok, "pencarian fuzzy 'reload' menampilkan Daemon Reload")
+	check("palette search", ok, "fuzzy search 'reload' shows Daemon Reload")
 
 	// Close palette with Esc (\x1b)
 	send(f, "\x1b")
 	time.Sleep(300 * time.Millisecond)
 	ok = waitFor("QUADLET", 3*time.Second)
-	check("palette close", ok, "Esc menutup Command Palette dan kembali ke daftar utama")
+	check("palette close", ok, "Esc closes the command palette and returns to the main list")
 
 	quit(cmd, f)
 }
@@ -1409,7 +1410,7 @@ func scenarioLogExportAndFilter() {
 	cmd, f := launch(120, 42)
 	defer quit(cmd, f)
 	ok := waitFor("demo-web", 12*time.Second)
-	check("log e2e launch", ok, "daftar utama muncul")
+	check("log e2e launch", ok, "main list appears")
 
 	// Select demo-web
 	send(f, "/")
@@ -1429,7 +1430,7 @@ func scenarioLogExportAndFilter() {
 	send(f, "p")
 	time.Sleep(300 * time.Millisecond)
 	ok = waitForAny([]string{"log priority: err", "· err"}, 4*time.Second)
-	check("log priority cycle", ok, "tombol p mengubah prioritas log menjadi err")
+	check("log priority cycle", ok, "p switches the log priority to err")
 
 	// Cycle priority back: warning -> info -> all
 	send(f, "p")
@@ -1445,7 +1446,7 @@ func scenarioLogExportAndFilter() {
 	send(f, "demo\r")
 	time.Sleep(400 * time.Millisecond)
 	ok = waitFor("Filter:", 4*time.Second)
-	check("log live filter", ok, "tombol F memfilter log live")
+	check("log live filter", ok, "F filters the live log")
 
 	// Clear filter with Esc
 	send(f, "\x1b")
@@ -1455,13 +1456,13 @@ func scenarioLogExportAndFilter() {
 	send(f, "S")
 	time.Sleep(500 * time.Millisecond)
 	ok = waitFor("exported", 5*time.Second)
-	check("log export text", ok, "tombol S mengekspor log ke file")
+	check("log export text", ok, "S exports the log to a file")
 
 	// Test clipboard copy with 'c'
 	send(f, "c")
 	time.Sleep(500 * time.Millisecond)
 	ok = waitFor("copied", 5*time.Second)
-	check("log clipboard copy", ok, "tombol c menyalin log ke clipboard")
+	check("log clipboard copy", ok, "c copies the log to the clipboard")
 
 	// Back to list with 'q'
 	send(f, "q")
@@ -1476,11 +1477,11 @@ func scenarioSystemMode() {
 
 	// Verify the top bar names the system scope.
 	ok := waitFor("quadman › system", 10*time.Second)
-	check("system top bar scope", ok, "top bar menampilkan \"quadman › system\"")
+	check("system top bar scope", ok, "top bar shows \"quadman › system\"")
 
 	// Verify title does not have rootless
 	hasRootless := strings.Contains(last(), "rootless")
-	check("system no rootless", !hasRootless, "title bar tidak mengandung kata rootless")
+	check("system no rootless", !hasRootless, "title bar does not say rootless")
 
 	// Wait for initial load to complete
 	waitForAny([]string{"No quadlet units found", "active", "inactive"}, 10*time.Second)
@@ -1488,17 +1489,17 @@ func scenarioSystemMode() {
 
 	// Verify chip is system
 	ok = waitFor("system", 5*time.Second)
-	check("system chip", ok && !strings.Contains(last(), "linger:"), "legend menampilkan chip system bukan linger")
+	check("system chip", ok && !strings.Contains(last(), "linger:"), "legend shows the system chip, not linger")
 
 	// Press L and verify linger guard notice
 	send(f, "L")
 	ok = waitFor("linger only applies to rootless", 5*time.Second)
-	check("system linger guard", ok, "tombol L menolak aksi linger dengan notifikasi status")
+	check("system linger guard", ok, "L refuses linger with a status explanation")
 
 	// Press ? and verify system help
 	send(f, "?")
 	ok = waitFor("System mode: managing system-wide Quadlet units", 5*time.Second)
-	check("system help view", ok, "layar help menampilkan panduan path system mode")
+	check("system help view", ok, "help screen shows the system-mode paths")
 
 	// Close help
 	send(f, "?")
@@ -1507,7 +1508,7 @@ func scenarioSystemMode() {
 	// Also test non-interactive --system list
 	out := runOut("./quadman", "--system", "list")
 	listOk := strings.Contains(out, "QUADLET") || strings.Contains(out, "/etc/containers/systemd")
-	check("system cli list", listOk, "perintah --system list jalan dan mencari di path system")
+	check("system cli list", listOk, "--system list runs and searches the system paths")
 }
 
 // scenarioTimersAndSecrets tests the Timers view (T), Secrets view (K), and Command Palette actions.
@@ -1516,15 +1517,15 @@ func scenarioTimersAndSecrets() {
 	cmd, f := launch(120, 42)
 	defer quit(cmd, f)
 	ok := waitFor("QUADLET", 12*time.Second)
-	check("timers/secrets launch", ok, "daftar utama muncul")
+	check("timers/secrets launch", ok, "main list appears")
 
 	// 1. Timers view via 'T'
 	send(f, "T")
 	ok = waitFor("TIMERS", 8*time.Second)
-	check("timers view T", ok, "tombol T membuka layar SYSTEMD TIMERS")
+	check("timers view T", ok, "T opens the SYSTEMD TIMERS screen")
 	time.Sleep(300 * time.Millisecond)
 	hasTimerContent := strings.Contains(last(), "SCHEDULE") || strings.Contains(last(), "no systemd timers")
-	check("timers content", hasTimerContent, "tabel timer merender kolom UNIT atau pesan kosong")
+	check("timers content", hasTimerContent, "timer table renders the UNIT column or the empty message")
 	// Test refresh 'r'
 	send(f, "r")
 	time.Sleep(300 * time.Millisecond)
@@ -1532,21 +1533,21 @@ func scenarioTimersAndSecrets() {
 	send(f, "q")
 	time.Sleep(400 * time.Millisecond)
 	ok = waitFor("QUADLET", 4*time.Second)
-	check("timers exit", ok, "tombol q menutup layar timers")
+	check("timers exit", ok, "q closes the timers screen")
 
 	// 2. Secrets view via 'K'
 	drain()
 	send(f, "K")
 	ok = waitFor("SECRETS", 8*time.Second)
-	check("secrets view K", ok, "tombol K membuka layar PODMAN SECRETS")
+	check("secrets view K", ok, "K opens the PODMAN SECRETS screen")
 	time.Sleep(300 * time.Millisecond)
 	hasSecretContent := strings.Contains(last(), "NAME") || strings.Contains(last(), "no podman secrets")
-	check("secrets content", hasSecretContent, "tabel secret merender kolom NAME atau petunjuk podman secret create")
+	check("secrets content", hasSecretContent, "secret table renders the NAME column or the podman secret create hint")
 	// Exit secrets view with 'q'
 	send(f, "q")
 	time.Sleep(400 * time.Millisecond)
 	ok = waitFor("QUADLET", 4*time.Second)
-	check("secrets exit", ok, "tombol q menutup layar secrets")
+	check("secrets exit", ok, "q closes the secrets screen")
 
 	// 3. Command palette shortcuts for Timers and Secrets
 	send(f, "\x10")                               // Ctrl+P
@@ -1579,7 +1580,7 @@ func scenarioSecretValidation(quadletDir string) {
 	cmd, f := launch(120, 42)
 	defer quit(cmd, f)
 	if !waitFor("e2e-sec", 12*time.Second) {
-		check("secret validation launch", false, "unit e2e-sec tidak muncul di daftar")
+		check("secret validation launch", false, "unit e2e-sec not listed")
 		return
 	}
 	send(f, "R") // daemon-reload -> enrichFull -> ValidateSecrets
@@ -1587,7 +1588,7 @@ func scenarioSecretValidation(quadletDir string) {
 	drain()
 	send(f, "v")
 	ok := waitFor("e2e_missing_secret_xyz", 8*time.Second)
-	check("secret validation v", ok, "layar problems (v) mendeteksi dan menampilkan peringatan missing secret")
+	check("secret validation v", ok, "problems screen (v) detects and shows the missing-secret warning")
 	send(f, "\x1b")
 	time.Sleep(300 * time.Millisecond)
 }
@@ -1596,11 +1597,11 @@ func scenarioSecretValidation(quadletDir string) {
 func scenarioAgentSkill() {
 	outSkill := runOut("./quadman", "--skill")
 	skillOk := strings.Contains(outSkill, "# Agent Skill: quadman") && strings.Contains(outSkill, "quadman --skill")
-	check("cli --skill export", skillOk, "flag --skill mencetak definisi Agent Skill dalam format Markdown")
+	check("cli --skill export", skillOk, "--skill prints the Agent Skill definition as Markdown")
 
 	outSkillJSON := runOut("./quadman", "skill", "--format", "json")
 	jsonOk := strings.Contains(outSkillJSON, `"name": "quadman"`) && strings.Contains(outSkillJSON, `"tools"`)
-	check("cli skill --format json", jsonOk, "subcommand skill --format json mencetak schema JSON yang valid")
+	check("cli skill --format json", jsonOk, "skill --format json prints a valid JSON schema")
 }
 
 // runOK reports whether a command exits zero (output discarded).
@@ -1627,13 +1628,13 @@ func scenarioStats() {
 	send(f, "o")
 	// The footer's STATS group (padded label) or a podman error.
 	ok := waitForAny([]string{"STATS ", "stats:"}, 12*time.Second)
-	check("stats screen", ok, "layar stats terbuka, atau error podman dilaporkan di status")
+	check("stats screen", ok, "stats screen opens, or the podman error is reported in the status")
 	send(f, "q")
 	time.Sleep(300 * time.Millisecond)
 }
 
-// scenarioPruneCancel: P arms the prune confirmation (naming inactive
-// units when any are known); n cancels so storage is never touched.
+// scenarioPruneCancel: P arms the typed prune confirmation (naming inactive
+// units when any are known); esc cancels so storage is never touched.
 func scenarioPruneCancel() {
 	drain()
 	cmd, f := launch(120, 42)
@@ -1642,16 +1643,19 @@ func scenarioPruneCancel() {
 	send(f, "P")
 	ok := waitForAny([]string{"system prune", "podman not found", "readonly", "unavailable over SSH"}, 8*time.Second)
 	if !ok {
-		check("prune confirm", false, "P tidak memberi umpan balik")
+		check("prune confirm", false, "P gave no feedback")
 		return
 	}
-	if strings.Contains(last(), "[y/N]") {
-		send(f, "n")
+	if strings.Contains(last(), "type prune") {
+		send(f, "y") // a bare y must not prune: the modal wants the word typed
+		time.Sleep(300 * time.Millisecond)
+		check("prune needs typed word", !strings.Contains(last(), "system prune ok"), "y alone must not prune")
+		send(f, "\x1b")
 		ok = waitFor("prune cancelled", 5*time.Second)
-		check("prune cancel", ok, "konfirmasi prune dibatalkan tanpa menghapus apapun")
+		check("prune cancel", ok, "prune confirmation cancelled without removing anything")
 		return
 	}
-	check("prune refused", true, "prune ditolak aman (tanpa podman / readonly / remote)")
+	check("prune refused", true, "prune refused safely (no podman / readonly)")
 }
 
 // scenarioExecPrompt: X opens the container-name prompt prefilled from the
@@ -1663,7 +1667,7 @@ func scenarioExecPrompt() {
 	waitFor("QUADLET", 12*time.Second)
 	send(f, "X")
 	ok := waitForAny([]string{"exec shell in container", "no unit selected", "readonly", "unavailable"}, 8*time.Second)
-	check("exec prompt", ok, "prompt exec muncul, atau alasan penolakan ditampilkan")
+	check("exec prompt", ok, "exec prompt appears, or the refusal reason is shown")
 	send(f, "\x1b")
 	time.Sleep(300 * time.Millisecond)
 }
@@ -1675,30 +1679,28 @@ func scenarioGenerateLive() {
 	cmd, f := launch(120, 42)
 	defer quit(cmd, f)
 	if !waitFor("QUADLET", 12*time.Second) {
-		check("generate live", false, "daftar tidak muncul")
+		check("generate live", false, "list did not appear")
 		return
 	}
 	send(f, "n")
 	if !waitFor("generate from", 3*time.Second) {
-		check("generate live", false, "input generate tidak muncul")
+		check("generate live", false, "generate input did not appear")
 		return
 	}
 	send(f, "container e2e-nosuch-xyz")
 	send(f, "\r")
 	ok := waitFor("podlet", 20*time.Second)
-	check("generate live", ok, "objek hilang menghasilkan error podlet yang jelas")
+	check("generate live", ok, "a missing object yields a clear podlet error")
 	send(f, "\x1b")
 	time.Sleep(300 * time.Millisecond)
 }
 
-// scenarioCompartmentDenied: --as with an unreachable user must explain
-// sudo failure in the status instead of switching or hanging.
+// scenarioCompartmentDenied: --as with an unreachable user must stop at
+// startup with a clear error, never open the operator's own session.
 func scenarioCompartmentDenied() {
-	drain()
-	cmd, f := launchArgs(120, 42, []string{"--as", "quadman-nosuch-xyz"})
-	defer quit(cmd, f)
-	ok := waitFor("sudo -n -u quadman-nosuch-xyz", 15*time.Second)
-	check("compartment denied", ok, "sudo yang gagal dilaporkan jelas tanpa hang")
+	out, err := exec.Command("./quadman", "--as", "quadman-nosuch-xyz").CombinedOutput()
+	ok := err != nil && strings.Contains(string(out), "quadman-nosuch-xyz")
+	check("compartment denied", ok, "an unreachable compartment fails fast with an explanation: "+strings.TrimSpace(string(out)))
 }
 
 // scenarioCompartmentLive exercises a real sudo compartment when the
@@ -1716,9 +1718,9 @@ func scenarioCompartmentLive() {
 	// 45s keeps this honest without flaking. Split asserts pinpoint
 	// which leg (switch vs discovery) fails.
 	if !waitFor("as svc-test", 45*time.Second) {
-		check("compartment live", false, "top bar \"as svc-test\" tidak muncul (gagal switch)")
+		check("compartment live", false, "top bar \"as svc-test\" did not appear (switch failed)")
 		return
 	}
 	ok := waitFor("e2e-comp", 30*time.Second)
-	check("compartment live", ok, "TUI \"as svc-test\" menampilkan unit milik target via sudo")
+	check("compartment live", ok, "TUI \"as svc-test\" shows the target's units via sudo")
 }

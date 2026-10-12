@@ -15,8 +15,11 @@ jobs:
           go-version: stable
       - run: go build ./...
       - run: go vet ./...
-      - run: go test -race ./...
+      - run: go test -race -shuffle=on ./...
       - run: test -z "$(gofmt -l .)"
+      # The PTY e2e harness needs a live user session, so CI only keeps
+      # it compiling and vetted.
+      - run: cd e2e && go build ./... && go vet ./...
 
   lint:
     runs-on: ubuntu-latest
@@ -51,12 +54,17 @@ jobs:
 
   security:
     runs-on: ubuntu-latest
+    env:
+      # Pinned: an unpinned scanner turns CI red on its own release day,
+      # with no change in this repository. Bump deliberately.
+      GOVULNCHECK_VERSION: v1.9.0
+      GOSEC_VERSION: v2.29.0
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version: stable
       - name: Dependency vulnerability scan (govulncheck)
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION} ./...
       - name: Static security analysis (gosec)
-        run: go run github.com/securego/gosec/v2/cmd/gosec@latest -quiet ./...
+        run: go run github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION} -quiet ./...
