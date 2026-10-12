@@ -1,4 +1,6 @@
-// Command quadman is a TUI manager for rootless Podman Quadlet units.
+// Command quadman is a TUI manager for Podman Quadlet units: rootless-first,
+// with a rootful system mode, remote hosts over SSH, and per-user
+// compartments.
 //
 // quadman lists the Quadlet source files systemd's generator picks up,
 // shows the runtime state of the units they generate, and lets you start,

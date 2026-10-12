@@ -5,7 +5,8 @@
   <img src="docs/logo/quadman-logo-light.svg" alt="quadman" width="360">
 </picture>
 
-**A Terminal UI manager for rootless Podman [Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) units.**
+**A terminal UI for Podman [Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) units — rootless-first, with a rootful
+system mode, remote hosts over SSH, and per-user compartments.**
 
 ---
 

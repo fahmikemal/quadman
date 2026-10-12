@@ -45,7 +45,7 @@ func Get(ver string) Definition {
 	return Definition{
 		Name:        "quadman",
 		Version:     ver,
-		Description: "Terminal UI manager and CLI tool for rootless Podman Quadlet units & systemd lifecycle management. Operates without podman socket requirements via direct systemctl/journalctl/loginctl and Quadlet generator integration.",
+		Description: "Terminal UI manager and CLI tool for Podman Quadlet units (rootless-first, with a rootful system mode) & systemd lifecycle management. Operates without podman socket requirements via direct systemctl/journalctl/loginctl and Quadlet generator integration.",
 		Commands: []CommandDoc{
 			{Usage: "quadman", Description: "Launch full interactive Terminal UI in rootless user session."},
 			{Usage: "quadman --system", Description: "Manage system-wide (rootful) Quadlet units (/etc/containers/systemd)."},
@@ -53,7 +53,7 @@ func Get(ver string) Definition {
 			{Usage: "quadman list", Description: "Non-interactive tab-delimited overview of all Quadlet source files and systemd states (for scripts/pipes)."},
 			{Usage: "quadman --system list", Description: "List system-wide Quadlet units non-interactively (flags go before the command)."},
 			{Usage: "quadman serve [-p 2222] [--readonly]", Description: "Run embedded Wish v2 SSH daemon to serve TUI over SSH (loopback-only by default; non-loopback binds require --authorized-keys). With no keys/password it forces readonly sessions."},
-			{Usage: "quadman --ssh user@host", Description: "Transparently manage remote rootless Quadlets over the SSH client (one multiplexed connection; remote login shell must be POSIX)."},
+			{Usage: "quadman --ssh user@host", Description: "Transparently manage a remote host's Quadlets over the SSH client (one multiplexed connection; remote login shell must be POSIX)."},
 			{Usage: "quadman --ssh user@host list", Description: "Non-interactive overview of a remote host's Quadlet units (flags go before the command)."},
 			{Usage: "quadman --as <user>", Description: "Manage another local user's Quadlets via non-interactive sudo (compartment, needs NOPASSWD:SETENV or root); file edits stay disabled; fails fast when unreachable."},
 			{Usage: "quadman --as <user> list", Description: "Non-interactive compartment overview for scripts (flags go before the command)."},

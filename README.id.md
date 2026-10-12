@@ -5,7 +5,8 @@
   <img src="docs/logo/quadman-logo-light.svg" alt="quadman" width="360">
 </picture>
 
-**Terminal UI manager untuk unit rootless Podman [Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html).**
+**Terminal UI untuk unit Podman [Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) — rootless-first, dengan mode sistem
+rootful, host remote lewat SSH, dan kompartemen per user.**
 
 ---
 

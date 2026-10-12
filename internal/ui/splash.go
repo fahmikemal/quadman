@@ -35,11 +35,11 @@ func Splash(version, info string, width int) string {
 	fg := lipgloss.NewStyle().Foreground(lipgloss.Color(activePalette.fg))
 	bright := lipgloss.NewStyle().Foreground(lipgloss.Color(activePalette.bright)).Bold(true)
 	muted := lipgloss.NewStyle().Foreground(lipgloss.Color(activePalette.muted))
-	tagline := "rootless quadlet manager for systemd + podman"
+	tagline := "quadlet manager for systemd + podman"
 	if width > 0 && width < 80 {
 		return strings.Join([]string{
 			fg.Render("▀▀ ") + fg.Render("▀▀") + "  " + bright.Render("quadman "+version),
-			fg.Render("▀▀ ") + accent.Render("▀▀") + "  " + muted.Render("rootless quadlet manager"),
+			fg.Render("▀▀ ") + accent.Render("▀▀") + "  " + muted.Render("podman quadlet manager"),
 		}, "\n")
 	}
 	var lines []string
