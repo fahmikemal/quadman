@@ -26,27 +26,30 @@ Quadlet adalah standar yang direkomendasikan untuk menjalankan container rootles
 - Mendeteksi setiap berkas sumber Quadlet yang dibaca oleh generator systemd (`*.container`, `*.pod`, `*.kube`, `*.volume`, `*.network`, `*.image`, `*.build`, `*.artifact`), di seluruh hierarki direktori pencarian pengguna (`$XDG_RUNTIME_DIR/containers/systemd` → `~/.config/containers/systemd` → `/etc/containers/systemd/users[/UID]` → `/usr/share/containers/systemd/users[/UID]`), termasuk subdirektorinya, dengan mekanisme shadowing (*first-match*) yang identik dengan generator resmi Podman.
 - Memetakan setiap berkas sumber ke unit systemd yang dihasilkan oleh generator (`webapp.container` → `webapp.service`, `stack.pod` → `stack-pod.service`, `cache.volume` → `cache-volume.service`, dst.), menghargai override `ServiceName=` dan template unit (`web@.container` → `web@.service`).
 - Menampilkan status live secara real-time (active/inactive/failed, `not-found` saat Anda lupa melakukan `daemon-reload`) beserta image yang dikonfigurasi langsung di tabel utama — di-refresh secara otomatis setiap beberapa detik dengan posisi kursor tetap terkunci pada baris pilihan Anda.
-- Operasi `start` / `stop` (dengan konfirmasi aman — Quadlet menjalankan container dengan opsi `--rm`) / `restart` / `enable` / `disable` / `daemon-reload` cukup dengan satu tombol cepat, masing-masing disertai indikator animasi spinner saat operasi berjalan.
-- Memberikan peringatan (*warning banner*) jika berkas quadlet mengalami modifikasi setelah `daemon-reload` terakhir, sehingga Anda tidak lagi bingung mengapa perubahan konfigurasi belum aktif.
+- Operasi `start` / `stop` (dengan konfirmasi aman — Quadlet menjalankan container dengan opsi `--rm`) / `restart` / `enable` / `disable` / `daemon-reload` cukup dengan satu tombol cepat, masing-masing disertai indikator animasi spinner saat operasi berjalan; start pertama yang lambat (pull image besar) ditunggu hingga 5 menit lalu dilaporkan masih berjalan, bukan gagal.
+- Memberikan peringatan (*warning banner*) jika berkas quadlet mengalami modifikasi setelah `daemon-reload` terakhir, sehingga Anda tidak lagi bingung mengapa perubahan konfigurasi belum aktif — langsung dari `NeedDaemonReload` milik systemd, sehingga tetap benar via SSH dan di kompartemen.
 - **Follow-mode journals** — streaming live `journalctl -f` per unit dengan fitur auto-scroll ke baris terbawah (*stick-to-tail*), jeda streaming (`f`), live grep filter (`F`), filter prioritas log (`p`), ekspor ke `.log`/`.jsonl` (`S`), dan salin log ke clipboard via OSC52 (`c`).
 - **Command Palette** (`Ctrl+P`) — modal overlay berbasis pencarian fuzzy untuk menemukan dan mengeksekusi semua aksi siklus hidup unit, navigasi layar/view, diagnostik, dan perintah kustom (*custom commands*) dengan validasi status kontekstual secara langsung.
 - **Native Wish SSH Daemon** (`quadman serve`) menyajikan antarmuka TUI langsung melalui protokol SSH tanpa perlu menginstal quadman di mesin klien penghubung: bind loopback saja secara default, `authorized_keys` wajib untuk bind non-loopback, lengkap dengan autentikasi public key, autentikasi password (hanya loopback, dengan pembatasan percobaan), pembuatan host key otomatis, mode dashboard *read-only*, dan sesi yang sepenuhnya terisolasi.
-- **Mode Ganda Rootless & Sistem** (`--system`) — identitas utama tetap memprioritaskan rootless secara bawaan, namun mendukung penuh manajemen unit tingkat sistem (*rootful*) (`/etc/containers/systemd`, `/run/containers/systemd`) serta deteksi otomatis hak akses root (`sudo quadman`).
+- **Mode Ganda Rootless & Sistem** (`--system`) — identitas utama tetap memprioritaskan rootless secara bawaan, namun mendukung penuh manajemen unit tingkat sistem (*rootful*) (`/etc/containers/systemd`, `/run/containers/systemd`) serta deteksi otomatis hak akses root (`sudo quadman`); `system: true` di config.yaml menjadikannya default.
+- **Host remote** (`--ssh user@host`) — seluruh TUI (dan `list`) terhadap mesin lain lewat `ssh` milik Anda: satu koneksi multiplex, setiap perintah di-quote untuk shell remote, tanpa memasang atau menyinkronkan apa pun di host.
+- **Kompartemen** (`--as svc-web`) — kelola Quadlet milik OS user lain (search path, user manager, storage podman, dan secret miliknya) lewat sudo non-interaktif, dengan aturan sudoers yang hanya mendaftar CLI yang dijalankan quadman.
+- **Aman sejak desain** — satu kebijakan kapabilitas menentukan apa yang boleh dilakukan setiap sesi (readonly, SSH, kompartemen, serve); konfirmasi menyebut apa yang akan terjadi dan apa yang tetap, dan apa pun yang menghilangkan data (unit, volume, secret, prune) menunggu namanya diketik.
 - Pencarian fuzzy `/` untuk memfilter daftar unit secara instan saat Anda mengetik.
 - Mengedit berkas quadlet langsung di editor teks `$EDITOR` bawaan Anda dari dalam TUI; otomatis memberikan peringatan untuk me-reload generator setelah berkas disimpan.
 - **Layar auto-update** (`u`) — preview `podman auto-update --dry-run` dan status timer `podman-auto-update.timer`, dapat diaktifkan/dinonaktifkan langsung dengan `U`.
-- Pemantauan kesehatan container (*healthcheck*): container yang tidak sehat (*unhealthy*) langsung ditandai di kolom STATE, dan tombol `h` mengeksekusi `podman healthcheck run` pada unit yang dipilih.
-- **Validasi bawaan (*built-in validation*)** — generator Quadlet resmi dijalankan secara *dry-run* untuk memvalidasi setiap berkas saat refresh; unit yang bermasalah ditandai dengan ✗/⚠ dan layar `v` menjelaskan detail error secara gamblang, termasuk deteksi versi Podman (*version-gating hints*).
+- Pemantauan kesehatan container (*healthcheck*): container yang tidak sehat (*unhealthy*) langsung ditandai di kolom STATE, dan tombol `h` mengeksekusi `podman healthcheck run` pada unit yang dipilih. Container ditemukan lewat label `PODMAN_SYSTEMD_UNIT` milik Quadlet, sehingga override `ContainerName=` dan `ServiceName=` langsung bekerja.
+- **Validasi bawaan (*built-in validation*)** — generator Quadlet resmi dijalankan secara *dry-run* untuk memvalidasi setiap berkas saat startup dan setelah setiap `daemon-reload` (di host SSH, atau sebagai user kompartemen, bila sesinya remote); unit yang bermasalah ditandai dengan ✗/⚠ dan layar `v` menjelaskan detail error secara gamblang, termasuk deteksi versi Podman (*version-gating hints*).
 - **Direktori Drop-in** — mendukung berkas konfigurasi tambahan `foo.container.d/*.conf` (termasuk *cascading* `foo-.container.d/` dan drop-in generik `container.d/`) yang ditampilkan menyatu (*merged*) sesuai urutan evaluasi generator systemd.
 - **Pohon dependensi (*dependency tree*)** (`t`) — unit dikelompokkan per pod dan per app podman, masing-masing dengan pod, image, network, volume, dan dependensi `[Unit]` yang dirujuknya. Referensi yang hilang ditandai `✗ missing`, subtree yang sehat dimulai terlipat (`←/→`, `z` semua), `f` hanya menampilkan yang bermasalah, dan `i` menambah baris *impact* (apa yang memblokir unit, dan siapa yang membutuhkannya).
 - Dukungan mouse: klik baris untuk memilih, putar roda mouse untuk menggulir log; `y`/`Y` untuk menyalin nama unit/image ke clipboard via protokol OSC52 (berfungsi mulus bahkan melalui koneksi SSH).
 - **Panel detail bertab** (`[`/`]`) — ringkasan (*overview*: status, restart, result, boot, port, volume, secret, dependensi, masalah), kode sumber, `systemctl status`, live journal berkolom waktu/sumber/pesan dengan level berupa glyph + warna, dan `podman inspect`.
 - **Dashboard** — enam tiles (units, running, failed, generator, linger, auto-update) dan blok "needs attention" yang menyebut setiap masalah beserta tombol untuk memperbaikinya; masalah selalu berada di urutan teratas tabel.
-- **Storage** (`g`) — `podman system df` sebagai tiles, lalu images, volumes, dan containers sebagai tab, masing-masing ditautkan ke unit quadlet yang memakainya; objek yang tidak terpakai dikelompokkan di bawah UNUSED beserta ruang yang bisa di-reclaim. Pull, remove (ditolak selama masih dipakai unit), dan prune, semuanya lewat konfirmasi.
+- **Storage** (`g`) — `podman system df` sebagai tiles, lalu images, volumes, dan containers sebagai tab, masing-masing ditautkan ke unit quadlet yang memakainya; objek yang tidak terpakai dikelompokkan di bawah UNUSED beserta ruang yang bisa di-reclaim. Pull, remove (ditolak selama masih dipakai unit), dan prune, semuanya lewat konfirmasi; menghapus volume atau prune menunggu namanya (atau `prune`) diketik.
 - **Events** (`w`) — satu timeline live yang menggabungkan `podman events`, pesan service manager tentang unit Anda (started, failed, scheduled restart), dan aksi quadman sendiri; filter tipe (`1`-`6`), unit (`u`), dan rentang waktu (`s`), jeda (`f`), ekspor (`S`).
-- **Timers** (`T`), **Secrets** (`K`), **Actions** (`A`) — jadwal dalam bahasa manusia dengan riwayat 24 run ✓✗; unit mana memakai secret apa dan sebagai apa, dengan nilai yang tidak pernah dirender (input bermasker lewat stdin, clipboard dibersihkan setelah 30 detik); audit sesi dengan durasi, pemicu, perintah setara, dan tombol untuk mengulang.
+- **Timers** (`T`), **Secrets** (`K`), **Actions** (`A`) — jadwal dalam bahasa manusia dengan riwayat 24 run ✓✗; unit mana memakai secret apa dan sebagai apa, dengan nilai yang tidak pernah dirender (input bermasker lewat stdin, clipboard dibersihkan setelah 30 detik); audit sesi dengan durasi, pemicu, perintah setara, dan tombol untuk mengulang (pengulangan meminta konfirmasi aslinya lagi dan tidak pernah diputar ke sesi lain).
 - **Petunjuk pintar (*smart hints*)** — jika start unit berstatus `timed-out`, TUI menyarankan penyesuaian `TimeoutStartSec=` atau `Pull=`; peringatan *crash-loop* dan pemakaian `AutoUpdate=` tanpa timer aktif juga langsung disorot pada layar diagnostik masalah.
-- **Generator dari perintah apapun** (`n`) — salin-tempel perintah `docker run` atau jalur berkas docker-compose; utilitas [podlet](https://github.com/containers/podlet) akan mengonversinya, Anda dapat meninjau preview hasilnya, lalu tekan `y` untuk menulis berkas dan memicu reload generator secara otomatis.
+- **Generator dari perintah apapun** (`n`) — salin-tempel perintah `docker run` atau jalur berkas docker-compose; utilitas [podlet](https://github.com/containers/podlet) akan mengonversinya, Anda dapat meninjau preview hasilnya, lalu tekan `y` untuk menulis berkas (secara atomik, ke `~/.config/containers/systemd`, atau `/etc/containers/systemd` di mode sistem) dan memicu reload generator secara otomatis.
 - **Template & Bundel** — instansiasi template `web@.container` menjadi `web@prod.service` (`i`), serta preview dan instalasi bundel multi-dokumen `.quadlets` (`I`).
 - Pengayaan data opsional melalui `podman quadlet list` (pengelompokan aplikasi/pod) jika binary podman terpasang di host; tetap berfungsi penuh 100% tanpa ketergantungan podman socket.
 - **Indikator & Pengontrol Linger Pengguna** — `loginctl enable-linger` adalah satu konfigurasi krusial yang wajib dimiliki server container rootless (tanpa linger, container Anda akan mati saat user logout). quadman menampilkan status linger di bar navigasi bawah dan memungkinkan toggle status dengan satu tombol `L`.
@@ -88,7 +91,17 @@ Atau kompilasi langsung dari repositori:
 make build   # ./quadman
 ```
 
-Kebutuhan sistem: Linux dengan systemd, sesi pengguna (*user session* untuk mode rootless), dan `journalctl` untuk penampil log. Tanpa daemon latar belakang; mendukung satu berkas konfigurasi YAML opsional (lihat bagian Konfigurasi di bawah).
+Kebutuhan sistem: Linux dengan systemd, sesi pengguna (*user session* untuk mode rootless), dan `journalctl` untuk penampil log. Tanpa daemon latar belakang; mendukung satu berkas konfigurasi YAML opsional (lihat bagian Konfigurasi di bawah). Opsional, per fitur:
+
+| Fitur | Butuh |
+| ----- | ----- |
+| pengelompokan app/pod, health, storage, secrets, stats, events | `podman` 5.3+ (disarankan 6.x) |
+| layar problems (dry-run generator) | `podman-system-generator` (terpasang bersama podman) |
+| generate `n` | [`podlet`](https://github.com/containers/podlet) |
+| `--ssh user@host` | client `ssh` Anda; login shell kompatibel POSIX di host |
+| `--as <user>` | sudo non-interaktif ke user tersebut (root, atau aturan `NOPASSWD:SETENV` — lihat Kompartemen) dan runtime dir untuknya |
+
+Build dari source butuh Go 1.26.8 atau lebih baru.
 
 ## Penggunaan
 
@@ -124,10 +137,10 @@ quadman -version                 # Splash logo blok di terminal, satu baris saat
 | `l` | Live journal tail (`f` jeda, `/` cari, `F` grep filter, `p` prioritas, `S` ekspor, `c` salin) |
 | `s` / `x` / `r` | Start / stop (dengan konfirmasi) / restart unit — atau seluruh unit yang ditandai dengan `space` |
 | `space` | Tandai/lepas tanda baris untuk aksi massal (*bulk actions*, `esc` untuk membersihkan tanda) |
-| `e` | Aktifkan saat boot (*enable*, menyisipkan blok `[Install]` ke berkas dengan konfirmasi) |
-| `d` | Nonaktifkan saat boot (*disable*, menghapus blok `[Install]` dengan konfirmasi) |
+| `e` | Aktifkan saat boot (*enable*, menambah `WantedBy=default.target` — `multi-user.target` di mode sistem — ke `[Install]`, dengan konfirmasi) |
+| `d` | Nonaktifkan saat boot (*disable*, menghapus key boot dari `[Install]` dan mempertahankan sisanya, dengan konfirmasi) |
 | `E` | Mengedit berkas Quadlet menggunakan `$EDITOR` |
-| `X` | Buka `/bin/sh` di kontainer unit (`podman exec`, pencocokan nama persis) |
+| `X` | Buka `/bin/sh` di kontainer unit (`podman exec`, pencocokan nama persis; tidak via SSH atau di sesi serve) |
 | `u` | Layar auto-update (`U` untuk toggle status timer otomatis) |
 | `h` | Menjalankan `podman healthcheck` pada unit yang dipilih |
 | `v` | Layar diagnosa masalah — validasi generator terhadap seluruh berkas Quadlet |
@@ -144,11 +157,11 @@ quadman -version                 # Splash logo blok di terminal, satu baris saat
 | `K` | Secrets: USED BY · AS, yang hilang dan tidak terpakai di atas (`n` buat, `r` rotasi, `c` salin nilai, `D` hapus) |
 | `w` | Timeline event (`f` jeda, `1`-`6` tipe, `u` unit ini, `s` rentang waktu, `S` ekspor) |
 | `n` | Generator quadlet via podlet (`podman run ...`, `docker run ...`, singkatan `run ...`, `compose <path>`, atau `<kind> <name>` untuk container\|pod\|network\|volume\|image) |
-| `A` | Aksi sesi: hasil, durasi, pemicu, perintah (`.` ulangi, `c` salin perintah) |
+| `A` | Aksi sesi: hasil, durasi, pemicu, perintah (`.` ulangi dengan konfirmasi aslinya, `c` salin perintah) |
 | `S` | Ganti urutan daftar: masalah dulu / nama / kind |
 | `z` | Lipat atau buka tiles dashboard |
-| `R` | `systemctl --user daemon-reload` (regenerasi unit setelah berkas Quadlet diedit) |
-| `L` | Toggle linger pengguna (`loginctl enable-linger`) |
+| `R` | `systemctl --user daemon-reload` (`systemctl daemon-reload` di mode sistem; regenerasi unit setelah berkas Quadlet diedit) |
+| `L` | Toggle linger (`loginctl enable-linger`) untuk user sesi itu sendiri — Anda, user login remote, atau user kompartemen |
 | `?` | Buka bantuan tombol (*help overlay*) |
 | `q` / `esc` | Keluar / kembali ke layar sebelumnya |
 
@@ -299,8 +312,27 @@ Tidak terafiliasi secara resmi dengan proyek Podman upstream.
 
 ## Keamanan
 
+quadman dirancang untuk dibiarkan berjalan terhadap host produksi:
+
+- **Satu kebijakan, semua permukaan** — tombol dan Command Palette bertanya
+  ke kebijakan kapabilitas yang sama, sehingga sesi readonly, SSH,
+  kompartemen, dan serve menolak hal yang sama, selalu dengan alasannya.
+- **Sesi terisolasi** — setiap sesi yang disajikan lewat SSH punya client
+  sendiri; tidak ada aksi satu klien yang mengarahkan ulang klien lain, dan
+  kompartemen yang di-serve tetap terkunci ke user-nya.
+- **Fail closed** — `config.yaml` yang tidak bisa dipakai membuat TUI mulai
+  readonly dan menghentikan `serve`; bind jaringan wajib `authorized_keys`,
+  password hanya loopback dan dibatasi percobaannya.
+- **Tanpa shell** — setiap perintah berupa argv; via SSH setiap kata
+  di-quote untuk shell remote; custom command dipecah sebelum ekspansi
+  template; secret dikirim lewat stdin dan tidak pernah dirender.
+- **Edit aman** — berkas quadlet ditulis secara atomik, symlink diikuti,
+  mode dan owner dipertahankan.
+
 Lihat [SECURITY.id.md](SECURITY.id.md) untuk versi yang didukung, cara
-melaporkan kerentanan, dan default hardening yang sudah tersedia.
+melaporkan kerentanan, dan setiap default hardening yang sudah tersedia,
+serta [DESIGN.md](DESIGN.md) untuk aturan interaksi (glyph, konfirmasi,
+tata letak).
 
 ## Lisensi
 
