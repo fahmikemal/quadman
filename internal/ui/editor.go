@@ -140,11 +140,7 @@ func (m Model) editPath() (editTarget, bool) {
 
 // editPathAt opens path at line with the same gates as E on the list.
 func (m Model) editPathAt(path string, line int) (tea.Model, tea.Cmd) {
-	if m.noEditor {
-		m.setStatus("editor not available in SSH server session: edit files directly on the host", true)
-		return m, nil
-	}
-	if m.refuseRemoteWrite() || m.refuseReadonly() {
+	if m.refuse(capTargetFiles | capTerminal) {
 		return m, nil
 	}
 	m.editTarget = editTarget{path: path, line: line}

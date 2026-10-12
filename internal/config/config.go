@@ -4,7 +4,11 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -47,6 +51,9 @@ type Settings struct {
 	// "needs attention" block collapsed to one summary line (z toggles).
 	Dashboard *bool         `yaml:"dashboard,omitempty"`
 	Serve     ServeSettings `yaml:"serve,omitempty"`
+	// SSHMultiplex set to false gives every --ssh call its own connection
+	// instead of sharing one (OpenSSH ControlMaster). Default on.
+	SSHMultiplex *bool `yaml:"ssh_multiplex,omitempty"`
 }
 
 // ServeSettings configures the built-in Wish SSH server mode.
@@ -86,50 +93,73 @@ func YAMLPath() (string, error) {
 	return filepath.Join(dir, "quadman", "config.yaml"), nil
 }
 
-// Load reads the config file. A missing file is not an error — it just
-// means no preferences have been saved yet. The YAML settings file is
-// loaded alongside when present; a corrupt YAML file is ignored so a typo
-// never bricks the TUI (the editor choice from JSON still applies).
-func Load() (Config, error) {
-	var c Config
-	path, err := Path()
-	if err != nil {
-		return c, err
-	}
-	data, err := os.ReadFile(path) // #nosec G304 -- path is quadman's own config file under the user's config dir
-	if os.IsNotExist(err) || len(data) == 0 {
-		return loadYAML(c)
-	}
-	if err != nil {
-		return c, err
-	}
-	if err := json.Unmarshal(data, &c); err != nil {
-		return c, err
-	}
-	return loadYAML(c)
+// SettingsError reports a config.yaml that exists but cannot be used
+// (unreadable, malformed, or holding unknown keys). Callers must treat the
+// settings as unknown and fail closed: a dropped `readonly: true` must
+// never silently grant write access.
+type SettingsError struct {
+	Path string
+	Err  error
 }
 
-// loadYAML overlays the YAML settings file onto c. Missing file = no-op;
-// corrupt file = returned as error so callers (and the TUI status line) can
-// surface it instead of silently ignoring the user's settings.
-func loadYAML(c Config) (Config, error) {
+func (e *SettingsError) Error() string { return e.Path + ": " + e.Err.Error() }
+func (e *SettingsError) Unwrap() error { return e.Err }
+
+// IsSettingsError reports whether err (from Load) means config.yaml is
+// unusable, as opposed to only the editor preference being lost.
+func IsSettingsError(err error) bool {
+	var se *SettingsError
+	return errors.As(err, &se)
+}
+
+// Load reads the editor preference (config.json) and the settings file
+// (config.yaml). Missing files are not errors. The two files fail
+// independently: a corrupt config.json loses only the editor choice and
+// still loads every YAML setting. A config.yaml problem is returned as a
+// *SettingsError with zero-value settings; unknown keys count as a problem
+// (a typo such as `read_only:` must not be ignored).
+func Load() (Config, error) {
+	var c Config
+	var errs []error
+	if path, err := Path(); err != nil {
+		errs = append(errs, err)
+	} else if data, err := os.ReadFile(path); err != nil && !os.IsNotExist(err) { // #nosec G304 -- path is quadman's own config file under the user's config dir
+		errs = append(errs, fmt.Errorf("%s: %w", path, err))
+	} else if len(bytes.TrimSpace(data)) > 0 {
+		if err := json.Unmarshal(data, &c); err != nil {
+			c = Config{}
+			errs = append(errs, fmt.Errorf("%s: %w (editor preference ignored)", path, err))
+		}
+	}
+	s, err := loadSettings()
+	if err != nil {
+		errs = append(errs, err)
+	} else {
+		c.Settings = s
+	}
+	return c, errors.Join(errs...)
+}
+
+// loadSettings reads config.yaml strictly. Missing file = zero settings.
+func loadSettings() (Settings, error) {
 	path, err := YAMLPath()
 	if err != nil {
-		return c, err
+		return Settings{}, &SettingsError{Path: "config.yaml", Err: err}
 	}
 	data, err := os.ReadFile(path) // #nosec G304 -- path is quadman's own settings file under the user's config dir
 	if os.IsNotExist(err) {
-		return c, nil
+		return Settings{}, nil
 	}
 	if err != nil {
-		return c, err
+		return Settings{}, &SettingsError{Path: path, Err: err}
 	}
 	var s Settings
-	if err := yaml.Unmarshal(data, &s); err != nil {
-		return c, err
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&s); err != nil && !errors.Is(err, io.EOF) {
+		return Settings{}, &SettingsError{Path: path, Err: err}
 	}
-	c.Settings = s
-	return c, nil
+	return s, nil
 }
 
 // RefreshInterval returns the configured poll tick or the default.
@@ -166,13 +196,21 @@ func (c Config) System() bool {
 	return c.Settings.System
 }
 
-// Save writes the config file, creating its directory when needed.
+// SSHMultiplex reports whether --ssh sessions share one connection.
+func (c Config) SSHMultiplex() bool {
+	return c.Settings.SSHMultiplex == nil || *c.Settings.SSHMultiplex
+}
+
+// Save writes the config file atomically (temp file + rename), creating
+// its directory when needed, so a crash or a full disk never leaves a
+// truncated config.json behind.
 func (c Config) Save() error {
 	path, err := Path()
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
 	// Only the editor choice lives in JSON; YAML settings have their own file.
@@ -182,5 +220,26 @@ func (c Config) Save() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(data, '\n'), 0o600)
+	tmp, err := os.CreateTemp(dir, ".config-*.json")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }()
+	if _, err := tmp.Write(append(data, '\n')); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
 }

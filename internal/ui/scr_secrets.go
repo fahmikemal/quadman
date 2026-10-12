@@ -53,9 +53,10 @@ type clipboardClearMsg struct{ secret string }
 
 func (m Model) secretsCmd() tea.Cmd {
 	units := slices.Clone(m.units)
-	read := m.readUnitFile
+	read := m.readUnitSources
+	pm := m.pm
 	return func() tea.Msg {
-		list, err := podman.SecretList(context.Background())
+		list, err := pm.SecretList(context.Background())
 		if err != nil {
 			return secretsMsg{err: err}
 		}
@@ -63,61 +64,73 @@ func (m Model) secretsCmd() tea.Cmd {
 	}
 }
 
-// secretUses scans every container and kube file for Secret= lines,
-// keeping the line number so a missing secret points at its reference.
-func secretUses(units []quadlet.Unit, read func(quadlet.Unit) ([]byte, error)) map[string][]secretUse {
+// secretUses scans every container unit's source — the file and its
+// drop-ins, which the generator merges — for Secret= lines, keeping the
+// file and line so a missing secret points at its exact reference. read
+// returns the sources in merge order (see readUnitSources).
+func secretUses(units []quadlet.Unit, read func(quadlet.Unit) ([]unitSource, error)) map[string][]secretUse {
 	out := map[string][]secretUse{}
 	for _, u := range units {
 		if u.Kind != quadlet.KindContainer {
 			continue
 		}
-		data, err := read(u)
+		srcs, err := read(u)
 		if err != nil {
 			continue
 		}
-		sc := bufio.NewScanner(strings.NewReader(string(data)))
-		section := ""
-		for n := 1; sc.Scan(); n++ {
-			line := strings.TrimSpace(sc.Text())
-			if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-				section = strings.ToLower(strings.Trim(line, "[]"))
-				continue
-			}
-			val, ok := strings.CutPrefix(line, "Secret=")
-			if !ok || section != "container" {
-				continue
-			}
-			parts := strings.Split(val, ",")
-			use := secretUse{unit: u.UnitName, name: u.Name, file: baseName(u.Path), line: n, secret: strings.TrimSpace(parts[0])}
-			typ, target := "mount", ""
-			for _, p := range parts[1:] {
-				k, v, _ := strings.Cut(p, "=")
-				switch strings.ToLower(strings.TrimSpace(k)) {
-				case "type":
-					typ = strings.TrimSpace(v)
-				case "target":
-					target = strings.TrimSpace(v)
-				}
-			}
-			switch typ {
-			case "env":
-				if target == "" {
-					target = use.secret
-				}
-				use.as = "env " + target
-			default:
-				use.as = "file"
-				if target != "" {
-					if !strings.HasPrefix(target, "/") {
-						target = "/run/secrets/" + target
+		for _, src := range srcs {
+			for _, ref := range scanSecrets(src.data) {
+				use := secretUse{unit: u.UnitName, name: u.Name, file: baseName(src.path), line: ref.line, secret: ref.Name}
+				switch ref.Type {
+				case "env":
+					target := ref.Target
+					if target == "" {
+						target = ref.Name
 					}
-					use.as += " " + target
+					use.as = "env " + target
+				default:
+					use.as = "file"
+					if t := ref.Target; t != "" {
+						if !strings.HasPrefix(t, "/") {
+							t = "/run/secrets/" + t
+						}
+						use.as += " " + t
+					}
 				}
+				out[use.secret] = append(out[use.secret], use)
 			}
-			out[use.secret] = append(out[use.secret], use)
 		}
 	}
 	return out
+}
+
+// lineSecret is one Secret= reference with its 1-based line number.
+type lineSecret struct {
+	quadlet.SecretRef
+	line int
+}
+
+// scanSecrets finds the Secret= keys of the [Container] section, with the
+// same exact-key, whitespace-tolerant rules as the quadlet parser.
+func scanSecrets(data []byte) []lineSecret {
+	var refs []lineSecret
+	sc := bufio.NewScanner(strings.NewReader(string(data)))
+	section := ""
+	for n := 1; sc.Scan(); n++ {
+		line := strings.TrimSpace(sc.Text())
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section = strings.TrimSpace(line[1 : len(line)-1])
+			continue
+		}
+		key, val, ok := strings.Cut(line, "=")
+		if !ok || section != "Container" || strings.TrimSpace(key) != "Secret" {
+			continue
+		}
+		if ref, ok := quadlet.ParseSecretRef(val); ok {
+			refs = append(refs, lineSecret{ref, n})
+		}
+	}
+	return refs
 }
 
 func (m Model) secretsSpec() screenSpec {
@@ -334,10 +347,11 @@ func (m Model) secretInputKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		m.resize()
 		value := []byte(val)
 		if !in.rotate {
-			return m, tea.Batch(m.setBusy("create secret "+in.name), actionCmdHint("create secret "+in.name,
+			pm := m.pm
+			return m, tea.Batch(m.setBusy("create secret "+in.name), m.actionCmdHint("create secret "+in.name,
 				"reference it with Secret="+in.name+" in a .container file",
 				func(ctx context.Context) (string, error) {
-					return "", podman.SecretCreate(ctx, in.name, value, false)
+					return "", pm.SecretCreate(ctx, in.name, value, false)
 				}), m.secretsCmd()), true
 		}
 		return m.confirmRotate(in.name, value), nil, true
@@ -362,16 +376,16 @@ func (m Model) confirmRotate(name string, value []byte) Model {
 	} else {
 		lines = append(lines, "no running unit uses it: nothing restarts")
 	}
-	sys := m.sys
+	sys, pm := m.sys, m.pm
 	m.pending = &pendingAction{
 		verb:  "rotate",
 		title: "Rotate secret " + name + "?",
 		lines: lines,
 		keeps: []string{"the secret's name and every Secret= reference"},
 		run: func(m Model) (tea.Model, tea.Cmd) {
-			return m, tea.Batch(m.setBusy("rotate secret "+name), actionCmdHint("rotate secret "+name, "dependent units restarted",
+			return m, tea.Batch(m.setBusy("rotate secret "+name), m.actionCmdHint("rotate secret "+name, "dependent units restarted",
 				func(ctx context.Context) (string, error) {
-					if err := podman.SecretCreate(ctx, name, value, true); err != nil {
+					if err := pm.SecretCreate(ctx, name, value, true); err != nil {
 						return "", err
 					}
 					for _, u := range restart {
@@ -393,7 +407,7 @@ func (m Model) secretsKeysIn(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	case "ctrl+r":
 		return m, tea.Batch(m.setBusy("podman secrets"), m.secretsCmd()), true
 	case "n":
-		if m.refuseReadonly() {
+		if m.refuse(capMutate) {
 			return m, nil, true
 		}
 		if r, ok := m.selectedRow(); ok && strings.HasPrefix(r.id, "missing:") {
@@ -413,7 +427,7 @@ func (m Model) secretsKeysIn(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	kind, name, _ := strings.Cut(r.id, ":")
 	switch k {
 	case "r":
-		if kind != "secret" || m.refuseReadonly() {
+		if kind != "secret" || m.refuse(capMutate) {
 			return m, nil, true
 		}
 		return m, m.openSecretPrompt(true, name), true
@@ -421,16 +435,16 @@ func (m Model) secretsKeysIn(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		if kind != "secret" {
 			return m, nil, true
 		}
-		if m.clientInfo != "" || m.readonly {
-			m.setStatus("copying secret values is disabled in readonly and served sessions", true)
+		if m.refuse(capSecretValue) {
 			return m, nil, true
 		}
+		pm := m.pm
 		return m, tea.Batch(m.setBusy("read "+name), func() tea.Msg {
-			v, err := podman.SecretValue(context.Background(), name)
+			v, err := pm.SecretValue(context.Background(), name)
 			return secretValueMsg{name: name, value: v, err: err}
 		}), true
 	case "D":
-		if kind != "secret" || m.refuseReadonly() {
+		if kind != "secret" || m.refuse(capMutate) {
 			return m, nil, true
 		}
 		uses := m.secrets.uses[name]
@@ -450,8 +464,9 @@ func (m Model) secretsKeysIn(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 			danger: true,
 			typed:  name,
 			run: func(m Model) (tea.Model, tea.Cmd) {
-				return m, tea.Batch(m.setBusy("remove secret "+name), actionCmd("remove secret "+name,
-					func(ctx context.Context) (string, error) { return "", podman.SecretRemove(ctx, name) }), m.secretsCmd())
+				pm := m.pm
+				return m, tea.Batch(m.setBusy("remove secret "+name), m.actionCmd("remove secret "+name,
+					func(ctx context.Context) (string, error) { return "", pm.SecretRemove(ctx, name) }), m.secretsCmd())
 			},
 		}
 		return m, nil, true

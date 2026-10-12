@@ -5,6 +5,8 @@ import (
 	"os/user"
 	"strings"
 	"testing"
+
+	"github.com/fahmikemal/quadman/internal/compartment"
 )
 
 // compSudo fakes passwordless sudo for compartment tests.
@@ -17,11 +19,21 @@ func compSudo(t *testing.T) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
+// requireRuntimeDir skips when the current user has no /run/user/<uid>,
+// which a compartment needs (containers and CI runners often lack one).
+func requireRuntimeDir(t *testing.T, u *user.User) {
+	t.Helper()
+	if c, err := compartment.Resolve(u.Username); err != nil || !c.RuntimeReady() {
+		t.Skipf("no runtime dir for %s on this host", u.Username)
+	}
+}
+
 func TestApplyCompartmentSelf(t *testing.T) {
 	u, err := user.Current()
 	if err != nil {
 		t.Skip("no current user")
 	}
+	requireRuntimeDir(t, u)
 	compSudo(t)
 	m := New()
 	if !m.applyCompartment(u.Username) {
@@ -44,23 +56,26 @@ func TestApplyCompartmentSelf(t *testing.T) {
 	if !strings.Contains(mm.View().Content, "as "+u.Username) {
 		t.Error("top bar must show the compartment user")
 	}
-	resetRunners()
 }
 
 func TestApplyCompartmentProbeFailure(t *testing.T) {
+	u, err := user.Current()
+	if err != nil {
+		t.Skip("no current user")
+	}
 	dir := t.TempDir()
 	if err := os.WriteFile(dir+"/sudo", []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	m := New()
-	if m.applyCompartment("svc") {
+	if m.applyCompartment(u.Username) {
 		t.Error("failing sudo must not switch")
 	}
-	if m.compOn {
-		t.Error("compOn must stay false")
+	if m.compOn || m.ssh.As != "" {
+		t.Error("a failed switch must keep the own session")
 	}
-	if !strings.Contains(m.statusLine, "sudo -n -u svc") {
+	if !strings.Contains(m.statusLine, "sudo -n -u "+u.Username) {
 		t.Errorf("status = %q", m.statusLine)
 	}
 }
@@ -87,7 +102,6 @@ func TestLeaveCompartment(t *testing.T) {
 	if m.compOn || m.ssh.As != "" || m.sys.GenDir != "" {
 		t.Errorf("leave must reset: compOn=%v As=%q GenDir=%q", m.compOn, m.ssh.As, m.sys.GenDir)
 	}
-	resetRunners()
 }
 
 func TestCompartmentPaletteActions(t *testing.T) {
@@ -126,9 +140,13 @@ func TestCompartmentPaletteDisabledInSystemMode(t *testing.T) {
 	}
 }
 
-func TestIsolatedReason(t *testing.T) {
+func TestPolicyTargetFiles(t *testing.T) {
 	m := New()
-	if bad, _ := m.isolatedReason(); bad {
-		t.Error("local session is not isolated")
+	if ok, _ := m.allowed(capTargetFiles); !ok {
+		t.Error("a local session may write its own quadlet files")
+	}
+	m.compOn, m.comp.User = true, "svc"
+	if ok, why := m.allowed(capTargetFiles); ok || why != "unavailable in compartment" {
+		t.Errorf("compartment file writes: ok=%v why=%q", ok, why)
 	}
 }

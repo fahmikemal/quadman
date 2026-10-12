@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/fahmikemal/quadman/internal/podlet"
 )
 
 func TestGeneratePodletRejectsGarbage(t *testing.T) {
@@ -19,7 +21,7 @@ func TestGeneratePodletRejectsGarbage(t *testing.T) {
 		`"unclosed quote`,
 		"compose ",
 	} {
-		if _, err := generatePodlet(ctx, in); err == nil {
+		if _, err := generatePodlet(ctx, podlet.Client{}, in); err == nil {
 			t.Errorf("generatePodlet(%q) should fail validation", in)
 		}
 	}
@@ -36,7 +38,7 @@ func TestGeneratePodletRunShorthand(t *testing.T) {
 	}
 	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
 
-	out, err := generatePodlet(context.Background(), "run --name web nginx")
+	out, err := generatePodlet(context.Background(), podlet.Client{}, "run --name web nginx")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +46,7 @@ func TestGeneratePodletRunShorthand(t *testing.T) {
 		t.Errorf("shorthand must prepend podman, got %q", out)
 	}
 
-	out, err = generatePodlet(context.Background(), `podman run --name "my web" nginx`)
+	out, err = generatePodlet(context.Background(), podlet.Client{}, `podman run --name "my web" nginx`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +68,7 @@ func TestGeneratePodletComposeFile(t *testing.T) {
 	if err := os.WriteFile(compose, []byte("services:\n  web:\n    image: nginx\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, err := generatePodlet(context.Background(), compose)
+	out, err := generatePodlet(context.Background(), podlet.Client{}, compose)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -305,7 +305,7 @@ func TestTimersFailedFirstWithExitCode(t *testing.T) {
 
 func TestSecretUsesAndGrouping(t *testing.T) {
 	m := sampleModel(t, 120, 36)
-	uses := secretUses(m.units, m.readUnitFile)
+	uses := secretUses(m.units, m.readUnitSources)
 	app := uses["db-pass"]
 	if len(app) != 2 || app[0].as != "env DB_PASS" || app[0].line != 5 || app[1].as != "file" {
 		t.Fatalf("db-pass uses = %+v", app)
@@ -326,7 +326,7 @@ func TestSecretUsesAndGrouping(t *testing.T) {
 
 func TestSecretValuesNeverRenderAndCopyIsGated(t *testing.T) {
 	m := sampleModel(t, 120, 36)
-	m.secrets = secretsData{list: []podman.SecretEntry{{Name: "db-pass"}}, uses: secretUses(m.units, m.readUnitFile)}
+	m.secrets = secretsData{list: []podman.SecretEntry{{Name: "db-pass"}}, uses: secretUses(m.units, m.readUnitSources)}
 	m.enterScreen(modeSecrets)
 	m = press(m, "down", "down") // onto db-pass
 	m.readonly = true

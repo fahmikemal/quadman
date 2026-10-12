@@ -83,7 +83,7 @@ func (m Model) describePending(p *pendingAction) {
 		p.keeps = []string{file, "volumes and their data", "images"}
 	case p.verb == "enable":
 		p.title = "Enable " + u.UnitName + " at boot?"
-		p.lines = []string{"add [Install] WantedBy=default.target to " + file, "reload the generator and start it now"}
+		p.lines = []string{"add [Install] WantedBy=" + m.bootTarget() + " to " + file, "reload the generator and start it now"}
 		p.keeps = []string{"everything else in " + file}
 	case p.verb == "disable":
 		p.title = "Disable " + u.UnitName + " at boot?"
@@ -101,10 +101,11 @@ func (m Model) describePending(p *pendingAction) {
 		}
 		p.keeps = []string{"volumes", "images that are in use or tagged", "quadlet files"}
 		p.danger = true
+		p.typed = "prune"
 	case p.verb == "delete":
 		p.title = "Delete " + file + "?"
 		p.lines = []string{"stop " + u.UnitName, "delete " + u.Path, "reload the generator"}
-		p.keeps = []string{"volumes and their data", "images", "secrets"}
+		p.keeps = []string{"volumes and their data", "images", "secrets", "drop-in directories"}
 		p.danger = true
 		p.typed = u.Name
 	default:
@@ -174,7 +175,7 @@ func (m Model) confirmKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		if m.confirm.focus == 1 || p.typed != "" {
 			if !m.confirmReady() {
-				m.setStatus("type "+p.typed+" to enable Delete", true)
+				m.setStatus("type "+p.typed+" to enable "+confirmLabel(p), true)
 				return m, nil
 			}
 			return run()

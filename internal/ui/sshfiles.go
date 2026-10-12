@@ -6,6 +6,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/fahmikemal/quadman/internal/quadlet"
 )
@@ -13,45 +14,54 @@ import (
 // remoteWriteMsg is shown when a file-mutating action is attempted over SSH.
 const remoteWriteMsg = "not available over SSH: manage files directly on the host (ssh there and run quadman locally)"
 
-// refuseRemoteWrite reports whether file-mutating actions are unavailable
-// (SSH or compartment mode), setting the status explanation when so.
-// Isolated modes keep full read and lifecycle control; only local file
-// edits are out of reach.
-func (m *Model) refuseRemoteWrite() bool {
-	if !m.ssh.Isolated() {
-		return false
-	}
-	if m.compOn {
-		m.setStatus("not available in compartment "+m.comp.User+": files belong to "+m.comp.User+", not the operator", true)
-		return true
-	}
-	m.setStatus(remoteWriteMsg, true)
-	return true
-}
-
-// isolatedReason reports whether the session is isolated (SSH target or
-// sudo compartment) plus the user-facing reason capability gates display
-// when refusing. Local sessions return false.
-func (m Model) isolatedReason() (bool, string) {
-	if m.ssh.IsRemote() {
-		return true, "unavailable over SSH"
-	}
-	if m.compOn {
-		return true, "unavailable in compartment"
-	}
-	return false, ""
-}
+// fileTimeout bounds one file read through the session runner.
+const fileTimeout = 30 * time.Second
 
 // readUnitFile returns a unit's source content: locally, or via the session
 // runner (SSH cat / sudo cat) when isolated.
 func (m Model) readUnitFile(u quadlet.Unit) ([]byte, error) {
-	if m.ssh.Isolated() {
-		if u.Path == "" {
-			return nil, os.ErrNotExist
-		}
-		return m.ssh.Cat(context.Background(), u.Path)
+	if u.Path == "" {
+		return nil, os.ErrNotExist
 	}
-	return os.ReadFile(u.Path)
+	return m.readPath(u.Path)
+}
+
+// readPath reads one file of the session: locally, or through the runner.
+func (m Model) readPath(p string) ([]byte, error) {
+	if !m.ssh.Isolated() {
+		return os.ReadFile(p) // #nosec G304 -- a quadlet source or drop-in the session listed
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), fileTimeout)
+	defer cancel()
+	return m.ssh.Cat(ctx, p)
+}
+
+// unitSource is one file the generator merges into a unit.
+type unitSource struct {
+	path string
+	data []byte
+}
+
+// readUnitSources returns u's file followed by its drop-ins in the
+// generator's merge order, locally or through the session runner.
+func (m Model) readUnitSources(u quadlet.Unit) ([]unitSource, error) {
+	data, err := m.readUnitFile(u)
+	if err != nil {
+		return nil, err
+	}
+	srcs := []unitSource{{path: u.Path, data: data}}
+	var drops []quadlet.Dropin
+	if m.ssh.Isolated() {
+		drops, _ = m.dropinsRemote(u)
+	} else {
+		drops = quadlet.Dropins(u)
+	}
+	for _, d := range drops {
+		if b, err := m.readPath(d.Path); err == nil {
+			srcs = append(srcs, unitSource{path: d.Path, data: b})
+		}
+	}
+	return srcs, nil
 }
 
 // fileContent renders a unit's source for the file view: base content plus
@@ -64,9 +74,7 @@ func (m Model) fileContent(u quadlet.Unit, base []byte) string {
 	}
 	drops, ok := m.dropinsRemote(u)
 	if len(drops) > 0 {
-		return renderDropins(base, drops, func(p string) ([]byte, error) {
-			return m.ssh.Cat(context.Background(), p)
-		})
+		return renderDropins(base, drops, m.readPath)
 	}
 	if ok {
 		return string(base)
@@ -97,7 +105,8 @@ func (m Model) dropinsRemote(u quadlet.Unit) (drops []quadlet.Dropin, ok bool) {
 	if u.Path == "" {
 		return nil, false
 	}
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), fileTimeout)
+	defer cancel()
 	for _, d := range quadlet.DropinDirs(u) {
 		out, err := m.ssh.Output(ctx, "ls", "-1Ap", "--", d)
 		if err != nil {

@@ -23,17 +23,17 @@ import (
 // be podman, docker, or run (so `podlet` never receives a bare image name
 // or shell metacharacters by accident). Words split quote-aware so quoted
 // values with spaces survive intact.
-func generatePodlet(ctx context.Context, trimmed string) (string, error) {
+func generatePodlet(ctx context.Context, pl podlet.Client, trimmed string) (string, error) {
 	rest, ok := strings.CutPrefix(trimmed, "compose ")
 	if ok {
 		path := strings.TrimSpace(rest)
 		if path == "" {
 			return "", fmt.Errorf("usage: compose <path-to-compose-file>")
 		}
-		return podlet.Compose(ctx, path)
+		return pl.Compose(ctx, path)
 	}
 	if strings.HasSuffix(trimmed, ".yml") || strings.HasSuffix(trimmed, ".yaml") || fileExists(trimmed) {
-		return podlet.Compose(ctx, trimmed)
+		return pl.Compose(ctx, trimmed)
 	}
 	args, err := shellwords.Split(trimmed)
 	if err != nil {
@@ -43,7 +43,7 @@ func generatePodlet(ctx context.Context, trimmed string) (string, error) {
 		return "", fmt.Errorf("empty input: paste a `podman run ...` command, a compose file path, or `<kind> <name>` (container|pod|network|volume|image)")
 	}
 	if len(args) == 2 && podlet.IsObjectKind(args[0]) {
-		return podlet.GenerateObject(ctx, args[0], args[1])
+		return pl.GenerateObject(ctx, args[0], args[1])
 	}
 	switch args[0] {
 	case "podman", "docker":
@@ -56,7 +56,7 @@ func generatePodlet(ctx context.Context, trimmed string) (string, error) {
 	default:
 		return "", fmt.Errorf("not a run command (starts with %q): use `podman run ...`, `docker run ...`, `compose <path>`, or `<kind> <name>`", args[0])
 	}
-	return podlet.Generate(ctx, normalizeRunArgs(args))
+	return pl.Generate(ctx, normalizeRunArgs(args))
 }
 
 func fileExists(p string) bool {
@@ -87,7 +87,7 @@ func (m Model) kubeYamlExists(u quadlet.Unit, yml string) bool {
 		if !filepath.IsAbs(p) {
 			p = filepath.Join(filepath.Dir(u.Path), yml)
 		}
-		_, err := m.ssh.Cat(context.Background(), p)
+		_, err := m.readPath(p)
 		return err == nil
 	}
 	return kubeYamlExists(u, yml)
@@ -100,13 +100,17 @@ func (m Model) kubeYamlExists(u quadlet.Unit, yml string) bool {
 // own (podlet may emit either `web` or `web.container`).
 func generatedFileName(raw string) (string, error) {
 	base := filepath.Base(strings.TrimSpace(raw))
-	if base == "" || base == "." || base == "/" {
-		return "", fmt.Errorf("empty FileName header")
+	if base == "" || base == "." || base == "/" || base == ".." || strings.HasPrefix(base, ".") {
+		return "", fmt.Errorf("invalid FileName header %q", raw)
 	}
 	if filepath.Ext(base) == "" {
 		base += ".container"
 	}
-	return base, nil
+	switch filepath.Ext(base) {
+	case ".container", ".pod", ".kube", ".volume", ".network", ".image", ".build", ".artifact":
+		return base, nil
+	}
+	return "", fmt.Errorf("FileName %q is not a Quadlet unit (.container, .pod, .kube, .volume, .network, .image, .build, .artifact)", base)
 }
 
 // podletAvailable indirection keeps tests independent of the real PATH.
@@ -136,7 +140,7 @@ func (m Model) smartHints() []string {
 		}
 		if (u.Kind == quadlet.KindContainer || u.Kind == quadlet.KindKube) && m.timerEnabled != "enabled" {
 			if f, err := m.parseUnitFile(u); err == nil {
-				if pol := f.Section(string(u.Kind)).Get("AutoUpdate"); pol == "registry" || pol == "local" {
+				if pol := f.Section(u.Kind.Section()).Get("AutoUpdate"); pol == "registry" || pol == "local" {
 					hints = append(hints, fmt.Sprintf(
 						"%s: AutoUpdate=%s is set but podman-auto-update.timer is disabled — enable it from the updates screen (u, then U).",
 						u.UnitName, pol))

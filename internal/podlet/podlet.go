@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/fahmikemal/quadman/internal/remote"
@@ -16,23 +15,15 @@ import (
 // DefaultTimeout bounds podlet calls (it is a local converter, no network).
 const DefaultTimeout = 15 * time.Second
 
-// defaultRunner executes the podlet CLI. It is local by default; the UI sets
-// it to an SSH or compartment runner. Access is atomic because a session
-// switch on the main loop races generate commands already in flight.
-var defaultRunner atomic.Pointer[remote.Runner]
-
-// Runner returns the runner used to execute the podlet CLI.
-func Runner() remote.Runner {
-	if r := defaultRunner.Load(); r != nil {
-		return *r
-	}
-	return remote.Runner{}
+// Client runs the podlet CLI through one session runner (local, SSH, or
+// sudo compartment). The zero value runs podlet locally. There is no
+// package-level runner, so concurrent sessions never redirect each other.
+type Client struct {
+	Runner remote.Runner
 }
 
-// SetRunner replaces the runner used to execute the podlet CLI.
-func SetRunner(r remote.Runner) {
-	defaultRunner.Store(&r)
-}
+// New returns a Client bound to runner.
+func New(runner remote.Runner) Client { return Client{Runner: runner} }
 
 // Available reports whether a podlet binary is on PATH.
 func Available() bool {
@@ -42,10 +33,10 @@ func Available() bool {
 
 // Generate converts a docker/podman run command into Quadlet text.
 // args are the words after "podlet", e.g. ["podman", "run", "--name", "web", "nginx"].
-func Generate(ctx context.Context, args []string) (string, error) {
+func (c Client) Generate(ctx context.Context, args []string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
-	out, err := Runner().Command(ctx, "podlet", args...).CombinedOutput() // #nosec G204 -- argv slice, no shell
+	out, err := c.Runner.Command(ctx, "podlet", args...).CombinedOutput() // #nosec G204 -- argv slice, no shell
 	if err != nil {
 		return "", fmt.Errorf("podlet: %w: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -53,12 +44,12 @@ func Generate(ctx context.Context, args []string) (string, error) {
 }
 
 // Compose converts a compose file into Quadlet text (one per service).
-func Compose(ctx context.Context, path string) (string, error) {
+func (c Client) Compose(ctx context.Context, path string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
 	// podlet takes the compose file positionally (0.3 rejects -f); "--"
 	// keeps a path that starts with "-" from being read as an option.
-	out, err := Runner().Command(ctx, "podlet", "compose", "--", path).CombinedOutput() // #nosec G204 -- argv slice, no shell
+	out, err := c.Runner.Command(ctx, "podlet", "compose", "--", path).CombinedOutput() // #nosec G204 -- argv slice, no shell
 	if err != nil {
 		return "", fmt.Errorf("podlet compose: %w: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -82,7 +73,7 @@ func IsObjectKind(kind string) bool { return objectKinds[kind] }
 // `podlet generate <kind> <name>`. Name must be a single word: the UI
 // rejects shell metacharacters before calling, and argv never touches a
 // shell here either.
-func GenerateObject(ctx context.Context, kind, name string) (string, error) {
+func (c Client) GenerateObject(ctx context.Context, kind, name string) (string, error) {
 	if !IsObjectKind(kind) {
 		return "", fmt.Errorf("podlet cannot generate from %q: want container|pod|network|volume|image", kind)
 	}
@@ -91,7 +82,7 @@ func GenerateObject(ctx context.Context, kind, name string) (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
-	out, err := Runner().Command(ctx, "podlet", "generate", kind, name).CombinedOutput() // #nosec G204 -- argv slice, no shell
+	out, err := c.Runner.Command(ctx, "podlet", "generate", kind, name).CombinedOutput() // #nosec G204 -- argv slice, no shell
 	if err != nil {
 		return "", fmt.Errorf("podlet generate %s %s: %w: %s", kind, name, err, strings.TrimSpace(string(out)))
 	}

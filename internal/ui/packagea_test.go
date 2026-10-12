@@ -1,8 +1,6 @@
 package ui
 
 import (
-	"github.com/fahmikemal/quadman/internal/podman"
-
 	"context"
 	"os"
 	"path/filepath"
@@ -12,6 +10,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/fahmikemal/quadman/internal/config"
+	"github.com/fahmikemal/quadman/internal/podlet"
+	"github.com/fahmikemal/quadman/internal/podman"
 	"github.com/fahmikemal/quadman/internal/quadlet"
 	"github.com/fahmikemal/quadman/internal/remote"
 	"github.com/fahmikemal/quadman/internal/systemd"
@@ -29,7 +29,7 @@ func fakeBin(t *testing.T, name, body string) {
 
 func TestGenerateLiveObject(t *testing.T) {
 	fakeBin(t, "podlet", "echo '# FileName=live'\necho '[Container]'\n")
-	out, err := generatePodlet(context.Background(), "container web")
+	out, err := generatePodlet(context.Background(), podlet.Client{}, "container web")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestGenerateLiveObject(t *testing.T) {
 
 func TestGenerateLiveObjectNeedsName(t *testing.T) {
 	for _, in := range []string{"container", "volume a b", "service web"} {
-		if _, err := generatePodlet(context.Background(), in); err == nil {
+		if _, err := generatePodlet(context.Background(), podlet.Client{}, in); err == nil {
 			t.Errorf("%q should fail", in)
 		} else if !strings.Contains(err.Error(), "kind") {
 			t.Errorf("%q error should mention <kind>: %v", in, err)
@@ -137,11 +137,14 @@ func TestPruneKeysRefused(t *testing.T) {
 	} else if m.pending != nil {
 		t.Error("readonly must not arm prune")
 	}
+	// Over SSH prune runs on the host through the runner, behind the same
+	// typed confirmation as everywhere else.
 	m2 := withUnits(New(), "db")
-	m2.ssh = remote.Runner{Target: "host"}
-	model, _, _ := m2.pruneKeys(tea.KeyPressMsg{Code: 'P', Text: "P"})
-	if model.(Model).pending != nil {
-		t.Error("remote must not arm prune")
+	m2.applySSH("host")
+	model, _ := m2.Update(tea.KeyPressMsg{Code: 'P', Text: "P"})
+	p := model.(Model).pending
+	if p == nil || p.typed != "prune" || !p.danger {
+		t.Errorf("remote prune must arm a typed danger confirmation, got %+v", p)
 	}
 }
 
@@ -303,7 +306,7 @@ func TestKubeYamlAccessor(t *testing.T) {
 
 func TestPullImageAlreadyPresent(t *testing.T) {
 	fakeBin(t, "podman", "if [ \"$1 $2\" = \"image exists\" ]; then exit 0; fi\necho 'must not pull'; exit 9\n")
-	msg := pullImageCmd("busybox:latest")()
+	msg := New().pullImageCmd("busybox:latest")()
 	am, ok := msg.(actionMsg)
 	if !ok {
 		t.Fatalf("msg = %T", msg)
@@ -315,7 +318,7 @@ func TestPullImageAlreadyPresent(t *testing.T) {
 
 func TestPullImageFetches(t *testing.T) {
 	fakeBin(t, "podman", "if [ \"$1 $2\" = \"image exists\" ]; then exit 1; fi\necho 'Copied blob sha256:abc'\n")
-	msg := pullImageCmd("busybox:latest")()
+	msg := New().pullImageCmd("busybox:latest")()
 	am, ok := msg.(actionMsg)
 	if !ok {
 		t.Fatalf("msg = %T", msg)

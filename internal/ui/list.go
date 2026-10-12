@@ -69,7 +69,7 @@ func (m Model) stateOf(u quadlet.Unit) unitState {
 	switch {
 	case strings.HasSuffix(u.Name, "@"):
 		return unitState{gTemplate, "template", "-"}
-	case m.health["systemd-"+u.Name] == "unhealthy":
+	case m.containerHealth(u) == "unhealthy":
 		return unitState{gUnhealthy, "unhealthy", "health"}
 	case state == "failed":
 		return unitState{gFailed, "failed", sub}

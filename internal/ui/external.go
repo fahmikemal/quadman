@@ -2,16 +2,18 @@ package ui
 
 import (
 	"path/filepath"
+	"strings"
 
 	"github.com/fahmikemal/quadman/internal/quadlet"
 )
 
 // isExternalDir reports whether dir is a user-configured extra directory
-// rather than part of the generator search path.
+// (or below one) rather than part of the generator search path.
 func isExternalDir(dir string) bool {
 	clean := filepath.Clean(dir)
-	for _, d := range quadlet.ExtraDirs {
-		if filepath.Clean(d) == clean {
+	for _, d := range quadlet.ExtraDirList() {
+		root := filepath.Clean(d)
+		if clean == root || strings.HasPrefix(clean, root+string(filepath.Separator)) {
 			return true
 		}
 	}
@@ -20,7 +22,7 @@ func isExternalDir(dir string) bool {
 
 // isExternalUnit reports whether a unit's file lives in an extra directory.
 func isExternalUnit(path string) bool {
-	return isExternalDir(filepath.Dir(path))
+	return path != "" && isExternalDir(filepath.Dir(path))
 }
 
 // externalHint is appended to statuses for external units.

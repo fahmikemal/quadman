@@ -19,6 +19,9 @@ func (m Model) diagnosticsPaletteActions() []paletteAction {
 		category:    "Diagnostics",
 		description: "Execute podman healthcheck run on the container",
 		enabled: func(m Model) (bool, string) {
+			if ok, why := m.allowed(capMutate); !ok {
+				return false, why
+			}
 			u, ok := m.selected()
 			if !ok || u.Kind != quadlet.KindContainer {
 				return false, "containers only"
@@ -114,10 +117,7 @@ func (m Model) diagnosticsPaletteActions() []paletteAction {
 		category:    "Creation",
 		description: "Convert docker run or compose to Quadlet via podlet",
 		enabled: func(m Model) (bool, string) {
-			if m.readonly {
-				return false, "readonly"
-			}
-			return true, ""
+			return m.allowed(capMutate | capTargetFiles)
 		},
 		run: func(m Model) (tea.Model, tea.Cmd, bool) {
 			return m.generateOpenKeys(tea.KeyPressMsg{Code: 'n', Text: "n"})

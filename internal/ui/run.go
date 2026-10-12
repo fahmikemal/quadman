@@ -3,14 +3,13 @@ package ui
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/fahmikemal/quadman/internal/podlet"
-	"github.com/fahmikemal/quadman/internal/podman"
+	"github.com/fahmikemal/quadman/internal/config"
 	"github.com/fahmikemal/quadman/internal/quadlet"
 	"github.com/fahmikemal/quadman/internal/remote"
 )
 
-// This file holds program startup: CLI-level options, constructors with
-// overrides, and the SSH/compartment wiring.
+// This file holds program startup: process-wide presentation, CLI-level
+// options, constructors with overrides, and the SSH/compartment wiring.
 
 // Options are the CLI-level overrides applied on top of config.yaml.
 type Options struct {
@@ -18,12 +17,40 @@ type Options struct {
 	SSH         string
 	Compartment string
 	Mouse       bool
+	// Theme and ASCII are process-wide (see Configure); NewWithOptions
+	// ignores them, RunWithOptions applies them once.
 	Theme       string
 	ASCII       bool // ASCII glyph fallback (TERM=linux enables it too)
 	QuadletDirs []string
-	ClientInfo  string
-	NoEditor    bool
-	System      bool
+	// ClientInfo identifies the connected client of a served session.
+	ClientInfo string
+	// NoEditor marks a served session: no editor, exec, secret copies,
+	// local file writes, or session switches (see policy.go).
+	NoEditor bool
+	System   bool
+}
+
+// Configure sets the process-wide presentation: theme and glyph set, plus
+// the extra Quadlet directories. Styles are shared by every session a
+// process renders (quadman serve renders many at once), so they must be
+// configured once, before the first session starts — never from a
+// per-session constructor, where concurrent sessions would race on them.
+// theme overrides config.yaml's; interactive false (a daemon without a
+// terminal of its own) resolves "auto" to dark instead of probing stdio.
+func Configure(theme string, ascii bool, extraDirs []string, cfg config.Config, interactive bool) {
+	if theme == "" {
+		theme = cfg.Settings.Theme
+	}
+	t := resolveTheme(theme)
+	if t == ThemeAuto && !interactive {
+		t = ThemeDark
+	}
+	applyTheme(t)
+	if ascii {
+		SetASCII(true)
+	}
+	applyExtraDirs(cfg.Settings.QuadletDirs)
+	applyExtraDirs(extraDirs)
 }
 
 // Run starts the quadman TUI.
@@ -38,8 +65,13 @@ func RunWith(readonly bool) error {
 }
 
 // NewWithOptions returns a configured Model with CLI overrides applied.
+// It only touches the new model: process-wide presentation is Configure's.
 func NewWithOptions(o Options) Model {
 	m := New()
+	if o.System {
+		m.system = true
+		m.setSession(m.ssh, true, "")
+	}
 	if o.SSH != "" {
 		m.applySSH(o.SSH)
 	}
@@ -49,21 +81,8 @@ func NewWithOptions(o Options) Model {
 	if o.Readonly {
 		m.readonly = true
 	}
-	if o.System {
-		m.system = true
-		m.sys.User = false
-	}
 	if o.Mouse {
 		m.mouse = true
-	}
-	if o.Theme != "" {
-		applyTheme(resolveTheme(o.Theme))
-	}
-	if o.ASCII {
-		SetASCII(true)
-	}
-	if len(o.QuadletDirs) > 0 {
-		applyExtraDirs(o.QuadletDirs)
 	}
 	if o.ClientInfo != "" {
 		m.clientInfo = o.ClientInfo
@@ -84,8 +103,10 @@ func (m Model) searchDirs() []string {
 	return quadlet.SearchDirsMode(false)
 }
 
-// RunWithOptions starts the quadman TUI with CLI overrides.
+// RunWithOptions configures the process presentation and runs the TUI.
 func RunWithOptions(o Options) error {
+	cfg, _ := config.Load() // New reports config problems in the status line
+	Configure(o.Theme, o.ASCII, o.QuadletDirs, cfg, true)
 	m := NewWithOptions(o)
 	_, err := tea.NewProgram(m).Run()
 	return err
@@ -93,8 +114,8 @@ func RunWithOptions(o Options) error {
 
 // applyExtraDirs appends user-configured Quadlet source directories to the
 // discovery search path (config.yaml quadlet_dirs plus --quadlet-dir
-// flags). Empty and duplicate entries are ignored, so calling it twice
-// (once from main, once from New) is safe.
+// flags). Empty and duplicate entries are ignored, so calling it twice is
+// safe.
 func applyExtraDirs(dirs []string) {
 	quadlet.AddExtraDirs(dirs)
 }
@@ -106,11 +127,5 @@ func RunWithSSH(target string, readonly bool) error {
 	return RunWithOptions(Options{SSH: target, Readonly: readonly})
 }
 
-// applySSH points every CLI client at the remote target.
-func (m *Model) applySSH(target string) {
-	m.ssh = remote.Runner{Target: target}
-	m.sys.Remote = m.ssh
-	m.lc.Remote = m.ssh
-	podman.SetRunner(m.ssh)
-	podlet.SetRunner(m.ssh)
-}
+// localRunner is the operator's own session.
+func localRunner() remote.Runner { return remote.Runner{} }

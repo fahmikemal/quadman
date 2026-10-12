@@ -8,24 +8,15 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/fahmikemal/quadman/internal/podlet"
-	"github.com/fahmikemal/quadman/internal/podman"
 	"github.com/fahmikemal/quadman/internal/quadlet"
-	"github.com/fahmikemal/quadman/internal/remote"
 )
 
-// resetRunners restores the podman/podlet session runners to local.
-func resetRunners() {
-	podman.SetRunner(remote.Runner{})
-	podlet.SetRunner(remote.Runner{})
-}
-
-// setRunnerSSHBins points the podman/podlet runners at a fake ssh binary.
-func setRunnerSSHBins(fake string) {
-	pr, lr := podman.Runner(), podlet.Runner()
-	pr.SSHBin, lr.SSHBin = fake, fake
-	podman.SetRunner(pr)
-	podlet.SetRunner(lr)
+// useFakeSSH rebuilds the model's session around a fake ssh binary, so
+// every client (systemctl, loginctl, podman, podlet) goes through it.
+func useFakeSSH(m *Model, fake string) {
+	r := m.ssh
+	r.SSHBin = fake
+	m.setSession(r, m.system, m.sys.GenDir)
 }
 
 func fakeSSHBin(t *testing.T, script string) string {
@@ -46,12 +37,7 @@ func sshModel(t *testing.T) Model {
 		"echo 'Id=web.service'; echo 'LoadState=loaded'; echo 'ActiveState=active'; echo 'SubState=running'; echo 'Description=x'; echo ''\n"
 	m := New()
 	m.applySSH("user@remote")
-	fake := fakeSSHBin(t, script)
-	m.ssh.SSHBin = fake
-	m.sys.Remote.SSHBin = fake
-	m.lc.Remote.SSHBin = fake
-	setRunnerSSHBins(fake)
-	t.Cleanup(resetRunners)
+	useFakeSSH(&m, fakeSSHBin(t, script))
 	return m
 }
 
@@ -61,10 +47,31 @@ func TestSSHApplyWiresClients(t *testing.T) {
 	if !m.ssh.IsRemote() || m.sys.Remote.Target != "user@remote" || m.lc.Remote.Target != "user@remote" {
 		t.Fatalf("clients not pointed at remote: %+v", m.ssh)
 	}
-	if podman.Runner().Target != "user@remote" || podlet.Runner().Target != "user@remote" {
-		t.Error("podman/podlet runners must follow --ssh")
+	if m.pm.Runner.Target != "user@remote" || m.pl.Runner.Target != "user@remote" {
+		t.Error("podman/podlet clients must follow --ssh")
 	}
-	resetRunners()
+	if !m.ssh.Multiplex {
+		t.Error("--ssh sessions share one connection by default")
+	}
+}
+
+// TestSessionSwitchKeepsInFlightClients: switching targets builds new
+// clients; commands that captured the old ones keep their session.
+func TestSessionSwitchKeepsInFlightClients(t *testing.T) {
+	m := New()
+	before, epoch := m.sys, m.epoch
+	m.applySSH("user@remote")
+	if before.Remote.Target != "" {
+		t.Error("the previous session's systemd client must not be re-pointed")
+	}
+	if m.sys == before || m.epoch == epoch {
+		t.Error("a switch must build new clients and bump the epoch")
+	}
+	stale := refreshMsg{units: []quadlet.Unit{{Name: "old", UnitName: "old.service"}}, images: []string{""}, epoch: epoch}
+	model, _ := m.Update(stale)
+	if len(model.(Model).units) != 0 {
+		t.Error("a refresh of the previous session must be dropped")
+	}
 }
 
 func TestDropinNamesParse(t *testing.T) {
@@ -86,7 +93,8 @@ func TestDropinNamesParse(t *testing.T) {
 func dropinFakeBin(t *testing.T, lsOut, lsExit string) string {
 	t.Helper()
 	script := "#!/bin/sh\n" +
-		"cmd=\"$7\"\n" +
+		"for last; do :; done\n" +
+		"cmd=${last%% *}\n" +
 		"if [ \"$cmd\" = \"ls\" ]; then printf '" + lsOut + "'; exit " + lsExit + "; fi\n" +
 		"if [ \"$cmd\" = \"cat\" ]; then printf '[Container]\\nEnvironment=A=1\\n'; exit 0; fi\n" +
 		"exit 1\n"
@@ -135,7 +143,7 @@ func TestSSHRefusesFileWrites(t *testing.T) {
 	m := sshModel(t)
 	m = withUnits(m, "webapp")
 	m.table.SetCursor(0)
-	for _, key := range []string{"e", "d", "E", "i", "D", "n"} {
+	for _, key := range []string{"e", "d", "E", "D", "n"} {
 		model, _ := m.Update(tea.KeyPressMsg{Code: rune(key[0]), Text: key})
 		mm := model.(Model)
 		if mm.pending != nil || mm.generating || mm.instancing || mm.pickingEditor {
@@ -145,7 +153,18 @@ func TestSSHRefusesFileWrites(t *testing.T) {
 			t.Errorf("key %q must explain SSH limits, got %q", key, mm.statusLine)
 		}
 	}
-	resetRunners()
+}
+
+// TestSSHInstantiateAllowed: instantiating a template only starts a unit
+// (no file is written), so it works over SSH like any lifecycle action.
+func TestSSHInstantiateAllowed(t *testing.T) {
+	m := sshModel(t)
+	m = withUnits(m, "web@")
+	m.table.SetCursor(0)
+	model, _ := m.Update(tea.KeyPressMsg{Code: 'i', Text: "i"})
+	if !model.(Model).instancing {
+		t.Errorf("instantiate must open its prompt over SSH: %q", model.(Model).statusLine)
+	}
 }
 
 func TestSSHReadsFileViaCat(t *testing.T) {
@@ -165,7 +184,6 @@ func TestSSHReadsFileViaCat(t *testing.T) {
 	if f.Image() != "nginx" {
 		t.Errorf("image = %q", f.Image())
 	}
-	resetRunners()
 }
 
 func TestSSHTitleShowsTarget(t *testing.T) {
@@ -174,7 +192,6 @@ func TestSSHTitleShowsTarget(t *testing.T) {
 	if !strings.Contains(m.View().Content, "user@remote") {
 		t.Errorf("title must show the remote target: %q", m.View().Content)
 	}
-	resetRunners()
 }
 
 func TestUpdatesCmdUsesRemotePodman(t *testing.T) {
@@ -185,14 +202,8 @@ func TestUpdatesCmdUsesRemotePodman(t *testing.T) {
 		"echo ok; exit 0\n"
 	m := New()
 	m.applySSH("user@remote")
-	fake := fakeSSHBin(t, script)
-	m.ssh.SSHBin = fake
-	m.sys.Remote.SSHBin = fake
-	pr := podman.Runner()
-	pr.SSHBin = fake
-	podman.SetRunner(pr)
-	t.Cleanup(resetRunners)
-	msg := updatesCmd(m.sys, m.ssh)()
+	useFakeSSH(&m, fakeSSHBin(t, script))
+	msg := updatesCmd(m.sys, m.pm)()
 	um, ok := msg.(updatesMsg)
 	if !ok {
 		t.Fatalf("expected updatesMsg, got %T", msg)
@@ -210,8 +221,7 @@ func TestUpdatesCmdUsesRemotePodman(t *testing.T) {
 
 func TestSSHRefreshCmd(t *testing.T) {
 	m := sshModel(t)
-	cmd := refreshCmd(m.sys, m.lc, nil, m.ssh, enrichNone, false, nil)
-	msg := cmd()
+	msg := m.refreshReq(enrichNone).cmd()()
 	rm, ok := msg.(refreshMsg)
 	if !ok {
 		t.Fatalf("expected refreshMsg, got %T", msg)
@@ -222,5 +232,4 @@ func TestSSHRefreshCmd(t *testing.T) {
 	if len(rm.units) != 1 || rm.units[0].Name != "web" {
 		t.Errorf("expected 1 unit 'web', got %v", rm.units)
 	}
-	resetRunners()
 }

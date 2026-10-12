@@ -2,13 +2,16 @@ package podman
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/fahmikemal/quadman/internal/remote"
 )
+
+// local is the zero Client: podman from PATH, as the current user.
+var local Client
 
 // fakePodman puts a fake podman binary first on PATH.
 func fakePodman(t *testing.T, body string) {
@@ -36,7 +39,7 @@ func TestQuadletList(t *testing.T) {
 ]
 EOF
 `)
-	entries, err := QuadletList(context.Background())
+	entries, err := local.QuadletList(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +59,7 @@ EOF
 
 func TestQuadletListEmpty(t *testing.T) {
 	fakePodman(t, "echo '[]'\n")
-	entries, err := QuadletList(context.Background())
+	entries, err := local.QuadletList(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,14 +70,14 @@ func TestQuadletListEmpty(t *testing.T) {
 
 func TestQuadletListCommandError(t *testing.T) {
 	fakePodman(t, "echo 'unsupported' >&2\nexit 125\n")
-	if _, err := QuadletList(context.Background()); err == nil {
+	if _, err := local.QuadletList(context.Background()); err == nil {
 		t.Fatal("QuadletList should fail when podman exits non-zero")
 	}
 }
 
 func TestQuadletListBadJSON(t *testing.T) {
 	fakePodman(t, "echo 'not json'\n")
-	if _, err := QuadletList(context.Background()); err == nil {
+	if _, err := local.QuadletList(context.Background()); err == nil {
 		t.Fatal("QuadletList should fail on non-JSON output")
 	}
 }
@@ -82,24 +85,40 @@ func TestQuadletListBadJSON(t *testing.T) {
 func TestPsHealth(t *testing.T) {
 	fakePodman(t, `cat <<'EOF'
 [
-  {"Names": ["systemd-webapp"], "Status": "Up 2 minutes (healthy)"},
-  {"Names": ["systemd-db"], "Status": "Up 5 minutes (unhealthy)"},
+  {"Names": ["systemd-webapp"], "Status": "Up 2 minutes (healthy)", "Labels": {"PODMAN_SYSTEMD_UNIT": "webapp.service"}},
+  {"Names": ["db-main"], "Status": "Up 5 minutes (unhealthy)", "Labels": {"PODMAN_SYSTEMD_UNIT": "db.service"}},
   {"Names": ["plain"], "Status": "Up 1 hour"}
 ]
 EOF
 `)
-	m, err := PsHealth(context.Background())
+	h, err := local.PsHealth(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m["systemd-webapp"] != "healthy" {
-		t.Errorf("webapp health = %q", m["systemd-webapp"])
+	if h.ByName["systemd-webapp"] != "healthy" {
+		t.Errorf("webapp health = %q", h.ByName["systemd-webapp"])
 	}
-	if m["systemd-db"] != "unhealthy" {
-		t.Errorf("db health = %q", m["systemd-db"])
+	if h.ByName["db-main"] != "unhealthy" {
+		t.Errorf("db health = %q", h.ByName["db-main"])
 	}
-	if _, ok := m["plain"]; ok {
+	if _, ok := h.ByName["plain"]; ok {
 		t.Error("container without healthcheck must be absent")
+	}
+	// ContainerName= overrides resolve through the Quadlet label, never
+	// through the systemd-<name> guess.
+	if h.NameByUnit["db.service"] != "db-main" || h.NameByUnit["webapp.service"] != "systemd-webapp" {
+		t.Errorf("NameByUnit = %v", h.NameByUnit)
+	}
+	if len(h.NameByUnit) != 2 {
+		t.Errorf("non-Quadlet containers must not map to a unit: %v", h.NameByUnit)
+	}
+}
+
+func TestPsHealthEmpty(t *testing.T) {
+	fakePodman(t, "echo null\n")
+	h, err := local.PsHealth(context.Background())
+	if err != nil || len(h.ByName) != 0 || h.NameByUnit == nil {
+		t.Errorf("empty ps = %+v, %v", h, err)
 	}
 }
 
@@ -125,7 +144,7 @@ func TestHealthOf(t *testing.T) {
 
 func TestHealthcheckRun(t *testing.T) {
 	fakePodman(t, "exit 0\n")
-	ok, err := HealthcheckRun(context.Background(), "systemd-webapp")
+	ok, err := local.HealthcheckRun(context.Background(), "systemd-webapp")
 	if err != nil || !ok {
 		t.Errorf("exit 0 = passed: ok=%v err=%v", ok, err)
 	}
@@ -136,7 +155,7 @@ func TestHealthcheckRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	ok, err = HealthcheckRun(context.Background(), "systemd-webapp")
+	ok, err = local.HealthcheckRun(context.Background(), "systemd-webapp")
 	if err != nil || ok {
 		t.Errorf("exit 1 = failed healthcheck: ok=%v err=%v", ok, err)
 	}
@@ -147,7 +166,7 @@ func TestAutoUpdateDryRun(t *testing.T) {
 [{"Container":"abc123","Image":"quay.io/x:latest","Policy":"registry","Unit":"webapp.service","Updated":"pending"}]
 EOF
 `)
-	entries, err := AutoUpdateDryRun(context.Background())
+	entries, err := local.AutoUpdateDryRun(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +177,7 @@ EOF
 
 func TestAutoUpdateDryRunEmpty(t *testing.T) {
 	fakePodman(t, "exit 0\n") // podman prints nothing when no labeled containers
-	entries, err := AutoUpdateDryRun(context.Background())
+	entries, err := local.AutoUpdateDryRun(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +230,7 @@ func TestSecretList(t *testing.T) {
 ]
 EOF
 `)
-	entries, err := SecretList(context.Background())
+	entries, err := local.SecretList(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +244,7 @@ EOF
 
 func TestSecretListEmpty(t *testing.T) {
 	fakePodman(t, "echo '[]'\n")
-	entries, err := SecretList(context.Background())
+	entries, err := local.SecretList(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,22 +253,34 @@ func TestSecretListEmpty(t *testing.T) {
 	}
 }
 
-func TestRunnerConcurrentAccess(t *testing.T) {
-	const n = 16
-	done := make(chan bool, n)
-	for i := range n {
-		go func() {
-			SetRunner(remote.Runner{Target: fmt.Sprintf("host-%d", i)})
-			_ = Runner()
-			_ = runCmd(context.Background(), "podman", "--version")
-			done <- true
-		}()
+// TestClientUsesItsOwnRunner proves two clients never share a runner:
+// each one reaches podman through the session it was built for.
+func TestClientUsesItsOwnRunner(t *testing.T) {
+	dir := t.TempDir()
+	record := filepath.Join(dir, "argv")
+	ssh := filepath.Join(dir, "ssh")
+	script := "#!/bin/sh\necho \"$@\" >> " + record + "\necho '[]'\n"
+	if err := os.WriteFile(ssh, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	for range n {
-		<-done
+	a := New(remote.Runner{Target: "host-a", SSHBin: ssh})
+	b := New(remote.Runner{Target: "host-b", SSHBin: ssh})
+	if _, err := a.SecretList(context.Background()); err != nil {
+		t.Fatal(err)
 	}
-	SetRunner(remote.Runner{})
-	if got := Runner(); got.Target != "" || got.As != "" || len(got.Env) != 0 {
-		t.Errorf("Runner after reset = %+v, want zero", got)
+	if _, err := b.SecretList(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(record)
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) != 2 || !strings.Contains(lines[0], "host-a") || !strings.Contains(lines[1], "host-b") {
+		t.Errorf("clients must keep their own runners, ssh saw:\n%s", raw)
+	}
+}
+
+func TestReachableLocal(t *testing.T) {
+	fakePodman(t, "exit 0\n")
+	if !local.Reachable(context.Background()) {
+		t.Error("local podman on PATH must be reachable")
 	}
 }

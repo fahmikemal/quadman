@@ -9,18 +9,29 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/fahmikemal/quadman/internal/config"
 	"github.com/fahmikemal/quadman/internal/quadlet"
 	"github.com/fahmikemal/quadman/internal/systemd"
 )
 
-// logBufferCap bounds how many journal lines the follow view keeps. It
-// defaults to 1000 and is overridden from the YAML config (log_buffer) in
-// New when set.
-var logBufferCap = 1000
+// logBufferCap bounds how many journal lines the follow view keeps
+// (config log_buffer). Each model carries its own value: served sessions
+// never share it.
+func (m Model) logBufferCap() int {
+	if m.logCap > 0 {
+		return m.logCap
+	}
+	return config.DefaultLogBuffer
+}
 
-// logTailLines is the journal snapshot size for a new follow stream. It
-// defaults to 200 and is overridden from the YAML config (log_tail).
-var logTailLines = 200
+// logTailLines is the journal snapshot size for a new follow stream
+// (config log_tail).
+func (m Model) logTailLines() int {
+	if m.logTail > 0 {
+		return m.logTail
+	}
+	return config.DefaultLogTail
+}
 
 // logSession is one live `journalctl -f` stream.
 type logSession struct {
@@ -84,9 +95,9 @@ func (m *Model) setLogLines(raw []string) {
 func (m *Model) appendLogLine(raw string) {
 	m.logLines = append(m.logLines, raw)
 	m.logFmt = append(m.logFmt, formatLogLine(raw))
-	if len(m.logLines) > logBufferCap {
-		m.logLines = m.logLines[len(m.logLines)-logBufferCap:]
-		m.logFmt = m.logFmt[len(m.logFmt)-logBufferCap:]
+	if limit := m.logBufferCap(); len(m.logLines) > limit {
+		m.logLines = m.logLines[len(m.logLines)-limit:]
+		m.logFmt = m.logFmt[len(m.logFmt)-limit:]
 	}
 }
 
@@ -178,7 +189,7 @@ func (m Model) startLogs(u quadlet.Unit) (tea.Model, tea.Cmd) {
 func (m Model) startLogsWithPriority(u quadlet.Unit, priority string) (tea.Model, tea.Cmd) {
 	m.stopLogs()
 	m.logPriority = priority
-	stop, stream, err := m.sys.FollowJournalWithPriority(context.Background(), u.UnitName, logTailLines, priority)
+	stop, stream, err := m.sys.FollowJournalWithPriority(context.Background(), u.UnitName, m.logTailLines(), priority)
 	if err != nil {
 		return m, tea.Batch(m.setBusy("loading logs "+u.UnitName), logsCmdWithPriority(m.sys, u.UnitName, priority))
 	}
@@ -232,12 +243,10 @@ func (m Model) exportLogs(format string) (tea.Model, tea.Cmd) {
 		return m, tea.SetClipboard(text)
 	}
 
-	if m.readonly {
-		m.setStatus("export logs refused: readonly", true)
-		return m, nil
-	}
-	if bad, reason := m.isolatedReason(); bad {
-		m.setStatus("export to local file "+reason+" (use 'c' to copy)", true)
+	// The export file lands on the machine quadman runs on, which is
+	// fine for SSH and compartment journals but never for a served
+	// session (the daemon's working directory).
+	if m.refuse(capLocalFiles) {
 		return m, nil
 	}
 

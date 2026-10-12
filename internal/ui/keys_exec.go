@@ -28,15 +28,7 @@ func (m Model) execOpenKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if msg.String() != "X" {
 		return m, nil, false
 	}
-	if m.refuseReadonly() {
-		return m, nil, true
-	}
-	if m.ssh.IsRemote() {
-		m.setStatus("exec unavailable over SSH (an interactive TTY cannot cross the batch runner)", true)
-		return m, nil, true
-	}
-	if m.noEditor {
-		m.setStatus("exec unavailable in served sessions (connect with ssh and run podman exec yourself)", true)
+	if m.refuse(capMutate | capTerminal) {
 		return m, nil, true
 	}
 	u, ok := m.selected()
@@ -46,10 +38,10 @@ func (m Model) execOpenKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	}
 	prefill := ""
 	if u.Kind == quadlet.KindContainer {
-		// Quadlet names the container systemd-<name> (same convention
-		// healthcheck uses); other kinds have no single container, so
-		// the prompt stays empty for the user to fill.
-		prefill = "systemd-" + execBaseName(u.UnitName)
+		// The container's real name (label- and ContainerName=-aware);
+		// other kinds have no single container, so the prompt stays
+		// empty for the user to fill.
+		prefill = m.containerName(u)
 	}
 	m.execing = true
 	m.execIn.SetValue(prefill)
@@ -75,7 +67,7 @@ func (m Model) execKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		}
 		m.execing = false
 		m.execIn.Blur()
-		return m, execResolveCmd(name), true
+		return m, execResolveCmd(m.pm, name), true
 	case "esc":
 		m.execing = false
 		m.execIn.SetValue("")
@@ -98,9 +90,9 @@ type execResolveMsg struct {
 // runner, so compartments resolve the target's containers) before the
 // terminal handover, so a typo fails with a message instead of a dead
 // shell.
-func execResolveCmd(name string) tea.Cmd {
+func execResolveCmd(pm podman.Client, name string) tea.Cmd {
 	return func() tea.Msg {
-		names, err := podman.ContainerNames(context.Background())
+		names, err := pm.ContainerNames(context.Background())
 		if err != nil {
 			return execResolveMsg{name: name, err: err}
 		}

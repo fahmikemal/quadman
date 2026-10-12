@@ -18,8 +18,8 @@ func (m Model) customPaletteActions() []paletteAction {
 			category:    "Custom",
 			description: cmdObj.Run,
 			enabled: func(m Model) (bool, string) {
-				if m.readonly {
-					return false, "readonly"
+				if ok, why := m.allowed(capMutate); !ok {
+					return false, why
 				}
 				_, ok := m.selected()
 				if !ok {
@@ -32,7 +32,10 @@ func (m Model) customPaletteActions() []paletteAction {
 				if !ok {
 					return m, nil, true
 				}
-				return m, tea.Batch(m.setBusy("custom "+cmdObj.Name), customCmd(cmdObj, u, m.images)), true
+				if m.refuse(capMutate) {
+					return m, nil, true
+				}
+				return m, tea.Batch(m.setBusy("custom "+cmdObj.Name), customCmd(m.ssh, cmdObj, u, m.images)), true
 			},
 		})
 	}

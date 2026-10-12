@@ -120,20 +120,20 @@ func New() Model {
 	sfi.Prompt = ""
 	cfg, cfgErr := config.Load()
 	m := Model{
-		sys:      systemd.New(),
-		lc:       loginctl.New(),
 		table:    t,
 		viewport: vp,
 		help:     help.New(),
 		spinner:  spinner.New(spinner.WithSpinner(spinner.Dot)),
 		listState: listState{
-			filterIn: fi,
-			status:   map[string]systemd.Status{},
-			images:   map[string]string{},
-			health:   map[string]string{},
-			loading:  true,
+			filterIn:    fi,
+			status:      map[string]systemd.Status{},
+			images:      map[string]string{},
+			health:      map[string]string{},
+			ctrNames:    map[string]string{},
+			ctrOverride: map[string]string{},
+			loading:     true,
 		},
-		logState:       logState{searchIn: si, logFilterIn: lfi},
+		logState:       logState{searchIn: si, logFilterIn: lfi, logCap: cfg.LogBuffer(), logTail: cfg.LogTail()},
 		paletteState:   paletteState{paletteIn: pi},
 		screenState:    screenState{scrFilterIn: sfi},
 		templateState:  templateState{instanceIn: ii},
@@ -144,21 +144,20 @@ func New() Model {
 		sessionState:   sessionState{cfg: cfg},
 		statusBarState: statusBarState{readonly: cfg.Readonly(), custom: cfg.Settings.CustomCommands},
 	}
+	// New only builds this model. Process-wide presentation (theme, glyph
+	// set, extra dirs) belongs to Configure, so concurrent served sessions
+	// never write shared state; the system mode comes from the caller's
+	// resolved Options.
+	m.setSession(localRunner(), false, "")
 	m.pollInterval = cfg.RefreshInterval()
 	m.mouse = cfg.Settings.Mouse
-	applyExtraDirs(cfg.Settings.QuadletDirs)
-	applyTheme(resolveTheme(cfg.Settings.Theme))
-	if cfg.LogBuffer() != config.DefaultLogBuffer {
-		logBufferCap = cfg.LogBuffer()
-	}
-	if cfg.LogTail() != config.DefaultLogTail {
-		logTailLines = cfg.LogTail()
-	}
-	if cfg.Settings.System {
-		m.system = true
-		m.sys.User = false
-	}
-	if cfgErr != nil {
+	switch {
+	case config.IsSettingsError(cfgErr):
+		// Unknown settings fail closed: a lost `readonly: true` must
+		// never turn into write access.
+		m.readonly = true
+		m.setStatus("config: "+cfgErr.Error()+" — readonly until config.yaml is fixed", true)
+	case cfgErr != nil:
 		m.setStatus("config: "+cfgErr.Error(), true)
 	}
 	if bad := customKeyConflicts(m.custom); len(bad) > 0 {

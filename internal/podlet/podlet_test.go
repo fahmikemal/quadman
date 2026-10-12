@@ -8,6 +8,9 @@ import (
 	"testing"
 )
 
+// local is the zero Client: podlet from PATH.
+var local Client
+
 // fakePodlet puts a recording fake podlet binary first on PATH.
 func fakePodlet(t *testing.T, record *string) {
 	t.Helper()
@@ -33,7 +36,7 @@ func readArgv(t *testing.T, dir string) string {
 func TestGenerateObject(t *testing.T) {
 	var dir string
 	fakePodlet(t, &dir)
-	out, err := GenerateObject(context.Background(), "container", "web")
+	out, err := local.GenerateObject(context.Background(), "container", "web")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +55,7 @@ func TestGenerateObjectRejects(t *testing.T) {
 		{"container", "$(web)"},
 		{"container", "`web`"},
 	} {
-		if _, err := GenerateObject(context.Background(), tc[0], tc[1]); err == nil {
+		if _, err := local.GenerateObject(context.Background(), tc[0], tc[1]); err == nil {
 			t.Errorf("GenerateObject(%q, %q) should fail", tc[0], tc[1])
 		}
 	}

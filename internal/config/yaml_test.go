@@ -71,8 +71,8 @@ func TestLoadYAMLCorrupt(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	writeYAML(t, dir, "refresh_interval: [unclosed\n")
-	if _, err := Load(); err == nil {
-		t.Error("corrupt YAML should return an error")
+	if _, err := Load(); !IsSettingsError(err) {
+		t.Errorf("corrupt YAML should return a settings error, got %v", err)
 	}
 }
 
@@ -152,5 +152,73 @@ func TestLoadQuadletDirs(t *testing.T) {
 	}
 	if len(c.Settings.QuadletDirs) != 2 || c.Settings.QuadletDirs[0] != "/home/u/quadlets" {
 		t.Errorf("quadlet_dirs = %+v", c.Settings.QuadletDirs)
+	}
+}
+
+// TestLoadCorruptJSONKeepsYAML: a broken editor preference must never drop
+// the YAML settings, least of all readonly.
+func TestLoadCorruptJSONKeepsYAML(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	writeYAML(t, dir, "readonly: true\n")
+	if err := os.WriteFile(filepath.Join(dir, "quadman", "config.json"), []byte("{trunc"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load()
+	if err == nil {
+		t.Error("the JSON problem must still be reported")
+	}
+	if IsSettingsError(err) {
+		t.Errorf("a JSON problem is not a settings problem: %v", err)
+	}
+	if !c.Readonly() {
+		t.Error("readonly from YAML must survive a corrupt config.json")
+	}
+}
+
+func TestLoadYAMLUnknownKey(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	writeYAML(t, dir, "read_only: true\n")
+	c, err := Load()
+	if !IsSettingsError(err) {
+		t.Fatalf("an unknown key must be a settings error, got %v", err)
+	}
+	if c.Readonly() {
+		t.Error("settings must be zero when config.yaml is rejected")
+	}
+}
+
+func TestLoadYAMLEmpty(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	writeYAML(t, dir, "# only a comment\n")
+	if _, err := Load(); err != nil {
+		t.Errorf("an empty config.yaml is valid: %v", err)
+	}
+}
+
+func TestSSHMultiplexDefault(t *testing.T) {
+	if !(Config{}).SSHMultiplex() {
+		t.Error("multiplexing is on by default")
+	}
+	off := false
+	if (Config{Settings: Settings{SSHMultiplex: &off}}).SSHMultiplex() {
+		t.Error("ssh_multiplex: false must turn it off")
+	}
+}
+
+func TestSaveIsAtomic(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	if err := (Config{Editor: "vim"}).Save(); err != nil {
+		t.Fatal(err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, "quadman", ".config-*")); len(left) != 0 {
+		t.Errorf("temp files left: %v", left)
+	}
+	st, err := os.Stat(filepath.Join(dir, "quadman", "config.json"))
+	if err != nil || st.Mode().Perm() != 0o600 {
+		t.Errorf("config.json = %v, %v", st, err)
 	}
 }

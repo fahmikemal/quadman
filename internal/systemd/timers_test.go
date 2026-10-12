@@ -99,10 +99,14 @@ func TestListTimersCmdLocale(t *testing.T) {
 	}
 	ssh := New()
 	ssh.Remote = remote.Runner{Target: "user@host"}
-	argv := strings.Join(ssh.listTimersCmd(context.Background()).Args, " ")
-	for _, want := range []string{"env", "LC_ALL=C", "systemctl", "list-timers"} {
-		if !strings.Contains(argv, want) {
-			t.Errorf("remote argv %q must contain %q", argv, want)
-		}
+	argv := ssh.listTimersCmd(context.Background()).Args
+	if got := argv[len(argv)-1]; got != "LC_ALL=C systemctl --user list-timers --all --no-pager --full" {
+		t.Errorf("remote command = %q", got)
+	}
+	comp := New()
+	comp.Remote = remote.Runner{As: "svc"}
+	got := strings.Join(comp.listTimersCmd(context.Background()).Args, " ")
+	if got != "sudo -n -u svc LC_ALL=C -- systemctl --user list-timers --all --no-pager --full" {
+		t.Errorf("compartment argv = %q (sudo carries the locale, no /usr/bin/env)", got)
 	}
 }

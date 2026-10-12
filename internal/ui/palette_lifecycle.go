@@ -20,8 +20,8 @@ func (m Model) lifecyclePaletteActions() []paletteAction {
 		category:    "Lifecycle",
 		description: "Start the selected unit (or all marked units)",
 		enabled: func(m Model) (bool, string) {
-			if m.readonly {
-				return false, "readonly"
+			if ok, why := m.allowed(capMutate); !ok {
+				return false, why
 			}
 			if len(m.markedUnits()) > 0 {
 				return true, fmt.Sprintf("%d marked", len(m.markedUnits()))
@@ -51,8 +51,8 @@ func (m Model) lifecyclePaletteActions() []paletteAction {
 		category:    "Lifecycle",
 		description: "Stop unit (container will be removed by --rm)",
 		enabled: func(m Model) (bool, string) {
-			if m.readonly {
-				return false, "readonly"
+			if ok, why := m.allowed(capMutate); !ok {
+				return false, why
 			}
 			if len(m.markedUnits()) > 0 {
 				return true, fmt.Sprintf("%d marked", len(m.markedUnits()))
@@ -79,8 +79,8 @@ func (m Model) lifecyclePaletteActions() []paletteAction {
 		category:    "Lifecycle",
 		description: "Restart the selected unit (or all marked units)",
 		enabled: func(m Model) (bool, string) {
-			if m.readonly {
-				return false, "readonly"
+			if ok, why := m.allowed(capMutate); !ok {
+				return false, why
 			}
 			if len(m.markedUnits()) > 0 {
 				return true, fmt.Sprintf("%d marked", len(m.markedUnits()))
@@ -103,14 +103,8 @@ func (m Model) lifecyclePaletteActions() []paletteAction {
 		category:    "Lifecycle",
 		description: "Open /bin/sh in the selected unit's container",
 		enabled: func(m Model) (bool, string) {
-			if m.readonly {
-				return false, "readonly"
-			}
-			if bad, reason := m.isolatedReason(); bad {
-				return false, reason
-			}
-			if m.noEditor {
-				return false, "unavailable in served sessions"
+			if ok, why := m.allowed(capMutate | capTerminal); !ok {
+				return false, why
 			}
 			if _, ok := m.selected(); !ok {
 				return false, "no selection"
@@ -143,13 +137,10 @@ func (m Model) lifecyclePaletteActions() []paletteAction {
 		category:    "Host",
 		description: "Remove stopped containers + unused data, warning for inactive Quadlet units",
 		enabled: func(m Model) (bool, string) {
-			if m.readonly {
-				return false, "readonly"
+			if ok, why := m.allowed(capMutate); !ok {
+				return false, why
 			}
-			if bad, reason := m.isolatedReason(); bad {
-				return false, reason
-			}
-			if !podman.Available() {
+			if !m.ssh.Isolated() && !podman.Available() {
 				return false, "podman not found"
 			}
 			return true, ""
@@ -166,8 +157,8 @@ func (m Model) lifecyclePaletteActions() []paletteAction {
 		category:    "Lifecycle",
 		description: "Pull the selected unit's image now (avoids a cold pull at start)",
 		enabled: func(m Model) (bool, string) {
-			if m.readonly {
-				return false, "readonly"
+			if ok, why := m.allowed(capMutate); !ok {
+				return false, why
 			}
 			img := m.unitImage()
 			if img == "" {
@@ -180,10 +171,10 @@ func (m Model) lifecyclePaletteActions() []paletteAction {
 		},
 		run: func(m Model) (tea.Model, tea.Cmd, bool) {
 			img := m.unitImage()
-			if img == "" {
+			if img == "" || m.refuse(capMutate) {
 				return m, nil, true
 			}
-			return m, tea.Batch(m.setBusy("pull "+img), pullImageCmd(img)), true
+			return m, tea.Batch(m.setBusy("pull "+img), m.pullImageCmd(img)), true
 		},
 	})
 

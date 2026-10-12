@@ -18,7 +18,7 @@ func Deps(u Unit, f *File) []string {
 		out = append(out, name)
 	}
 
-	sec := f.Section(string(u.Kind))
+	sec := f.Section(u.Kind.Section())
 	if sec == nil {
 		return nil
 	}

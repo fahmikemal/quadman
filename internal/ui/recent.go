@@ -33,6 +33,10 @@ type actionRecord struct {
 	hint      string
 	// redo re-runs the same work (nil for actions that cannot repeat).
 	redo func(context.Context) (string, error)
+	// epoch is the session redo is bound to; guard the confirmation the
+	// action passed, which a repeat must pass again.
+	epoch uint64
+	guard *confirmGuard
 }
 
 // maxActions bounds the in-memory session log.
@@ -48,6 +52,7 @@ func (m *Model) recordActionMsg(msg actionMsg) {
 	m.appendAction(actionRecord{
 		at: time.Now(), desc: msg.desc, ok: msg.err == nil, err: errText(msg.err),
 		took: msg.took, how: m.busyHow, hint: msg.hint, redo: msg.run,
+		epoch: msg.epoch, guard: msg.guard,
 	})
 }
 
@@ -92,8 +97,11 @@ func (m Model) actionCommand(desc string) string {
 		scope = " --user"
 	}
 	prefix := ""
-	if m.ssh.IsRemote() {
+	switch {
+	case m.ssh.IsRemote():
 		prefix = "ssh " + m.ssh.Target + " "
+	case m.ssh.As != "":
+		prefix = "sudo -u " + m.ssh.As + " "
 	}
 	switch verb {
 	case "start", "stop", "restart", "enable", "disable":
@@ -283,18 +291,35 @@ func (m Model) actionsKeysIn(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 			m.setStatus("this action cannot be repeated from here", false)
 			return m, nil, true
 		}
-		if m.refuseReadonly() {
+		if m.refuse(capMutate) {
+			return m, nil, true
+		}
+		// The work is bound to the session it first ran against: never
+		// replay it after a switch, where the same words would hit
+		// another host's or user's units.
+		if a.epoch != 0 && a.epoch != m.epoch {
+			m.setStatus("not repeated: "+a.desc+" ran against another session (switch back to repeat it)", true)
 			return m, nil, true
 		}
 		desc, hint, run := a.desc, a.hint, a.redo
-		m.pending = &pendingAction{
+		p := &pendingAction{
 			verb:  "repeat",
 			title: "Repeat " + desc + "?",
 			lines: []string{"run " + desc + " again"},
 			run: func(m Model) (tea.Model, tea.Cmd) {
-				return m, tea.Batch(m.setBusy(desc), actionCmdHint(desc, hint, run))
+				return m, tea.Batch(m.setBusy(desc), m.actionCmdHint(desc, hint, run))
 			},
 		}
+		// A repeat asks exactly what the original asked: a typed name
+		// stays a typed name, a danger dialog stays a danger dialog.
+		if g := a.guard; g != nil {
+			if g.title != "" {
+				p.title = "Repeat: " + strings.TrimSuffix(g.title, "?") + "?"
+			}
+			p.lines = append([]string{"run " + desc + " again:"}, g.lines...)
+			p.keeps, p.danger, p.typed = g.keeps, g.danger, g.typed
+		}
+		m.pending = p
 		return m, nil, true
 	case "c":
 		c := m.actionCommand(a.desc)

@@ -4,6 +4,7 @@ package systemd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -18,6 +19,16 @@ import (
 // DefaultTimeout bounds each systemctl/journalctl call so a hung binary
 // cannot stall a refresh forever.
 const DefaultTimeout = 30 * time.Second
+
+// JobTimeout bounds start/stop/restart. systemctl waits for the job to
+// finish, and a first start that pulls a large image legitimately takes
+// minutes (Quadlet users raise TimeoutStartSec= for exactly that), so the
+// read timeout above would report healthy starts as failures.
+const JobTimeout = 5 * time.Minute
+
+// ErrJobPending reports that quadman stopped waiting for a systemd job
+// that systemd itself keeps running. It is not a failure of the unit.
+var ErrJobPending = errors.New("still running in systemd (quadman stopped waiting; the job continues in the background)")
 
 // Systemd talks to systemd through the systemctl CLI.
 type Systemd struct {
@@ -36,6 +47,8 @@ type Systemd struct {
 	// Empty means GeneratorDir() derives it from the session; compartments
 	// set it to the target user's runtime generator dir.
 	GenDir string
+	// JobTimeout bounds start/stop/restart jobs; 0 means JobTimeout.
+	JobTimeout time.Duration
 }
 
 // New returns a Systemd targeting the current user's session.
@@ -101,6 +114,17 @@ type Status struct {
 	// NRestarts counts automatic restarts (Restart=) since the last
 	// manual start; a climbing value means a crash loop.
 	NRestarts int
+	// NeedDaemonReload is systemd's own verdict that the unit's files —
+	// including the Quadlet source it records as SourcePath= — changed
+	// since the last daemon-reload. It needs no filesystem access, so it
+	// is authoritative over SSH and in compartments alike.
+	NeedDaemonReload bool
+}
+
+// NeedsReload reports whether a daemon-reload would change this unit:
+// systemd says its sources changed, or it was never generated yet.
+func (st Status) NeedsReload() bool {
+	return st.NeedDaemonReload || st.LoadState == "not-found"
 }
 
 // Loaded reports whether systemd knows the unit (it was generated).
@@ -131,7 +155,7 @@ func (s *Systemd) Show(ctx context.Context, units []string) (map[string]Status, 
 	}
 	args := s.args(append([]string{
 		"show",
-		"--property=Id,LoadState,ActiveState,SubState,Description,ActiveEnterTimestamp,Result,ExecMainStatus,NRestarts",
+		"--property=Id,LoadState,ActiveState,SubState,Description,ActiveEnterTimestamp,Result,ExecMainStatus,NRestarts,NeedDaemonReload",
 		"--timestamp=unix", // "@1696000000": no locale or timezone parsing
 		"--no-pager",
 		"--", // never let a unit name be read as an option
@@ -194,6 +218,10 @@ func (s *Systemd) Show(ctx context.Context, units []string) (map[string]Status, 
 			if cur != nil {
 				cur.NRestarts, _ = strconv.Atoi(v)
 			}
+		case "NeedDaemonReload":
+			if cur != nil {
+				cur.NeedDaemonReload = v == "yes"
+			}
 		}
 	}
 	flush()
@@ -201,9 +229,21 @@ func (s *Systemd) Show(ctx context.Context, units []string) (map[string]Status, 
 }
 
 // UnitAction runs a lifecycle verb (start, stop, restart) on a unit and
-// returns any output from systemctl.
+// returns any output from systemctl. It waits for the job up to the job
+// timeout; past it the error wraps ErrJobPending, because systemd keeps
+// running the job and the unit's state will still change.
 func (s *Systemd) UnitAction(ctx context.Context, verb, unit string) (string, error) {
-	return s.unitCmd(ctx, verb, unit, verb)
+	t := s.JobTimeout
+	if t <= 0 {
+		t = JobTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, t)
+	defer cancel()
+	out, err := s.unitCmdCtx(ctx, verb, unit, verb)
+	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return out, fmt.Errorf("systemctl %s %s: %w (waited %s)", verb, unit, ErrJobPending, t)
+	}
+	return out, err
 }
 
 // Enable makes a unit start at boot; with now it is also started immediately.
@@ -226,11 +266,16 @@ func (s *Systemd) Disable(ctx context.Context, unit string, now bool) (string, e
 	return s.unitCmd(ctx, verb, unit, args...)
 }
 
-// unitCmd runs systemctl with the given sub-arguments; verb and unit are used
-// for error messages only.
+// unitCmd runs systemctl with the given sub-arguments under the default
+// timeout; verb and unit are used for error messages only.
 func (s *Systemd) unitCmd(ctx context.Context, verb, unit string, args ...string) (string, error) {
 	ctx, cancel := s.timeoutCtx(ctx)
 	defer cancel()
+	return s.unitCmdCtx(ctx, verb, unit, args...)
+}
+
+// unitCmdCtx is unitCmd under the caller's deadline.
+func (s *Systemd) unitCmdCtx(ctx context.Context, verb, unit string, args ...string) (string, error) {
 	cmd := s.run(ctx, s.bin(), s.args(append(args, "--", unit)...)...) // #nosec G204 -- argv slice, no shell; unit name is behind a "--" separator
 	var stderr strings.Builder
 	cmd.Stderr = &stderr

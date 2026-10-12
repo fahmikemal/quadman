@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -29,6 +30,7 @@ import (
 	"github.com/fahmikemal/quadman/internal/config"
 	"github.com/fahmikemal/quadman/internal/podman"
 	"github.com/fahmikemal/quadman/internal/quadlet"
+	"github.com/fahmikemal/quadman/internal/remote"
 	"github.com/fahmikemal/quadman/internal/server"
 	"github.com/fahmikemal/quadman/internal/skill"
 	"github.com/fahmikemal/quadman/internal/systemd"
@@ -72,31 +74,40 @@ func main() {
 		return
 	}
 
-	// Auto-detect system mode when running as root.
-	system := *systemFlag || os.Getuid() == 0
-
-	if err := checkModeConflict(system, *asUser); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(2)
-	}
-
-	args := flag.Args()
-
 	// Extra Quadlet source directories apply to every mode, including the
 	// non-interactive list: config.yaml quadlet_dirs first, then
 	// --quadlet-dir flags.
-	applyQuadletDirs(quadletDirs)
+	cfg, cfgErr := config.Load()
+	applyQuadletDirs(cfg, cfgErr, quadletDirs)
 
+	system, err := resolveMode(*systemFlag, *asUser, *sshTarget, cfg.System(), os.Getuid())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(2)
+	}
+	// Multiplexed SSH masters live for a minute after the last call; close
+	// ours on the way out so nothing outlives the process.
+	defer remote.Shutdown(context.Background())
+
+	args := flag.Args()
 	if len(args) > 0 {
 		switch args[0] {
 		case "list":
 			rejectMisplaced("list", args[1:])
-			listCmd(system, *asUser)
+			if err := listCmd(cfg, system, *asUser, *sshTarget); err != nil {
+				fmt.Fprintln(os.Stderr, "error:", err)
+				remote.Shutdown(context.Background())
+				os.Exit(1)
+			}
 		case "version":
 			rejectMisplaced("version", args[1:])
 			printVersion()
 		case "serve":
-			serve(args[1:], *readonly, *mouse, *theme, quadletDirs, system, *asUser)
+			if *sshTarget != "" {
+				fmt.Fprintln(os.Stderr, "error: serve runs on this host and cannot be combined with --ssh (run quadman serve on the remote host instead)")
+				os.Exit(2)
+			}
+			serve(args[1:], *readonly, *mouse, *theme, *ascii, quadletDirs, system, *asUser, cfg, cfgErr)
 		case "skill":
 			rejectMisplaced("skill", args[1:], "format", "json")
 			format := "markdown"
@@ -119,26 +130,44 @@ func main() {
 		return
 	}
 
-	if *sshTarget != "" {
-		if err := ui.RunWithOptions(ui.Options{SSH: *sshTarget, Readonly: *readonly, Mouse: *mouse, Theme: *theme, ASCII: *ascii, QuadletDirs: quadletDirs, System: system}); err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			os.Exit(1)
-		}
-		return
+	opts := ui.Options{
+		SSH: *sshTarget, Compartment: *asUser, Readonly: *readonly, Mouse: *mouse,
+		Theme: *theme, ASCII: *ascii, QuadletDirs: quadletDirs, System: system,
 	}
-
-	if *asUser != "" {
-		if err := ui.RunWithOptions(ui.Options{Compartment: *asUser, Readonly: *readonly, Mouse: *mouse, Theme: *theme, ASCII: *ascii, QuadletDirs: quadletDirs, System: system}); err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			os.Exit(1)
-		}
-		return
-	}
-
-	if err := ui.RunWithOptions(ui.Options{Readonly: *readonly, Mouse: *mouse, Theme: *theme, ASCII: *ascii, QuadletDirs: quadletDirs, System: system}); err != nil {
+	if err := ui.RunWithOptions(opts); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
+		remote.Shutdown(context.Background())
 		os.Exit(1)
 	}
+}
+
+// resolveMode decides whether the session targets the system instance,
+// from the flags, config.yaml's `system:` default, and the effective uid.
+// Combinations quadman cannot honor are rejected instead of silently
+// dropping one of the options:
+//
+//   - --system with --as: system units live outside any user's session;
+//   - --ssh with --as: no nested sudo hop over SSH (run --as on the host).
+//
+// A compartment (--as) is always a user session, even for a root operator,
+// so neither the uid nor config.yaml turns it into system mode. Running as
+// root locally selects system mode, like `sudo quadman`; over --ssh only
+// the flag or config.yaml do (the local uid says nothing about the host).
+func resolveMode(systemFlag bool, asUser, sshTarget string, cfgSystem bool, uid int) (bool, error) {
+	if err := checkModeConflict(systemFlag, asUser); err != nil {
+		return false, err
+	}
+	switch {
+	case sshTarget != "" && asUser != "":
+		return false, fmt.Errorf("--ssh and --as cannot be combined (no nested sudo over SSH): run quadman --as %s on that host", asUser)
+	case asUser != "":
+		return false, nil
+	case systemFlag:
+		return true, nil
+	case sshTarget != "":
+		return cfgSystem, nil
+	}
+	return cfgSystem || uid == 0, nil
 }
 
 // checkModeConflict rejects --system combined with --as: system units live
@@ -196,14 +225,13 @@ func rejectMisplaced(cmd string, args []string, allowed ...string) {
 
 // applyQuadletDirs appends user-configured Quadlet source directories to
 // the discovery search path: quadlet_dirs from config.yaml first, then
-// --quadlet-dir flags. A corrupt YAML file is reported; discovery still
-// proceeds with flags only.
-func applyQuadletDirs(flags []string) {
-	if cfg, err := config.Load(); err != nil {
-		fmt.Fprintln(os.Stderr, "warning: config:", err)
-	} else {
-		quadlet.AddExtraDirs(cfg.Settings.QuadletDirs)
+// --quadlet-dir flags. A config problem is reported once here; discovery
+// still proceeds with what is known.
+func applyQuadletDirs(cfg config.Config, cfgErr error, flags []string) {
+	if cfgErr != nil {
+		fmt.Fprintln(os.Stderr, "warning: config:", cfgErr)
 	}
+	quadlet.AddExtraDirs(cfg.Settings.QuadletDirs)
 	quadlet.AddExtraDirs(flags)
 }
 
@@ -227,7 +255,7 @@ func versionInfo() string {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	var parts []string
-	if v, err := podman.Version(ctx); err == nil && v != "" {
+	if v, err := (podman.Client{}).Version(ctx); err == nil && v != "" {
 		parts = append(parts, "podman "+v)
 	}
 	if out, err := exec.CommandContext(ctx, "systemctl", "--version").Output(); err == nil {
@@ -258,49 +286,42 @@ func moduleVersion() string {
 	return version
 }
 
-// listCmd prints a non-interactive overview of quadlet units and their state.
-func listCmd(system bool, asUser string) {
+// listCmd prints a non-interactive overview of quadlet units and their
+// state, for the local session, a compartment (--as), or an SSH host
+// (--ssh) — the same targets as the TUI, never silently the wrong one.
+func listCmd(cfg config.Config, system bool, asUser, sshTarget string) error {
 	sys := systemd.New()
 	if system {
 		sys = systemd.NewSystem()
 	}
 	dirs := quadlet.SearchDirsMode(system)
-	if asUser != "" {
+	switch {
+	case sshTarget != "":
+		sys.Remote = remote.Runner{Target: sshTarget, Multiplex: cfg.SSHMultiplex()}
+		dirs = nil
+	case asUser != "":
 		c, err := compSetup(asUser)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			os.Exit(1)
+			return err
 		}
 		sys.Remote = c.Runner()
 		sys.GenDir = c.GeneratorDir()
 		dirs = quadlet.SearchDirsFor(c.Home, c.UID, c.RuntimeDir)
 	}
-	if err := runList(os.Stdout, sys, system, dirs); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
+	return runList(os.Stdout, sys, system, dirs)
 }
 
 // compSetup probes, resolves, and runtime-checks a compartment user for
 // non-interactive commands, sharing the TUI's all-or-nothing rule: any
 // failure aborts before anything runs.
 func compSetup(username string) (compartment.Compartment, error) {
-	var c compartment.Compartment
-	if err := compartment.ProbeSudo(context.Background(), username); err != nil {
-		return c, err
-	}
-	c, err := compartment.Resolve(username)
-	if err != nil {
-		return c, err
-	}
-	if !c.RuntimeReady() {
-		return c, fmt.Errorf("compartment %s: no runtime dir %s (linger the user or log in once)", username, c.RuntimeDir)
-	}
-	return c, nil
+	return compartment.Setup(context.Background(), username)
 }
 
-// runList renders the overview into w. It is separated from listCmd() so tests
-// can drive it with a fake systemctl and capture the output.
+// runList renders the overview into w. It is separated from listCmd() so
+// tests can drive it with a fake systemctl and capture the output. Stale
+// detection comes from systemd's own NeedDaemonReload, so it is right for
+// local, compartment, and SSH sessions alike.
 func runList(w io.Writer, sys *systemd.Systemd, system bool, dirs []string) error {
 	ctx := context.Background()
 	var units []quadlet.Unit
@@ -308,7 +329,7 @@ func runList(w io.Writer, sys *systemd.Systemd, system bool, dirs []string) erro
 	var err error
 	if sys.Remote.Isolated() {
 		// Compartments/SSH: enumerate through the session runner
-		// (`podman quadlet list`, systemctl fallback), never the
+		// (`podman quadlet list`, generated-unit fallback), never the
 		// operator's own filesystem.
 		units, err = quadlet.DiscoverRemoteMode(ctx, sys.Remote, system)
 		if err != nil {
@@ -317,7 +338,9 @@ func runList(w io.Writer, sys *systemd.Systemd, system bool, dirs []string) erro
 		images = make([]string, len(units))
 		for i := range units {
 			info := quadlet.InspectRemote(ctx, sys.Remote, units[i])
-			units[i].UnitName = info.UnitName
+			if units[i].Kind != quadlet.KindQuadlets {
+				units[i].UnitName = info.UnitName
+			}
 			images[i] = info.Image
 		}
 	} else {
@@ -328,12 +351,18 @@ func runList(w io.Writer, sys *systemd.Systemd, system bool, dirs []string) erro
 		images = make([]string, len(units))
 		for i := range units {
 			info := quadlet.Inspect(units[i]) // resolves ServiceName= and image in one parse
-			units[i].UnitName = info.UnitName
+			if units[i].Kind != quadlet.KindQuadlets {
+				units[i].UnitName = info.UnitName
+			}
 			images[i] = info.Image
 		}
 	}
 
 	if len(units) == 0 {
+		if label := sys.Remote.Label(); label != "" {
+			_, err := fmt.Fprintln(w, "no quadlet units found on "+label)
+			return err
+		}
 		if _, err := fmt.Fprintln(w, "no quadlet units found in:"); err != nil {
 			return err
 		}
@@ -345,40 +374,73 @@ func runList(w io.Writer, sys *systemd.Systemd, system bool, dirs []string) erro
 		return nil
 	}
 
-	if genDir := sys.GeneratorDir(); genDir != "" {
-		if stale := quadlet.StaleUnits(units, genDir); len(stale) > 0 {
-			names := make([]string, 0, len(stale))
-			for _, u := range stale {
-				names = append(names, u.Name)
-			}
-			reloadHint := "run: systemctl --user daemon-reload"
-			if system {
-				reloadHint = "run: systemctl daemon-reload"
-			}
-			if as := sys.Remote.As; as != "" {
-				reloadHint = "run: sudo -u " + as + " systemctl --user daemon-reload"
-			}
-			_, _ = fmt.Fprintf(os.Stderr, "warning: %d quadlet file(s) changed since last daemon-reload: %s\n",
-				len(stale), strings.Join(names, ", "))
-			_, _ = fmt.Fprintln(os.Stderr, reloadHint)
-		}
-	}
-
-	statuses, serr := sys.Show(context.Background(), unitNames(units))
+	statuses, serr := sys.Show(ctx, unitNames(units))
 	if serr != nil {
 		_, _ = fmt.Fprintln(os.Stderr, "warning:", serr)
+	} else if stale := staleNames(units, statuses); len(stale) > 0 {
+		_, _ = fmt.Fprintf(os.Stderr, "warning: %d quadlet file(s) changed since last daemon-reload: %s\n",
+			len(stale), strings.Join(stale, ", "))
+		_, _ = fmt.Fprintln(os.Stderr, "run: "+reloadHint(sys, system))
 	}
 
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	_, _ = fmt.Fprintln(tw, "QUADLET\tKIND\tSYSTEMD UNIT\tSTATE\tSUB\tIMAGE")
 	for i, u := range units {
 		state, sub := "-", "-"
-		if serr == nil {
+		if serr == nil && u.UnitName != "" {
 			state, sub = statuses[u.UnitName].Display()
 		}
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", u.Name, u.Kind, u.UnitName, state, sub, images[i])
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", u.Name, u.Kind, orDash(u.UnitName), state, sub, orDash(images[i]))
 	}
 	return tw.Flush()
+}
+
+// staleNames lists the units a daemon-reload would change (extra-dir
+// units excepted: the generator never reads them).
+func staleNames(units []quadlet.Unit, statuses map[string]systemd.Status) []string {
+	var names []string
+	extra := quadlet.ExtraDirList()
+	for _, u := range units {
+		if u.UnitName == "" || inDirs(u.Path, extra) {
+			continue
+		}
+		if st, ok := statuses[u.UnitName]; ok && st.NeedsReload() {
+			names = append(names, u.Name)
+		}
+	}
+	return names
+}
+
+func inDirs(path string, dirs []string) bool {
+	for _, d := range dirs {
+		rel, err := filepath.Rel(filepath.Clean(d), filepath.Clean(path))
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
+
+// reloadHint is the exact daemon-reload command for the session.
+func reloadHint(sys *systemd.Systemd, system bool) string {
+	cmd := "systemctl --user daemon-reload"
+	if system {
+		cmd = "systemctl daemon-reload"
+	}
+	switch {
+	case sys.Remote.IsRemote():
+		return "ssh " + sys.Remote.Target + " " + cmd
+	case sys.Remote.As != "":
+		return "sudo -u " + sys.Remote.As + " XDG_RUNTIME_DIR=/run/user/$(id -u " + sys.Remote.As + ") " + cmd
+	}
+	return cmd
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
 }
 
 func unitNames(units []quadlet.Unit) []string {
@@ -390,7 +452,7 @@ func unitNames(units []quadlet.Unit) []string {
 }
 
 // serve starts the Wish SSH daemon so remote clients can run quadman over SSH.
-func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme string, extraDirs []string, system bool, asUser string) {
+func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme string, ascii bool, extraDirs []string, system bool, asUser string, cfg config.Config, cfgErr error) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	port := fs.String("port", "", "port to listen on loopback (e.g. 2222, default 127.0.0.1:2222)")
 	fs.StringVar(port, "p", "", "shorthand for --port")
@@ -402,7 +464,10 @@ func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme strin
 	passFile := fs.String("password-file", "", "read the login password from a file instead of --password")
 	readonly := fs.Bool("readonly", defaultReadonly, "disable all state-changing actions for connected sessions")
 	mouse := fs.Bool("mouse", defaultMouse, "enable mouse support for connected sessions")
-	theme := fs.String("theme", defaultTheme, "color scheme: auto, dark, light, or colorblind")
+	if defaultTheme == "" {
+		defaultTheme = cfg.Settings.Theme
+	}
+	theme := fs.String("theme", defaultTheme, "color scheme: dark, light, or colorblind (auto resolves to dark: the daemon has no terminal to probe)")
 	banner := fs.String("banner", "", "custom SSH connection banner")
 	idleTimeout := fs.Duration("idle-timeout", 0, "session idle timeout (default 30m)")
 	maxTimeout := fs.Duration("max-timeout", 0, "max session duration (default 2h)")
@@ -421,11 +486,11 @@ func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme strin
 		}
 	}
 
-	// Load settings from config.yaml if available. A corrupt file is
-	// reported like everywhere else instead of silently serving defaults.
-	cfg, cfgErr := config.Load()
-	if cfgErr != nil {
-		fmt.Fprintln(os.Stderr, "warning: config:", cfgErr)
+	// A daemon that cannot read its settings must not guess: a dropped
+	// `readonly: true` or authorized_keys would change who may do what.
+	if config.IsSettingsError(cfgErr) {
+		fmt.Fprintln(os.Stderr, "error: refusing to serve with an unusable config.yaml:", cfgErr)
+		os.Exit(2)
 	}
 	scfg := cfg.Settings.Serve
 
@@ -474,6 +539,7 @@ func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme strin
 		MaxTimeout:         *maxTimeout,
 		System:             system,
 		Compartment:        asUser,
+		ASCII:              ascii,
 	}
 
 	// Fail fast on insecure binds (non-loopback without authorized_keys)

@@ -123,6 +123,9 @@ func journalString(v json.RawMessage) string {
 	if json.Unmarshal(v, &ints) == nil {
 		b = make([]byte, 0, len(ints))
 		for _, i := range ints {
+			if i < 0 || i > 0xff {
+				return "" // not a byte array: refuse rather than truncate
+			}
 			b = append(b, byte(i))
 		}
 		return string(b)

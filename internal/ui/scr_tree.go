@@ -57,7 +57,7 @@ func (m Model) computeTree() treeViewState {
 		if err != nil {
 			continue
 		}
-		sec := f.Section(string(u.Kind))
+		sec := f.Section(u.Kind.Section())
 		var deps []treeDep
 		if pod := sec.Get("Pod"); pod != "" {
 			deps = append(deps, ref("pod", pod, true))

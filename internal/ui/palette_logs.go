@@ -39,11 +39,8 @@ func (m Model) logsPaletteActions() []paletteAction {
 		category:    "Logs",
 		description: "Export unit logs to a .log file",
 		enabled: func(m Model) (bool, string) {
-			if m.readonly {
-				return false, "readonly"
-			}
-			if bad, reason := m.isolatedReason(); bad {
-				return false, reason
+			if ok, why := m.allowed(capLocalFiles); !ok {
+				return false, why
 			}
 			_, ok := m.selected()
 			if !ok {
@@ -64,11 +61,8 @@ func (m Model) logsPaletteActions() []paletteAction {
 		category:    "Logs",
 		description: "Export structured log entries to a .jsonl file",
 		enabled: func(m Model) (bool, string) {
-			if m.readonly {
-				return false, "readonly"
-			}
-			if bad, reason := m.isolatedReason(); bad {
-				return false, reason
+			if ok, why := m.allowed(capLocalFiles); !ok {
+				return false, why
 			}
 			_, ok := m.selected()
 			if !ok {

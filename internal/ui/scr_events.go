@@ -14,6 +14,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/fahmikemal/quadman/internal/podman"
+	"github.com/fahmikemal/quadman/internal/quadlet"
 	"github.com/fahmikemal/quadman/internal/systemd"
 )
 
@@ -63,7 +64,7 @@ type eventsHistoryMsg struct {
 // history fetch so the last hour is there immediately.
 func (m Model) startEvents() (tea.Model, tea.Cmd) {
 	m.stopEvents()
-	stop, stream, err := podman.EventsFollow(context.Background())
+	stop, stream, err := m.pm.EventsFollow(context.Background())
 	if err != nil {
 		m.setStatus("podman events: "+err.Error(), true)
 		return m, nil
@@ -104,12 +105,12 @@ func (m *Model) stopEvents() {
 
 // eventsHistoryCmd loads podman events and manager messages for window.
 func (m Model) eventsHistoryCmd(window time.Duration) tea.Cmd {
-	sys := m.sys
+	sys, pm := m.sys, m.pm
 	units := unitNames(m.units)
 	resolve := m.eventUnitResolver()
 	return func() tea.Msg {
 		ctx := context.Background()
-		evs, perr := podman.EventsSince(ctx, fmtWindow(window))
+		evs, perr := pm.EventsSince(ctx, fmtWindow(window))
 		var recs []eventRec
 		for _, e := range evs {
 			recs = append(recs, podmanEventRec(e, resolve))
@@ -125,13 +126,15 @@ func (m Model) eventsHistoryCmd(window time.Duration) tea.Cmd {
 
 // eventUnitResolver maps an event to one of our quadlet units: its
 // PODMAN_SYSTEMD_UNIT label when that names a quadlet unit (podman-compose
-// stamps the label too), else the default systemd-<name> container name.
+// stamps the label too), else the unit's resolved container name.
 func (m Model) eventUnitResolver() func(label, name string) string {
 	known := map[string]bool{}
 	byCtr := map[string]string{}
 	for _, u := range m.units {
 		known[u.UnitName] = true
-		byCtr["systemd-"+u.Name] = u.UnitName
+		if u.Kind == quadlet.KindContainer {
+			byCtr[m.containerName(u)] = u.UnitName
+		}
 	}
 	return func(label, name string) string {
 		if known[label] {

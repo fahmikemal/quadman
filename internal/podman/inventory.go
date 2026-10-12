@@ -25,9 +25,9 @@ type DfRow struct {
 }
 
 // SystemDfSummary returns the per-type disk usage totals.
-func SystemDfSummary(ctx context.Context) ([]DfRow, error) {
+func (c Client) SystemDfSummary(ctx context.Context) ([]DfRow, error) {
 	var rows []DfRow
-	if err := runJSON(ctx, &rows, "system", "df", "--format", "json"); err != nil {
+	if err := c.runJSON(ctx, &rows, "system", "df", "--format", "json"); err != nil {
 		return nil, fmt.Errorf("podman system df: %w", err)
 	}
 	return rows, nil
@@ -55,9 +55,9 @@ func (e ImageEntry) Ref() string {
 }
 
 // Images lists local images.
-func Images(ctx context.Context) ([]ImageEntry, error) {
+func (c Client) Images(ctx context.Context) ([]ImageEntry, error) {
 	var rows []ImageEntry
-	if err := runJSON(ctx, &rows, "images", "--format", "json"); err != nil {
+	if err := c.runJSON(ctx, &rows, "images", "--format", "json"); err != nil {
 		return nil, fmt.Errorf("podman images: %w", err)
 	}
 	return rows, nil
@@ -73,9 +73,9 @@ type VolumeEntry struct {
 }
 
 // Volumes lists named volumes.
-func Volumes(ctx context.Context) ([]VolumeEntry, error) {
+func (c Client) Volumes(ctx context.Context) ([]VolumeEntry, error) {
 	var rows []VolumeEntry
-	if err := runJSON(ctx, &rows, "volume", "ls", "--format", "json"); err != nil {
+	if err := c.runJSON(ctx, &rows, "volume", "ls", "--format", "json"); err != nil {
 		return nil, fmt.Errorf("podman volume ls: %w", err)
 	}
 	return rows, nil
@@ -111,13 +111,13 @@ func (c ContainerEntry) SystemdUnit() string { return c.Labels["PODMAN_SYSTEMD_U
 
 // Containers lists every container with its writable-layer size. --size
 // walks each container's layer, so callers fetch it on demand only.
-func Containers(ctx context.Context, withSize bool) ([]ContainerEntry, error) {
+func (c Client) Containers(ctx context.Context, withSize bool) ([]ContainerEntry, error) {
 	args := []string{"ps", "-a", "--format", "json"}
 	if withSize {
 		args = append(args, "--size")
 	}
 	var rows []ContainerEntry
-	if err := runJSON(ctx, &rows, args...); err != nil {
+	if err := c.runJSON(ctx, &rows, args...); err != nil {
 		return nil, fmt.Errorf("podman ps: %w", err)
 	}
 	return rows, nil
@@ -125,8 +125,8 @@ func Containers(ctx context.Context, withSize bool) ([]ContainerEntry, error) {
 
 // VolumeSizes reads per-volume sizes from `podman system df --verbose`
 // (the only podman command that reports them; it refuses --format json).
-func VolumeSizes(ctx context.Context) (map[string]string, error) {
-	text, err := SystemDf(ctx)
+func (c Client) VolumeSizes(ctx context.Context) (map[string]string, error) {
+	text, err := c.SystemDf(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -165,11 +165,11 @@ type HostInfo struct {
 }
 
 // Info returns the host CPU count and memory.
-func Info(ctx context.Context) (HostInfo, error) {
+func (c Client) Info(ctx context.Context) (HostInfo, error) {
 	var v struct {
 		Host HostInfo `json:"host"`
 	}
-	if err := runJSON(ctx, &v, "info", "--format", "json"); err != nil {
+	if err := c.runJSON(ctx, &v, "info", "--format", "json"); err != nil {
 		return HostInfo{}, fmt.Errorf("podman info: %w", err)
 	}
 	return v.Host, nil
@@ -213,8 +213,8 @@ func ParseEvent(line string) (Event, bool) {
 
 // EventsSince returns past events without following (--stream=false), so
 // the events screen opens with the last hour already on it.
-func EventsSince(ctx context.Context, since string) ([]Event, error) {
-	out, err := runPodman(ctx, "events", "--since", since, "--stream=false", "--format", "json")
+func (c Client) EventsSince(ctx context.Context, since string) ([]Event, error) {
+	out, err := c.run(ctx, "events", "--since", since, "--stream=false", "--format", "json")
 	if err != nil {
 		return nil, err
 	}
@@ -228,15 +228,15 @@ func EventsSince(ctx context.Context, since string) ([]Event, error) {
 }
 
 // SecretRemove deletes a secret.
-func SecretRemove(ctx context.Context, name string) error {
-	_, err := runPodman(ctx, "secret", "rm", "--", name)
+func (c Client) SecretRemove(ctx context.Context, name string) error {
+	_, err := c.run(ctx, "secret", "rm", "--", name)
 	return err
 }
 
 // SecretCreate creates (or, with replace, rotates) a secret from value.
 // The value travels on stdin, never in argv, so it does not show up in
 // process listings or shell history.
-func SecretCreate(ctx context.Context, name string, value []byte, replace bool) error {
+func (c Client) SecretCreate(ctx context.Context, name string, value []byte, replace bool) error {
 	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
 	args := []string{"secret", "create"}
@@ -244,7 +244,7 @@ func SecretCreate(ctx context.Context, name string, value []byte, replace bool) 
 		args = append(args, "--replace")
 	}
 	args = append(args, "--", name, "-")
-	cmd := runCmd(ctx, "podman", args...) // #nosec G204 -- argv slice, no shell; name is behind "--", value on stdin
+	cmd := c.cmd(ctx, args...) // #nosec G204 -- argv slice, no shell; name is behind "--", value on stdin
 	cmd.Stdin = bytes.NewReader(value)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("podman secret create: %w: %s", err, strings.TrimSpace(string(out)))
@@ -255,8 +255,8 @@ func SecretCreate(ctx context.Context, name string, value []byte, replace bool) 
 // SecretValue reads a secret's plaintext (`podman secret inspect
 // --showsecret`). Callers must never render it; it only feeds the
 // clipboard.
-func SecretValue(ctx context.Context, name string) ([]byte, error) {
-	out, err := runPodman(ctx, "secret", "inspect", "--showsecret", "--format", "{{.SecretData}}", "--", name)
+func (c Client) SecretValue(ctx context.Context, name string) ([]byte, error) {
+	out, err := c.run(ctx, "secret", "inspect", "--showsecret", "--format", "{{.SecretData}}", "--", name)
 	if err != nil {
 		return nil, err
 	}
@@ -265,10 +265,10 @@ func SecretValue(ctx context.Context, name string) ([]byte, error) {
 
 // AutoUpdateApply runs `podman auto-update` for real (pull, restart,
 // roll back on failure) and returns what it did.
-func AutoUpdateApply(ctx context.Context) ([]AutoUpdateEntry, error) {
+func (c Client) AutoUpdateApply(ctx context.Context) ([]AutoUpdateEntry, error) {
 	ctx, cancel := context.WithTimeout(ctx, PruneTimeout)
 	defer cancel()
-	out, err := runCmd(ctx, "podman", "auto-update", "--format", "json").Output() // #nosec G204 -- constant argv, no shell
+	out, err := c.cmd(ctx, "auto-update", "--format", "json").Output() // #nosec G204 -- constant argv, no shell
 	if err != nil {
 		return nil, fmt.Errorf("podman auto-update: %w", err)
 	}
@@ -283,8 +283,8 @@ func AutoUpdateApply(ctx context.Context) ([]AutoUpdateEntry, error) {
 
 // runJSON runs podman and decodes its JSON stdout into v; empty or "null"
 // output leaves v untouched.
-func runJSON(ctx context.Context, v any, args ...string) error {
-	out, err := runPodman(ctx, args...)
+func (c Client) runJSON(ctx context.Context, v any, args ...string) error {
+	out, err := c.run(ctx, args...)
 	if err != nil {
 		return err
 	}
@@ -347,19 +347,19 @@ func ParseBytes(s string) int64 {
 }
 
 // ImageRemove deletes an image by ID. It fails while a container uses it.
-func ImageRemove(ctx context.Context, id string) error {
-	_, err := runPodman(ctx, "rmi", "--", id)
+func (c Client) ImageRemove(ctx context.Context, id string) error {
+	_, err := c.run(ctx, "rmi", "--", id)
 	return err
 }
 
 // VolumeRemove deletes a named volume. It fails while a container uses it.
-func VolumeRemove(ctx context.Context, name string) error {
-	_, err := runPodman(ctx, "volume", "rm", "--", name)
+func (c Client) VolumeRemove(ctx context.Context, name string) error {
+	_, err := c.run(ctx, "volume", "rm", "--", name)
 	return err
 }
 
 // ContainerRemove deletes a stopped container by ID.
-func ContainerRemove(ctx context.Context, id string) error {
-	_, err := runPodman(ctx, "rm", "--", id)
+func (c Client) ContainerRemove(ctx context.Context, id string) error {
+	_, err := c.run(ctx, "rm", "--", id)
 	return err
 }

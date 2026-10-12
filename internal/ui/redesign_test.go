@@ -62,6 +62,10 @@ func TestSortProblemsFirst(t *testing.T) {
 }
 
 func TestStateGlyphsCarryWords(t *testing.T) {
+	// TERM=linux turns on the ASCII glyphs; this test pins the Unicode set.
+	prev := asciiGlyphs
+	SetASCII(false)
+	t.Cleanup(func() { SetASCII(prev) })
 	m := redesignModel(t)
 	for i, want := range []string{"✗ failed", "▲ unhealthy", "◐ starting", "● active", "○ inactive"} {
 		if got := m.table.Rows()[i][0]; got != want {

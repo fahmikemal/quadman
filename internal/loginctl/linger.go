@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/user"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fahmikemal/quadman/internal/remote"
@@ -25,9 +26,16 @@ type Loginctl struct {
 	Bin string
 	// Timeout bounds each call; 0 means DefaultTimeout.
 	Timeout time.Duration
-	// Remote runs the CLI over SSH when set (--ssh user@host). The zero
-	// value runs everything locally.
+	// Remote runs the CLI over SSH or as a sudo compartment user. The
+	// zero value runs everything locally.
 	Remote remote.Runner
+	// User pins the account an empty user name means. Unset, it is the
+	// session's own user: the sudo target, the SSH login user, or the
+	// local user — never the operator's local name sent to another host.
+	User string
+
+	mu   sync.Mutex
+	self string // cached remote login name (SSH)
 }
 
 // run executes the loginctl CLI (locally or over SSH) like
@@ -65,9 +73,10 @@ func CurrentUser() (string, error) {
 	return "", fmt.Errorf("cannot determine current user")
 }
 
-// Enabled reports whether linger is on for userName (empty = current user).
+// Enabled reports whether linger is on for userName (empty = the
+// session's own user).
 func (l *Loginctl) Enabled(ctx context.Context, userName string) (bool, error) {
-	userName, err := resolve(userName)
+	userName, err := l.resolve(ctx, userName)
 	if err != nil {
 		return false, err
 	}
@@ -81,9 +90,10 @@ func (l *Loginctl) Enabled(ctx context.Context, userName string) (bool, error) {
 	return strings.TrimSpace(string(out)) == "yes", nil
 }
 
-// Set turns linger on or off for userName (empty = current user).
+// Set turns linger on or off for userName (empty = the session's own
+// user).
 func (l *Loginctl) Set(ctx context.Context, userName string, on bool) error {
-	userName, err := resolve(userName)
+	userName, err := l.resolve(ctx, userName)
 	if err != nil {
 		return err
 	}
@@ -100,9 +110,39 @@ func (l *Loginctl) Set(ctx context.Context, userName string, on bool) error {
 	return nil
 }
 
-func resolve(userName string) (string, error) {
-	if userName != "" {
+// resolve maps an empty user name to the session's own account. Over SSH
+// the login name on the remote host is asked once (`id -un`) and cached:
+// the local operator name may not exist there, or belong to someone else.
+func (l *Loginctl) resolve(ctx context.Context, userName string) (string, error) {
+	switch {
+	case userName != "":
 		return userName, nil
+	case l.User != "":
+		return l.User, nil
+	case l.Remote.IsRemote(): // Target wins over As, like the runner
+		return l.remoteSelf(ctx)
+	case l.Remote.As != "":
+		return l.Remote.As, nil
 	}
 	return CurrentUser()
+}
+
+func (l *Loginctl) remoteSelf(ctx context.Context) (string, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.self != "" {
+		return l.self, nil
+	}
+	ctx, cancel := l.timeoutCtx(ctx)
+	defer cancel()
+	out, err := l.Remote.Output(ctx, "id", "-un")
+	if err != nil {
+		return "", fmt.Errorf("resolve remote user: %w", err)
+	}
+	name := strings.TrimSpace(string(out))
+	if name == "" {
+		return "", fmt.Errorf("resolve remote user: empty id -un output")
+	}
+	l.self = name
+	return name, nil
 }

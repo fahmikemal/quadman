@@ -2,6 +2,8 @@ package ui
 
 import (
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/fahmikemal/quadman/internal/quadlet"
 )
 
 // configPaletteActions edits the Quadlet source and manages boot state
@@ -16,14 +18,8 @@ func (m Model) configPaletteActions() []paletteAction {
 		category:    "Config",
 		description: "Edit source file in $EDITOR and prompt to reload",
 		enabled: func(m Model) (bool, string) {
-			if m.readonly {
-				return false, "readonly"
-			}
-			if m.noEditor {
-				return false, "disabled in SSH server"
-			}
-			if bad, reason := m.isolatedReason(); bad {
-				return false, reason
+			if ok, why := m.allowed(capTargetFiles | capTerminal); !ok {
+				return false, why
 			}
 			_, ok := m.selected()
 			if !ok {
@@ -41,19 +37,16 @@ func (m Model) configPaletteActions() []paletteAction {
 		title:       "Enable at Boot",
 		shortcut:    "e",
 		category:    "Boot",
-		description: "Append [Install] WantedBy=default.target",
+		description: "Add [Install] WantedBy= (default.target, multi-user.target for system units)",
 		enabled: func(m Model) (bool, string) {
-			if m.readonly {
-				return false, "readonly"
-			}
-			if bad, reason := m.isolatedReason(); bad {
-				return false, reason
+			if ok, why := m.allowed(capMutate | capTargetFiles); !ok {
+				return false, why
 			}
 			u, ok := m.selected()
 			if !ok {
 				return false, "no selection"
 			}
-			if f, err := m.parseUnitFile(u); err == nil && f.BootTarget() != "" {
+			if quadlet.BootSource(u) != "" {
 				return false, "already enabled"
 			}
 			return true, ""
@@ -70,18 +63,19 @@ func (m Model) configPaletteActions() []paletteAction {
 		category:    "Boot",
 		description: "Remove [Install] to disable start at boot",
 		enabled: func(m Model) (bool, string) {
-			if m.readonly {
-				return false, "readonly"
-			}
-			if bad, reason := m.isolatedReason(); bad {
-				return false, reason
+			if ok, why := m.allowed(capMutate | capTargetFiles); !ok {
+				return false, why
 			}
 			u, ok := m.selected()
 			if !ok {
 				return false, "no selection"
 			}
-			if f, err := m.parseUnitFile(u); err == nil && f.BootTarget() == "" {
+			switch src := quadlet.BootSource(u); src {
+			case "":
 				return false, "already disabled"
+			case u.Path:
+			default:
+				return false, "enabled by a drop-in"
 			}
 			return true, ""
 		},

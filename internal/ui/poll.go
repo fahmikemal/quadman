@@ -29,10 +29,19 @@ type refreshMsg struct {
 	podman      map[string]podman.Entry
 	podmanTried bool
 	health      map[string]string
+	ctrNames    map[string]string
+	ctrOverride map[string]string
 	stale       []quadlet.Unit
 	issues      []quadlet.Issue
 	version     string
 	err         error
+	// epoch is the session the refresh ran against and issuedAt when it
+	// started; applyRefresh drops results of an older session or older
+	// than the last applied one. Zero values (hand-built messages) apply.
+	epoch    uint64
+	issuedAt time.Time
+	// fromPoll marks the tick-driven refresh that holds the in-flight slot.
+	fromPoll bool
 }
 
 // enrichLevel controls which podman-powered data a refresh gathers.
@@ -48,6 +57,10 @@ const (
 // ps is too heavy to run on every tick.
 const healthPollEvery = 4
 
+// refreshTimeout bounds one whole refresh, so a hung remote call can never
+// hold the poll's in-flight slot forever.
+const refreshTimeout = 90 * time.Second
+
 func pollCmd(interval time.Duration) tea.Cmd {
 	if interval <= 0 {
 		interval = defaultPollInterval
@@ -55,14 +68,36 @@ func pollCmd(interval time.Duration) tea.Cmd {
 	return tea.Tick(interval, func(time.Time) tea.Msg { return tickMsg{} })
 }
 
-// refresh builds the list-refresh command for the model's own clients and
+// refreshReq is everything one refresh needs, captured from the model when
+// it is issued so the work runs against that session only.
+type refreshReq struct {
+	sys      *systemd.Systemd
+	lc       *loginctl.Loginctl
+	pm       podman.Client
+	cache    *quadlet.InspectCache
+	runner   remote.Runner
+	level    enrichLevel
+	system   bool
+	dirs     []string
+	epoch    uint64
+	fromPoll bool
+}
+
+// refresh builds the list-refresh command for the model's own session and
 // inspect cache, so call sites never repeat the wiring.
 func (m Model) refresh(level enrichLevel) tea.Cmd {
+	return m.refreshReq(level).cmd()
+}
+
+func (m Model) refreshReq(level enrichLevel) refreshReq {
 	cache := m.inspect
 	if cache == nil {
 		cache = &quadlet.InspectCache{}
 	}
-	return refreshCmd(m.sys, m.lc, cache, m.ssh, level, m.system, m.searchDirs())
+	return refreshReq{
+		sys: m.sys, lc: m.lc, pm: m.pm, cache: cache, runner: m.ssh,
+		level: level, system: m.system, dirs: m.searchDirs(), epoch: m.epoch,
+	}
 }
 
 // pollTick schedules the next poll using the model's configured interval
@@ -71,117 +106,166 @@ func (m Model) pollTick() tea.Cmd {
 	return pollCmd(m.pollInterval)
 }
 
-func refreshCmd(sys *systemd.Systemd, lc *loginctl.Loginctl, cache *quadlet.InspectCache, runner remote.Runner, level enrichLevel, system bool, dirs []string) tea.Cmd {
-	if cache == nil {
-		cache = &quadlet.InspectCache{}
+func (r refreshReq) cmd() tea.Cmd {
+	if r.cache == nil {
+		r.cache = &quadlet.InspectCache{}
 	}
 	return func() tea.Msg {
-		ctx := context.Background()
-		var units []quadlet.Unit
-		var images []string
-		if runner.Isolated() {
-			var err error
-			units, err = quadlet.DiscoverRemoteMode(ctx, runner, system)
-			if err != nil {
-				return refreshMsg{err: err}
-			}
-			// Isolated files have no cheap local mtime: read and parse
-			// each unit once per refresh through the session runner.
-			images = make([]string, len(units))
-			for i := range units {
-				info := inspectRemote(ctx, runner, units[i])
-				units[i].UnitName = info.UnitName
-				images[i] = info.Image
-			}
-		} else {
-			var err error
-			units, err = quadlet.DiscoverDirs(dirs)
-			if err != nil {
-				return refreshMsg{err: err}
-			}
-			// Info is memoized by file mtime: only changed files are re-parsed.
-			_, images = cache.InspectAll(units)
-		}
-		statuses, err := sys.Show(ctx, unitNames(units))
-		if err != nil {
-			return refreshMsg{units: units, images: images, err: err}
-		}
-		var linger bool
-		var lingerOK bool
-		if !system {
-			var lerr error
-			linger, lerr = lc.Enabled(ctx, "")
-			lingerOK = lerr == nil
-		}
+		msg := r.run()
+		msg.epoch, msg.fromPoll = r.epoch, r.fromPoll
+		return msg
+	}
+}
 
-		// Optional enrichment via podman (app/pod grouping + container health).
-		var pinfo map[string]podman.Entry
-		var health map[string]string
-		var issues []quadlet.Issue
-		var version string
-		if level >= enrichHealth && podmanAvailable(ctx, runner) {
-			if hm, herr := podman.PsHealth(ctx); herr == nil {
-				health = hm
+func (r refreshReq) run() refreshMsg {
+	issuedAt := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), refreshTimeout)
+	defer cancel()
+	var units []quadlet.Unit
+	var images []string
+	ctrOverride := map[string]string{}
+	var files []*quadlet.File // parsed container files, for secret checks
+	if r.runner.Isolated() {
+		var err error
+		units, err = quadlet.DiscoverRemoteMode(ctx, r.runner, r.system)
+		if err != nil {
+			return refreshMsg{err: err, issuedAt: issuedAt}
+		}
+		// Isolated files have no cheap local mtime: read and parse
+		// each unit once per refresh through the session runner.
+		images = make([]string, len(units))
+		for i := range units {
+			info, f := quadlet.InspectRemoteFile(ctx, r.runner, units[i])
+			if units[i].Kind != quadlet.KindQuadlets {
+				units[i].UnitName = info.UnitName
+			}
+			images[i] = info.Image
+			if info.ContainerName != "" {
+				ctrOverride[units[i].UnitName] = info.ContainerName
+			}
+			if f != nil && units[i].Kind == quadlet.KindContainer {
+				files = append(files, f)
 			}
 		}
-		if level == enrichFull {
-			if podmanAvailable(ctx, runner) {
-				if entries, perr := podman.QuadletList(ctx); perr == nil {
-					pinfo = podman.ByUnit(entries)
-				}
+	} else {
+		var err error
+		units, err = quadlet.DiscoverDirs(r.dirs)
+		if err != nil {
+			return refreshMsg{err: err, issuedAt: issuedAt}
+		}
+		// Info is memoized by file mtime: only changed files are re-parsed.
+		infos, imgs := r.cache.InspectAll(units)
+		images = imgs
+		for i, info := range infos {
+			if info.ContainerName != "" {
+				ctrOverride[units[i].UnitName] = info.ContainerName
 			}
-			if !runner.IsRemote() {
-				issues, _ = quadlet.ValidateMode(ctx, dirs, system)
-				if secList, serr := podman.SecretList(ctx); serr == nil {
-					secNames := make([]string, len(secList))
-					for i, s := range secList {
-						secNames[i] = s.Name
-					}
-					var parsedFiles []*quadlet.File
+		}
+	}
+	statuses, err := r.sys.Show(ctx, unitNames(units))
+	if err != nil {
+		return refreshMsg{units: units, images: images, err: err, issuedAt: issuedAt}
+	}
+	var linger, lingerOK bool
+	if !r.system {
+		var lerr error
+		linger, lerr = r.lc.Enabled(ctx, "")
+		lingerOK = lerr == nil
+	}
+
+	// Optional enrichment via podman (app/pod grouping, health, secrets).
+	var pinfo map[string]podman.Entry
+	var health, ctrNames map[string]string
+	var issues []quadlet.Issue
+	var version string
+	reachable := r.level > enrichNone && r.pm.Reachable(ctx)
+	if reachable {
+		if h, herr := r.pm.PsHealth(ctx); herr == nil {
+			health, ctrNames = h.ByName, h.NameByUnit
+		}
+	}
+	if r.level == enrichFull {
+		if reachable {
+			if entries, perr := r.pm.QuadletList(ctx); perr == nil {
+				pinfo = podman.ByUnit(entries)
+			}
+		}
+		issues, _ = quadlet.ValidateSession(ctx, r.runner, r.dirs, r.system)
+		if reachable {
+			if secList, serr := r.pm.SecretList(ctx); serr == nil {
+				if !r.runner.Isolated() {
 					for _, u := range units {
 						if u.Kind == quadlet.KindContainer && u.Path != "" {
 							if pf, perr := quadlet.Parse(u.Path); perr == nil {
-								parsedFiles = append(parsedFiles, pf)
+								files = append(files, pf)
 							}
 						}
 					}
-					issues = append(issues, quadlet.ValidateSecrets(parsedFiles, secNames)...)
 				}
+				secNames := make([]string, len(secList))
+				for i, sec := range secList {
+					secNames[i] = sec.Name
+				}
+				issues = append(issues, quadlet.ValidateSecrets(files, secNames)...)
 			}
-			if ver, verr := podman.Version(ctx); verr == nil {
+			if ver, verr := r.pm.Version(ctx); verr == nil {
 				version = ver
 			}
 		}
+		if issues == nil {
+			issues = []quadlet.Issue{} // validated: no problems (vs. not validated)
+		}
+	}
 
-		var stale []quadlet.Unit
-		if !runner.IsRemote() {
-			stale = quadlet.StaleUnits(units, sys.GeneratorDir())
-		}
-		return refreshMsg{
-			units:       units,
-			images:      images,
-			statuses:    statuses,
-			linger:      linger,
-			lingerOK:    lingerOK,
-			podman:      pinfo,
-			podmanTried: level == enrichFull,
-			health:      health,
-			stale:       stale,
-			issues:      issues,
-			version:     version,
-		}
+	return refreshMsg{
+		units:       units,
+		images:      images,
+		statuses:    statuses,
+		linger:      linger,
+		lingerOK:    lingerOK,
+		podman:      pinfo,
+		podmanTried: r.level == enrichFull,
+		health:      health,
+		ctrNames:    ctrNames,
+		ctrOverride: ctrOverride,
+		stale:       staleUnits(units, statuses),
+		issues:      issues,
+		version:     version,
+		issuedAt:    issuedAt,
 	}
 }
 
-func actionCmd(desc string, run func(context.Context) (string, error)) tea.Cmd {
-	return actionCmdHint(desc, "", run)
+// staleUnits lists the units a daemon-reload would change, from systemd's
+// own NeedDaemonReload verdict (works in every session type, no file
+// access needed). Extra-dir units are skipped: no reload can load them.
+func staleUnits(units []quadlet.Unit, statuses map[string]systemd.Status) []quadlet.Unit {
+	var stale []quadlet.Unit
+	for _, u := range units {
+		if u.UnitName == "" || isExternalUnit(u.Path) {
+			continue
+		}
+		if st, ok := statuses[u.UnitName]; ok && st.NeedsReload() {
+			stale = append(stale, u)
+		}
+	}
+	return stale
 }
 
-func actionCmdHint(desc, hint string, run func(context.Context) (string, error)) tea.Cmd {
+// actionCmd runs one state-changing action and reports it as an
+// actionMsg. The result carries the session epoch and the confirmation
+// the action passed, so the actions screen can repeat it only in the same
+// session and only behind the same confirmation.
+func (m Model) actionCmd(desc string, run func(context.Context) (string, error)) tea.Cmd {
+	return m.actionCmdHint(desc, "", run)
+}
+
+// actionCmdHint is actionCmd with a hint appended to the success status.
+func (m Model) actionCmdHint(desc, hint string, run func(context.Context) (string, error)) tea.Cmd {
+	epoch, guard := m.epoch, m.confirming
 	return func() tea.Msg {
 		start := time.Now()
 		out, err := run(context.Background())
-		return actionMsg{desc: desc, hint: hint, out: out, err: err, took: time.Since(start), run: run}
+		return actionMsg{desc: desc, hint: hint, out: out, err: err, took: time.Since(start), run: run, epoch: epoch, guard: guard}
 	}
 }
 
@@ -195,26 +279,21 @@ func unitNames(units []quadlet.Unit) []string {
 	return names
 }
 
-// podmanAvailable reports whether podman answers, locally via PATH or
-// remotely through the runner.
-func podmanAvailable(ctx context.Context, runner remote.Runner) bool {
-	if !runner.Isolated() {
-		return podman.Available()
-	}
-	ctx, cancel := context.WithTimeout(ctx, remote.DialTimeout)
-	defer cancel()
-	_, err := runner.Output(ctx, "podman", "--version")
-	return err == nil
-}
-
-// inspectRemote resolves one remote unit's Info through the session runner.
-func inspectRemote(ctx context.Context, runner remote.Runner, u quadlet.Unit) quadlet.Info {
-	return quadlet.InspectRemote(ctx, runner, u)
-}
-
 // applyRefresh merges a finished refresh into the model, keeping the cursor
 // pinned on the same unit by name.
 func (m Model) applyRefresh(msg refreshMsg) (tea.Model, tea.Cmd) {
+	if msg.epoch != 0 && msg.epoch != m.epoch {
+		return m, nil // a previous session's result: never paint it here
+	}
+	if msg.fromPoll {
+		m.refreshInFlight = false
+	}
+	if !msg.issuedAt.IsZero() {
+		if msg.issuedAt.Before(m.lastRefresh) {
+			return m, nil // overtaken by a newer refresh already applied
+		}
+		m.lastRefresh = msg.issuedAt
+	}
 	if msg.err != nil {
 		m.setStatus(msg.err.Error(), true)
 	}
@@ -252,6 +331,12 @@ func (m Model) applyRefresh(msg refreshMsg) (tea.Model, tea.Cmd) {
 	}
 	if msg.health != nil {
 		m.health = msg.health
+	}
+	if msg.ctrNames != nil {
+		m.ctrNames = msg.ctrNames
+	}
+	if msg.ctrOverride != nil {
+		m.ctrOverride = msg.ctrOverride
 	}
 	m.images = make(map[string]string, len(msg.units))
 	for i, u := range msg.units {

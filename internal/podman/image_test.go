@@ -8,7 +8,7 @@ import (
 
 func TestImageExists(t *testing.T) {
 	fakePodman(t, "exit 0\n")
-	ok, err := ImageExists(context.Background(), "busybox:latest")
+	ok, err := local.ImageExists(context.Background(), "busybox:latest")
 	if err != nil || !ok {
 		t.Errorf("ok=%v err=%v", ok, err)
 	}
@@ -16,7 +16,7 @@ func TestImageExists(t *testing.T) {
 
 func TestImageMissing(t *testing.T) {
 	fakePodman(t, "exit 1\n")
-	ok, err := ImageExists(context.Background(), "busybox:latest")
+	ok, err := local.ImageExists(context.Background(), "busybox:latest")
 	if err != nil || ok {
 		t.Errorf("ok=%v err=%v, want missing without error", ok, err)
 	}
@@ -24,13 +24,13 @@ func TestImageMissing(t *testing.T) {
 
 func TestImageExistsError(t *testing.T) {
 	fakePodman(t, "echo 'storage broken'; exit 125\n")
-	if _, err := ImageExists(context.Background(), "busybox:latest"); err == nil {
+	if _, err := local.ImageExists(context.Background(), "busybox:latest"); err == nil {
 		t.Error("non-1 failures must surface as errors, not missing")
 	}
 }
 
 func TestImageExistsEmpty(t *testing.T) {
-	if _, err := ImageExists(context.Background(), "  "); err == nil {
+	if _, err := local.ImageExists(context.Background(), "  "); err == nil {
 		t.Error("empty reference must fail")
 	}
 }
@@ -38,7 +38,7 @@ func TestImageExistsEmpty(t *testing.T) {
 func TestPullImage(t *testing.T) {
 	fakePodman(t, `if [ "$1" != "pull" ] || [ "$2" != "busybox:latest" ]; then exit 9; fi
 echo "Copied blob sha256:abc"`)
-	out, err := PullImage(context.Background(), "busybox:latest")
+	out, err := local.PullImage(context.Background(), "busybox:latest")
 	if err != nil || !strings.Contains(out, "sha256:abc") {
 		t.Errorf("out=%q err=%v", out, err)
 	}
@@ -46,7 +46,7 @@ echo "Copied blob sha256:abc"`)
 
 func TestPullImageError(t *testing.T) {
 	fakePodman(t, "echo 'manifest unknown'; exit 1\n")
-	if _, err := PullImage(context.Background(), "busybox:latest"); err == nil {
+	if _, err := local.PullImage(context.Background(), "busybox:latest"); err == nil {
 		t.Error("expected error")
 	}
 }

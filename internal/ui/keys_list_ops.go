@@ -45,10 +45,7 @@ func (m Model) generateOpenKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) 
 	if msg.String() != "n" {
 		return m, nil, false
 	}
-	if m.refuseRemoteWrite() {
-		return m, nil, true
-	}
-	if m.refuseReadonly() {
+	if m.refuse(capMutate | capTargetFiles) {
 		return m, nil, true
 	}
 	if !podletAvailable() {
@@ -85,10 +82,9 @@ func (m Model) instantiateOpenKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, boo
 	if msg.String() != "i" {
 		return m, nil, false
 	}
-	if m.refuseRemoteWrite() {
-		return m, nil, true
-	}
-	if m.refuseReadonly() {
+	// Instantiating only starts web@<name>.service: no file is written,
+	// so it works in every session that may change state.
+	if m.refuse(capMutate) {
 		return m, nil, true
 	}
 	u, ok := m.selected()
@@ -109,10 +105,7 @@ func (m Model) deleteKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if msg.String() != "D" {
 		return m, nil, false
 	}
-	if m.refuseRemoteWrite() {
-		return m, nil, true
-	}
-	if m.refuseReadonly() {
+	if m.refuse(capMutate | capTargetFiles) {
 		return m, nil, true
 	}
 	u, ok := m.selected()
@@ -147,11 +140,11 @@ func (m Model) reloadKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if msg.String() != "R" {
 		return m, nil, false
 	}
-	if m.refuseReadonly() {
+	if m.refuse(capMutate) {
 		return m, nil, true
 	}
 	m.podmanTried = false // re-enrich app/pod grouping after regeneration
-	return m, tea.Batch(m.setBusy("daemon-reload"), actionCmd("daemon-reload", m.sys.DaemonReload)), true
+	return m, tea.Batch(m.setBusy("daemon-reload"), m.actionCmd("daemon-reload", m.sys.DaemonReload)), true
 
 }
 
@@ -165,7 +158,7 @@ func (m Model) lingerKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		m.setStatus("linger only applies to rootless user sessions", false)
 		return m, nil, true
 	}
-	if m.refuseReadonly() {
+	if m.refuse(capMutate) {
 		return m, nil, true
 	}
 	target := !m.linger
