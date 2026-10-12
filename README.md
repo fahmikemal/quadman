@@ -40,24 +40,34 @@ whole lifecycle in one TUI:
   automatically every few seconds with the cursor pinned on your selection.
 - `start` / `stop` (with confirmation — Quadlet runs containers `--rm`) /
   `restart` / `enable` / `disable` / `daemon-reload` with one keypress, each
-  with a spinner while it runs.
+  with a spinner while it runs; a slow first start (a big image pull) is
+  waited on for up to 5 minutes and then reported as still running, not as
+  failed.
 - Warns when quadlet files changed after the last `daemon-reload`, so you
-  never wonder why your edits do nothing.
+  never wonder why your edits do nothing — straight from systemd's own
+  `NeedDaemonReload`, so it is right over SSH and in compartments too.
 - **Follow-mode journals** — live `journalctl -f` tail per unit with
   stick-to-tail scrolling, pause (`f`), live grep filter (`F`), priority filter (`p`), export to `.log`/`.jsonl` (`S`), and OSC52 clipboard copy (`c`).
 - **Command Palette** (`Ctrl+P`) — fuzzy-search and execute all unit lifecycle actions, screens, views, diagnostics, and user custom commands with live context-sensitive validation.
 - **Native Wish SSH Daemon** (`quadman serve`) serves the TUI directly over SSH without installing quadman on the connecting machine: loopback-only by default, `authorized_keys` required for non-loopback binds, password auth (loopback-only, throttled), host key generation, readonly mode, and fully isolated sessions.
-- **Dual Rootless / System Mode** (`--system`) — default rootless-first identity, with native rootful system support (`/etc/containers/systemd`, `/run/containers/systemd`) and automatic root detection (`sudo quadman`).
+- **Dual Rootless / System Mode** (`--system`) — default rootless-first identity, with native rootful system support (`/etc/containers/systemd`, `/run/containers/systemd`) and automatic root detection (`sudo quadman`); `system: true` in config.yaml makes it the default.
+- **Remote hosts** (`--ssh user@host`) — the whole TUI (and `list`) against another machine through your own `ssh`: one multiplexed connection, every command quoted for the remote shell, nothing installed or synced on the host.
+- **Compartments** (`--as svc-web`) — manage another OS user's Quadlets (their search path, user manager, podman storage, and secrets) through non-interactive sudo, with a sudoers rule that lists exactly the CLIs quadman runs.
+- **Safety by design** — one capability policy decides what each session may do (readonly, SSH, compartment, served); confirmations say what will happen and what stays, and anything that loses data (unit, volume, secret, prune) waits for its name to be typed.
 - `/` fuzzy-filter the unit list as you type.
 - Edit quadlet files in `$EDITOR` from the TUI; get nudged to regenerate
   when the file changed.
 - **Auto-update screen** (`u`) — `podman auto-update --dry-run` preview and
   the `podman-auto-update.timer` state, toggleable with `U`.
 - Container health: unhealthy containers surface in the STATE column, `h`
-  runs `podman healthcheck run` on the selected unit.
+  runs `podman healthcheck run` on the selected unit. The container is
+  found by Quadlet's `PODMAN_SYSTEMD_UNIT` label, so `ContainerName=` and
+  `ServiceName=` overrides just work.
 - **Built-in validation** — the Quadlet generator itself (dry-run) checks
-  every file on refresh; units with problems get a ✗/⚠ marker and the `v`
-  view explains each error, including version-gate hints for new keys.
+  every file at startup and after each `daemon-reload` (on the SSH host, or
+  as the compartment user, when the session is remote); units with
+  problems get a ✗/⚠ marker and the `v` view explains each error,
+  including version-gate hints for new keys.
 - **Drop-in directories** — `foo.container.d/*.conf` (plus cascading
   `foo-.container.d/` and generic `container.d/`) shown merged in the file
   view, in the generator's merge order.
@@ -78,7 +88,8 @@ whole lifecycle in one TUI:
 - **Storage** (`g`) — `podman system df` as tiles, then images, volumes and
   containers as tabs, each linked to the quadlet units that use it; unused
   objects group under UNUSED with the space a prune would reclaim. Pull,
-  remove (refused while a unit uses it) and prune, all behind a confirm.
+  remove (refused while a unit uses it) and prune, all behind a confirm;
+  removing a volume or pruning waits for the name (or `prune`) typed.
 - **Events** (`w`) — one live timeline merged from `podman events`, the
   service manager's own messages about your units (started, failed,
   scheduled restart) and quadman's actions; filter by type (`1`-`6`),
@@ -87,13 +98,16 @@ whole lifecycle in one TUI:
   with a 24-run ✓✗ history; which unit uses which secret and how, with
   values never rendered (masked entry on stdin, clipboard cleared after
   30s); a session audit with duration, trigger, the equivalent command and
-  a repeat key.
+  a repeat key (a repeat asks the original confirmation again and never
+  replays into another session).
 - **Smart hints** — `timed-out` starts suggest `TimeoutStartSec=`/`Pull=`;
   crash-loops and `AutoUpdate=`-without-timer also get called out in the
   problems view.
 - **Generate from anything** (`n`) — paste a `docker run` command or a
   compose file path; [podlet](https://github.com/containers/podlet) converts
-  it, you preview the result, `y` writes it and reloads the generator.
+  it, you preview the result, `y` writes it (atomically, into
+  `~/.config/containers/systemd` or `/etc/containers/systemd` in system
+  mode) and reloads the generator.
 - **Templates & bundles** — instantiate `web@.container` as
   `web@prod.service` (`i`), and preview/install multi-document `.quadlets`
   bundles (`I`).
@@ -147,7 +161,17 @@ make build   # ./quadman
 
 Requirements: Linux with systemd, a user session (rootless-first by design), and
 `journalctl` for log view. No daemon; one optional YAML settings file (see
-Config below).
+Config below). Optional, per feature:
+
+| Feature | Needs |
+| ------- | ----- |
+| app/pod grouping, health, storage, secrets, stats, events | `podman` 5.3+ (6.x recommended) |
+| problems view (generator dry-run) | `podman-system-generator` (ships with podman) |
+| `n` generate | [`podlet`](https://github.com/containers/podlet) |
+| `--ssh user@host` | your `ssh` client; a POSIX-compatible login shell on the host |
+| `--as <user>` | non-interactive sudo to that user (root, or a `NOPASSWD:SETENV` rule — see Compartments) and a runtime dir for them |
+
+Building from source needs Go 1.26.8 or newer.
 
 ## Usage
 
@@ -183,10 +207,10 @@ quadman -version                 # block-art splash on a terminal, one line when
 | `l`   | live journal tail (`f` pause, `/` search, `F` grep filter, `p` priority, `S` export, `c` copy) |
 | `s` / `x` / `r` | start / stop (confirms) / restart the unit — or all `space`-marked units at once |
 | `space` | mark/unmark the row for bulk actions (`esc` clears marks) |
-| `e`   | enable at boot (appends `[Install]` to the file, asks first) |
-| `d`   | disable from boot (removes `[Install]`, asks first) |
+| `e`   | enable at boot (adds `WantedBy=default.target` — `multi-user.target` in system mode — to `[Install]`, asks first) |
+| `d`   | disable from boot (removes the boot keys from `[Install]`, keeps the rest, asks first) |
 | `E`   | edit the Quadlet file in `$EDITOR`            |
-| `X`   | open `/bin/sh` in the unit's container (`podman exec`, exact name match) |
+| `X`   | open `/bin/sh` in the unit's container (`podman exec`, exact name match; not over SSH or in served sessions) |
 | `u`   | auto-update screen (`U` toggles the timer)    |
 | `h`   | run `podman healthcheck` on the unit          |
 | `v`   | problems view — generator validation of every Quadlet file |
@@ -203,11 +227,11 @@ quadman -version                 # block-art splash on a terminal, one line when
 | `K`   | secrets: USED BY · AS, missing and unused first (`n` create, `r` rotate, `c` copy value, `D` remove) |
 | `w`   | events timeline (`f` pause, `1`-`6` type, `u` this unit, `s` window, `S` export) |
 | `n`   | generate a quadlet via podlet (`podman run ...`, `docker run ...`, `run ...` shorthand, `compose <path>`, or `<kind> <name>` for container\|pod\|network\|volume\|image) |
-| `A`   | session actions: result, duration, trigger, command (`.` repeat, `c` copy command) |
+| `A`   | session actions: result, duration, trigger, command (`.` repeat with the original confirmation, `c` copy command) |
 | `S`   | cycle the list order: problems first / name / kind |
 | `z`   | collapse or expand the dashboard tiles |
-| `R`   | `systemctl --user daemon-reload` (regenerate after editing Quadlet files) |
-| `L`   | toggle user linger (`loginctl enable-linger`) |
+| `R`   | `systemctl --user daemon-reload` (`systemctl daemon-reload` in system mode; regenerate after editing Quadlet files) |
+| `L`   | toggle linger (`loginctl enable-linger`) for the session's own user — you, the remote login user, or the compartment user |
 | `?`   | expand help                                   |
 | `q` / `esc` | quit / back                             |
 
@@ -404,8 +428,27 @@ Not affiliated with the Podman project.
 
 ## Security
 
+quadman is built to be left running against production hosts:
+
+- **One policy, every surface** — keys and Command Palette ask the same
+  capability policy, so readonly, SSH, compartment, and served sessions
+  refuse the same things, always with the reason.
+- **Isolated sessions** — every SSH-served session has its own clients;
+  nothing one client does re-targets another, and a served compartment
+  stays pinned to its user.
+- **Fail closed** — an unusable `config.yaml` starts the TUI readonly and
+  stops `serve`; network binds need `authorized_keys`, passwords are
+  loopback-only and throttled.
+- **No shells** — every command is an argv; over SSH each word is quoted
+  for the remote shell; custom commands split before template expansion;
+  secrets travel on stdin and are never rendered.
+- **Safe edits** — quadlet files are written atomically, symlinks are
+  followed, mode and owner are kept.
+
 See [SECURITY.md](SECURITY.md) for supported versions, how to report a
-vulnerability, and the shipped hardening defaults.
+vulnerability, and every shipped hardening default, and
+[DESIGN.md](DESIGN.md) for the interaction rules (glyphs, confirmations,
+layout).
 
 ## License
 
