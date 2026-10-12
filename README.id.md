@@ -58,15 +58,15 @@ quadman dirancang secara sengaja bersifat *engine-agnostic*: hanya memanggil CLI
 
 ## Tangkapan Layar (Screenshots)
 
-Tampilan tabel utama — seluruh sumber Quadlet, unit systemd terkait, status aktif, dan image kontainer, lengkap dengan banner peringatan jika berkas di disk berubah:
+Tampilan daftar utama — tile dashboard, blok *needs attention* yang menyebutkan tombol untuk memperbaiki tiap masalah, lalu seluruh Quadlet beserta status aktif, uptime, dan image-nya (masalah selalu diurutkan paling atas):
 
 ![quadman unit list](docs/screenshot-list.png)
 
-Memilih unit akan langsung melakukan streaming journal secara real-time (`journalctl -f`) tanpa perlu keluar dari antarmuka TUI — jeda dengan `f`, cari dengan `/`:
+Tekan `l` pada sebuah unit untuk streaming journal secara real-time (`journalctl -f`) tanpa keluar dari TUI — baris warning dan error ditandai, jeda dengan `f`, cari dengan `/`, saring berdasarkan prioritas dengan `p`:
 
 ![quadman journal view](docs/screenshot-logs.png)
 
-Penggunaan resource per kontainer (`podman stats`), hanya sejauh satu tombol:
+Penggunaan resource per kontainer (`podman stats`, tombol `o`) lengkap dengan riwayat CPU, dan setiap kontainer terhubung ke unit Quadlet-nya:
 
 ![quadman resource stats](docs/screenshot-stats.png)
 
