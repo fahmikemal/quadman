@@ -23,14 +23,14 @@
 
 Quadlet adalah standar yang direkomendasikan untuk menjalankan container rootless sebagai systemd service — namun perkakas bawaannya tersebar di antara `systemctl`, `journalctl`, dan `loginctl`. quadman menyatukan seluruh siklus hidup tersebut dalam satu TUI terpadu:
 
-- Mendeteksi setiap berkas sumber Quadlet yang dibaca oleh generator systemd (`*.container`, `*.pod`, `*.kube`, `*.volume`, `*.network`, `*.image`, `*.build`, `*.artifact`), di seluruh hierarki direktori pencarian pengguna (`$XDG_RUNTIME_DIR/containers/systemd` → `~/.config/containers/systemd` → `/etc/containers/systemd/users[/UID]` → `/usr/share/containers/systemd/users[/UID]`), dengan mekanisme shadowing (*first-match*) yang identik dengan generator resmi Podman.
+- Mendeteksi setiap berkas sumber Quadlet yang dibaca oleh generator systemd (`*.container`, `*.pod`, `*.kube`, `*.volume`, `*.network`, `*.image`, `*.build`, `*.artifact`), di seluruh hierarki direktori pencarian pengguna (`$XDG_RUNTIME_DIR/containers/systemd` → `~/.config/containers/systemd` → `/etc/containers/systemd/users[/UID]` → `/usr/share/containers/systemd/users[/UID]`), termasuk subdirektorinya, dengan mekanisme shadowing (*first-match*) yang identik dengan generator resmi Podman.
 - Memetakan setiap berkas sumber ke unit systemd yang dihasilkan oleh generator (`webapp.container` → `webapp.service`, `stack.pod` → `stack-pod.service`, `cache.volume` → `cache-volume.service`, dst.), menghargai override `ServiceName=` dan template unit (`web@.container` → `web@.service`).
 - Menampilkan status live secara real-time (active/inactive/failed, `not-found` saat Anda lupa melakukan `daemon-reload`) beserta image yang dikonfigurasi langsung di tabel utama — di-refresh secara otomatis setiap beberapa detik dengan posisi kursor tetap terkunci pada baris pilihan Anda.
 - Operasi `start` / `stop` (dengan konfirmasi aman — Quadlet menjalankan container dengan opsi `--rm`) / `restart` / `enable` / `disable` / `daemon-reload` cukup dengan satu tombol cepat, masing-masing disertai indikator animasi spinner saat operasi berjalan.
 - Memberikan peringatan (*warning banner*) jika berkas quadlet mengalami modifikasi setelah `daemon-reload` terakhir, sehingga Anda tidak lagi bingung mengapa perubahan konfigurasi belum aktif.
 - **Follow-mode journals** — streaming live `journalctl -f` per unit dengan fitur auto-scroll ke baris terbawah (*stick-to-tail*), jeda streaming (`f`), live grep filter (`F`), filter prioritas log (`p`), ekspor ke `.log`/`.jsonl` (`S`), dan salin log ke clipboard via OSC52 (`c`).
 - **Command Palette** (`Ctrl+P`) — modal overlay berbasis pencarian fuzzy untuk menemukan dan mengeksekusi semua aksi siklus hidup unit, navigasi layar/view, diagnostik, dan perintah kustom (*custom commands*) dengan validasi status kontekstual secara langsung.
-- **Native Wish SSH Daemon** (`quadman serve`) menyajikan antarmuka TUI langsung melalui protokol SSH tanpa perlu menginstal quadman di mesin klien penghubung: bind loopback saja secara default, `authorized_keys` wajib untuk bind non-loopback, lengkap dengan autentikasi public key, autentikasi password, pembuatan host key otomatis, dan mode dashboard *read-only*.
+- **Native Wish SSH Daemon** (`quadman serve`) menyajikan antarmuka TUI langsung melalui protokol SSH tanpa perlu menginstal quadman di mesin klien penghubung: bind loopback saja secara default, `authorized_keys` wajib untuk bind non-loopback, lengkap dengan autentikasi public key, autentikasi password (hanya loopback, dengan pembatasan percobaan), pembuatan host key otomatis, mode dashboard *read-only*, dan sesi yang sepenuhnya terisolasi.
 - **Mode Ganda Rootless & Sistem** (`--system`) — identitas utama tetap memprioritaskan rootless secara bawaan, namun mendukung penuh manajemen unit tingkat sistem (*rootful*) (`/etc/containers/systemd`, `/run/containers/systemd`) serta deteksi otomatis hak akses root (`sudo quadman`).
 - Pencarian fuzzy `/` untuk memfilter daftar unit secara instan saat Anda mengetik.
 - Mengedit berkas quadlet langsung di editor teks `$EDITOR` bawaan Anda dari dalam TUI; otomatis memberikan peringatan untuk me-reload generator setelah berkas disimpan.
@@ -100,6 +100,7 @@ quadman serve                    # Jalankan TUI sebagai SSH server via Wish daem
 quadman serve -p 2222 --readonly # Dashboard monitoring SSH mode baca-saja
 quadman --readonly               # TUI dengan seluruh aksi pengubah status dinonaktifkan
 quadman --ssh user@host          # Kelola server remote rootless melalui koneksi SSH
+quadman --ssh user@host list     # Ringkasan non-interaktif host remote
 quadman --theme colorblind       # Pilihan tema: auto, dark, light, atau colorblind
 quadman --mouse                  # Aktifkan navigasi klik mouse
 quadman --quadlet-dir ~/quadlets # Direktori sumber Quadlet tambahan (dapat diulang)
@@ -136,9 +137,9 @@ quadman -version                 # Splash logo blok di terminal, satu baris saat
 | `y` / `Y` | Salin nama unit / image ke clipboard (OSC52, bekerja sempurna via SSH) |
 | `[` / `]` | Berpindah tab detail: overview / source / status / journal / inspect |
 | `I` | Pasang bundel `.quadlets` (`podman quadlet install`) |
-| `g` | Storage: images / volumes / containers dengan USED BY (`[ ]` tab, `p` pull, `D` hapus, `S` urutan) |
+| `g` | Storage: images / volumes / containers dengan USED BY (`[ ]` tab, `p` pull, `D` hapus — volume wajib diketik namanya, `S` urutan) |
 | `o` | Statistik resource: bar CPU, urutkan dengan `←/→`, `i` container idle, sampling ulang otomatis |
-| `P` | `podman system prune` (konfirmasi dulu, peringatan untuk unit Quadlet nonaktif) |
+| `P` | `podman system prune` (ketik `prune` untuk konfirmasi; peringatan untuk unit Quadlet nonaktif) |
 | `T` | Timers: jadwal, next/last run, riwayat run (`n` jalankan sekarang, `s`/`x`, `e`/`d`, `l` log run terakhir) |
 | `K` | Secrets: USED BY · AS, yang hilang dan tidak terpakai di atas (`n` buat, `r` rotasi, `c` salin nilai, `D` hapus) |
 | `w` | Timeline event (`f` jeda, `1`-`6` tipe, `u` unit ini, `s` rentang waktu, `S` ekspor) |
@@ -153,7 +154,7 @@ quadman -version                 # Splash logo blok di terminal, satu baris saat
 
 ## Konfigurasi
 
-Pengaturan YAML opsional terletak di `~/.config/quadman/config.yaml` (seluruh opsi bersifat opsional; berkas yang korup/salah sintaks akan dilaporkan di bar status bawah dan tidak diabaikan secara diam-diam):
+Pengaturan YAML opsional terletak di `~/.config/quadman/config.yaml` (seluruh opsi bersifat opsional). Berkas dibaca secara ketat dan *fail closed*: berkas rusak atau key tak dikenal (salah ketik seperti `read_only:`) dilaporkan, TUI mulai dalam mode **readonly** sampai diperbaiki, dan `quadman serve` menolak berjalan — quadman tidak pernah menebak pengaturan yang menentukan siapa boleh mengubah apa.
 
 ```yaml
 refresh_interval: 5s   # Interval polling daftar (default 2.5s)
@@ -163,6 +164,8 @@ readonly: false        # Sama dengan flag quadman --readonly
 theme: auto            # auto, dark, light, atau colorblind
 mouse: false           # Sama dengan flag quadman --mouse (off menjaga seleksi teks terminal tetap aktif)
 dashboard: true        # false membuat daftar dimulai dengan tiles terlipat (z untuk toggle)
+system: false          # true: kelola unit sistem secara default (seperti --system; tidak berlaku untuk --as)
+ssh_multiplex: true    # --ssh berbagi satu koneksi (OpenSSH ControlMaster); false untuk menonaktifkan
 quadlet_dirs:          # Direktori sumber Quadlet tambahan (sama dengan --quadlet-dir)
   - ~/quadlets
 serve:
@@ -175,17 +178,18 @@ serve:
 
 custom_commands:
   - name: status
-    key: S
+    key: C
     run: systemctl --user status {{.UnitName}}
   - name: image
-    key: G
+    key: M
     run: podman image inspect {{.Image}}
 ```
 
-Tombol kustom tidak boleh memakai tombol bawaan mode daftar (`s x r e d E u h v t i I D y Y g o P T K w n A R L ? q l X` dan sejenisnya):
-quadman memberi peringatan saat startup bila ada perintah kustom yang tertutup (*shadowed*) karena tombol bawaan selalu menang.
+Tombol kustom tidak boleh memakai tombol bawaan mode daftar
+(`/ ? A d D e E g h i I l L n o P q r R s S t T K u v w x X y Y z` dan spasi):
+quadman memberi peringatan saat startup bila ada perintah kustom yang tertutup (*shadowed*), karena tombol bawaan selalu menang. Perintah kustom pada tombol navigasi tabel (`j k b f g G u d`) tetap berjalan tetapi mengambil alih tombol navigasi tersebut; quadman juga memberitahukannya saat startup.
 
-Perintah kustom (*custom commands*) dijalankan secara aman tanpa perantara shell: string `run` diekspansi sebagai template Go (`{{.Name}}`, `{{.UnitName}}`, `{{.Kind}}`, `{{.Image}}`), dipecah dengan tokenizer pemisah tanda kutip, dan dieksekusi langsung. Hasil eksekusi tampil di bar status bawah dan tercatat di log aksi terakhir (`A`). Preferensi editor teks saat pertama kali dipilih disimpan pada berkas `config.json` di direktori yang sama.
+Perintah kustom (*custom commands*) dijalankan tanpa perantara shell: string `run` lebih dulu dipecah menjadi kata dengan tokenizer yang menghormati tanda kutip, lalu setiap kata diekspansi sebagai template Go (`{{.Name}}`, `{{.UnitName}}`, `{{.Kind}}`, `{{.Image}}`), sehingga nilai dari file unit tetap berada di dalam kata tempatnya ditulis dan tidak pernah bisa menambah argumen. Perintah berjalan lewat sesi — di host SSH atau sebagai user kompartemen, sama seperti aksi bawaan — dan hasilnya tampil di bar status bawah serta tercatat di log aksi terakhir (`A`). Preferensi editor teks saat pertama kali dipilih disimpan pada berkas `config.json` di direktori yang sama.
 
 ## Mode SSH Remote
 
@@ -193,9 +197,9 @@ Perintah kustom (*custom commands*) dijalankan secara aman tanpa perantara shell
 quadman --ssh user@host
 ```
 
-Setiap pemanggilan CLI (`systemctl`, `journalctl`, `loginctl`, `podman`) diteruskan melalui binary `ssh` lokal Anda — SSH key, ssh-agent, `known_hosts`, dan konfigurasi `~/.ssh/config` langsung bekerja otomatis tanpa perlu setup tambahan. Jika `ssh user@host true` berhasil, quadman dipastikan langsung bekerja.
+Setiap pemanggilan CLI (`systemctl`, `journalctl`, `loginctl`, `podman`) diteruskan melalui binary `ssh` lokal Anda — SSH key, ssh-agent, `known_hosts`, dan konfigurasi `~/.ssh/config` langsung bekerja otomatis tanpa perlu setup tambahan. Jika `ssh user@host true` berhasil, quadman dipastikan langsung bekerja. Pemanggilan berbagi satu koneksi multiplex (OpenSSH `ControlMaster` dengan socket privat, ditutup saat quadman keluar), sehingga satu refresh hanya butuh satu handshake, bukan satu per perintah; set `ssh_multiplex: false` untuk menonaktifkan. OpenSSH menyerahkan satu baris perintah ke login shell remote, jadi quadman meng-quote setiap kata: login shell remote harus kompatibel POSIX (sh, dash, bash, zsh, ksh).
 
-Mode remote mempertahankan kendali penuh untuk operasi baca dan siklus hidup: daftar unit, status live, start / stop / restart, journal logs, storage, stats, events, auto-update, healthcheck, linger, dan pohon dependensi (berkas dibaca via `cat` sesuai kebutuhan, tanpa sinkronisasi disk). Aksi yang memodifikasi berkas di host (seperti edit, enable/disable saat boot, instansiasi template, generate berkas, install bundel, dan delete) dibatasi dengan pesan penjelasan — kelola berkas secara langsung dengan menjalankan quadman di server target. Aksi interaktif/destruktif host juga ditolak dari remote: `podman exec` (`X`) butuh TTY lokal dan `system prune` (`P`) harus dijalankan di host. Drop-in dienumerasi dari remote (read-only) dan digabung di layar berkas.
+Mode remote mempertahankan kendali penuh untuk operasi baca dan siklus hidup: daftar unit (juga `quadman --ssh user@host list`), status live, start / stop / restart, instansiasi template, journal logs, storage, stats, events, auto-update, healthcheck, linger (untuk user login remote), problems (dry-run generator milik host), banner stale-reload, install bundel (`podman quadlet install` di host), prune (ketik `prune` untuk konfirmasi), dan pohon dependensi (berkas dibaca via `cat` sesuai kebutuhan, tanpa sinkronisasi disk). Aksi yang mengubah berkas lewat quadman sendiri (edit, enable/disable saat boot, generate berkas, delete) ditolak dengan penjelasan — jalankan quadman di host tersebut untuk itu. `podman exec` (`X`) juga ditolak: runner SSH batch tidak membawa terminal interaktif. Drop-in dienumerasi dari remote (read-only) dan digabung di layar berkas. `--ssh` tidak bisa digabung dengan `--as` (tanpa sudo hop bersarang) maupun dengan `serve`.
 
 ## Kompartemen (banyak OS user, satu TUI)
 
@@ -207,18 +211,33 @@ systemd user instance, storage podman, dan secret store milik user tersebut.
 Top bar menampilkan `quadman › rootless › as svc-web`; edit berkas tetap dinonaktifkan seperti
 mode SSH.
 
-Syarat: `sudo -n -u <user> true` harus berhasil (entri sudoers NOPASSWD atau
-operator root), dan target butuh runtime dir (`/run/user/<uid>` — linger
-user tersebut atau login sekali). Bila salah satunya hilang, quadman
-menjelaskan sebabnya dan tetap menampilkan sesi Anda sendiri, bukan
-setengah beralih.
+Syarat: sudo non-interaktif ke user tersebut harus berhasil dengan variabel
+sesi yang dikirim quadman (`sudo -n -u <user> XDG_RUNTIME_DIR=… HOME=… -- <cmd>`),
+dan target butuh runtime dir (`/run/user/<uid>` — linger user tersebut atau
+login sekali). Operator root tidak butuh apa-apa lagi; selain itu butuh
+aturan `NOPASSWD:SETENV` untuk CLI yang dijalankan quadman sebagai user
+tersebut — tanpa `/usr/bin/env`, tanpa shell:
+
+```
+operator ALL=(svc-web) NOPASSWD:SETENV: /usr/bin/systemctl, /usr/bin/journalctl, \
+    /usr/bin/loginctl, /usr/bin/podman, /usr/bin/podlet, /usr/bin/cat, /usr/bin/ls, \
+    /usr/bin/true, /usr/libexec/podman/podman-system-generator
+```
+
+(Sesuaikan path dengan distribusi Anda; path generator mengaktifkan layar
+problems.) `quadman --as <user>`, `--as <user> list`, dan `--as <user> serve`
+berhenti saat startup dengan alasannya bila sudo, user, atau runtime dir
+tidak tersedia; berpindah dari Command Palette tetap menampilkan sesi Anda
+sendiri, bukan setengah beralih.
 
 Kompartemen yang dikonfigurasi (`compartments: [svc-web, svc-db]` di
 config.yaml) muncul di Command Palette (`Ctrl+P`) sebagai aksi
 "Use Compartment ...", plus "Use Own Session" untuk kembali. Berpindah
-kompartemen di atas sesi SSH ditolak (tanpa sudo hop bersarang), dan
-`--system` tidak bisa digabung dengan `--as` sama sekali (unit sistem
-berada di luar sesi user mana pun).
+kompartemen di atas sesi SSH ditolak (tanpa sudo hop bersarang), sesi
+serve tidak pernah berpindah (klien `quadman --as svc-web serve` tetap di
+svc-web), dan `--system` tidak bisa digabung dengan `--as` sama sekali (unit
+sistem berada di luar sesi user mana pun). Kompartemen selalu merupakan sesi
+user, juga untuk operator root dan juga bila config.yaml berisi `system: true`.
 Script non-interaktif memakai `quadman --as <user> list`.
 
 ```yaml
@@ -248,15 +267,17 @@ ssh -p 2222 user@host
 Fitur utama SSH Server:
 - **Nol dependensi klien**: Komputer yang menghubung hanya memerlukan terminal client standar `ssh`.
 - **Host Key Otomatis**: Membuat kunci host ED25519 otomatis di `~/.config/quadman/host_ed25519` jika belum ditentukan.
-- **Opsi Autentikasi**: Mendukung verifikasi berkas `authorized_keys` atau perlindungan kata sandi (loopback saja). Kata sandi berasal dari tepat satu sumber: `--password`, `--password-file`, `QUADMAN_SERVE_PASSWORD`, atau config `password`/`password_file`; pilih bentuk berkas atau env agar secret tidak muncul di process list. Tanpa keduanya di loopback, server tetap berjalan tetapi **memaksa semua sesi ke mode readonly** dengan peringatan jelas, dan akses tulis anonim tidak pernah aktif secara default, dan bind open-auth/password-only tidak pernah listen di luar loopback.
+- **Opsi Autentikasi**: Mendukung verifikasi berkas `authorized_keys` atau perlindungan kata sandi. Kata sandi **hanya loopback, bahkan bila ada keys** — bind LAN hanya memakai keys — dan percobaan gagal dibatasi per alamat klien (jeda setiap kegagalan, lockout setelah 5 kegagalan dalam semenit). Kata sandi berasal dari tepat satu sumber: `--password`, `--password-file`, `QUADMAN_SERVE_PASSWORD`, atau config `password`/`password_file`; pilih bentuk berkas atau env agar secret tidak muncul di process list. Tanpa keduanya di loopback, server tetap berjalan tetapi **memaksa semua sesi ke mode readonly** dengan peringatan jelas; akses tulis anonim tidak pernah aktif secara default. Loopback bukan batas antar-user: di host bersama setiap akun lokal bisa terhubung, jadi gunakan keys di sana.
 - **Mode Dashboard Readonly**: Tambahkan flag `--readonly` untuk membagikan akses pemantauan kepada rekan tim dengan aman tanpa risiko salah mematikan atau mengubah unit produksi.
-- **Eksekusi Aman**: Pembukaan editor lokal `$EDITOR` dinonaktifkan secara aman pada sesi server SSH.
+- **Sesi terisolasi**: setiap koneksi punya client dan state sendiri; tidak ada aksi satu klien yang mengarahkan ulang klien lain. Sesi serve tidak pernah membuka editor atau shell, tidak pernah menulis berkas di host daemon (ekspor log), tidak pernah menyalin nilai secret, dan tidak pernah berpindah kompartemen.
+- **Tema**: daemon tidak punya terminal sendiri, jadi `auto` menjadi dark; pilih `--theme light` atau `colorblind` secara eksplisit.
+- **Config**: `serve` menolak berjalan bila config.yaml tidak bisa dipakai, alih-alih melayani default tebakan.
 
 ## Lokasi Berkas Quadlet
 
 quadman memindai hierarki pencarian rootless generator resmi:
 (`$XDG_RUNTIME_DIR/containers/systemd` → `~/.config/containers/systemd` → `/etc/containers/systemd/users[/UID]` → `/usr/share/containers/systemd/users[/UID]`),
-ditambah direktori kustom Anda dari opsi `quadlet_dirs` di config.yaml atau flag berulang `--quadlet-dir` (misal repositori git yang berisi manifest infrastruktur Anda). Direktori tambahan ditempatkan setelah direktori standar, sehingga berkas bernama sama di direktori standar tetap mengutamakan *shadowing* — semantik generator tetap terjaga.
+ditambah direktori kustom Anda dari opsi `quadlet_dirs` di config.yaml atau flag berulang `--quadlet-dir` (misal repositori git yang berisi manifest infrastruktur Anda). Seperti generator, setiap direktori dipindai secara rekursif (`apps/web/web.container` ikut terhitung; direktori drop-in `*.d` dan direktori numerik `users/<UID>` milik user lain tidak), dan direktori atau berkas symlink diikuti. Direktori tambahan ditempatkan setelah direktori standar, sehingga berkas bernama sama di direktori standar tetap mengutamakan *shadowing* — semantik generator tetap terjaga. Mengedit unit yang di-symlink (enable/disable saat boot) mengganti target link-nya di tempat dan mempertahankan link tersebut.
 
 Unit yang hanya ada di direktori tambahan ditandai dengan simbol `~`: generator belum dapat memuatnya, sehingga upaya menyalakan unit tersebut akan ditolak dengan penjelasan hingga berkas tersebut disalin atau di-symlink ke direktori pencarian standar dan di-reload (`R`). Aturan ini berlaku konsisten baik pada antarmuka TUI maupun perintah non-interaktif `quadman list`.
 

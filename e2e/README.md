@@ -16,7 +16,8 @@ bulk actions, compartment denied/live, and AI agent skill export.
 
 This module is intentionally separate (its own go.mod) so the main module
 stays free of test-only dependencies, and CI does not run it — it needs a
-live systemd user session, podman, and quadlet units on the host.
+live systemd user session, podman, and quadlet units on the host. CI keeps
+it building and vetted.
 
 ## Run
 
@@ -41,13 +42,15 @@ toggled twice and restored.
 ### Compartment fixture (optional)
 
 `scenarioCompartmentLive` needs a second local user with passwordless sudo
-and skips gracefully without it:
+and skips gracefully without it. quadman passes the session variables as
+sudo's own `VAR=value` arguments, so the rule needs `SETENV` and lists the
+exact CLIs — no `/usr/bin/env`, which would allow any command:
 
 ```sh
 sudo useradd -m svc-test
 sudo loginctl enable-linger svc-test
 cat <<'SUDO' | sudo tee /etc/sudoers.d/quadman-svc-test >/dev/null
-tesseract ALL=(svc-test) NOPASSWD:SETENV: /usr/bin/env, /usr/bin/systemctl, /usr/bin/journalctl, /usr/bin/loginctl, /usr/bin/podman, /usr/bin/podlet, /usr/bin/cat, /usr/bin/true
+tesseract ALL=(svc-test) NOPASSWD:SETENV: /usr/bin/systemctl, /usr/bin/journalctl, /usr/bin/loginctl, /usr/bin/podman, /usr/bin/podlet, /usr/bin/cat, /usr/bin/ls, /usr/bin/true, /usr/libexec/podman/podman-system-generator
 SUDO
 sudo chmod 440 /etc/sudoers.d/quadman-svc-test
 sudo -u svc-test mkdir -p /home/svc-test/.config/containers/systemd

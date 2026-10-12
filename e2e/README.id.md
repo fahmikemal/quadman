@@ -6,7 +6,7 @@
 
 Menjalankan TUI asli di dalam pseudo-terminal (PTY): mengirimkan penekanan tombol nyata dan memverifikasi apa yang dirender di layar terminal, mencakup penemuan unit (discovery), filter fuzzy, start/stop, healthcheck, follow logs, enable/disable saat boot, layar auto-update, banner file usang (stale banner), daemon-reload, toggle linger pengguna, help overlay, tampilan berkas, jadwal systemd timers, inspeksi dan validasi pre-flight podman secrets, prompt exec, layar stats, konfirmasi prune, generate objek-hidup, serve-over-SSH, auth password-file serve, kompartemen serve, command palette, ekspor dan filter log, mode sistem, aksi massal, kompartemen (denied/live), serta ekspor skill agen AI.
 
-Modul ini sengaja dipisahkan (memiliki `go.mod` tersendiri) agar modul utama tetap bebas dari dependensi yang hanya dibutuhkan untuk tes, dan alur CI tidak menjalankannya secara default — modul ini memerlukan sesi pengguna (*user session*) systemd aktif, podman, dan unit-unit Quadlet di host.
+Modul ini sengaja dipisahkan (memiliki `go.mod` tersendiri) agar modul utama tetap bebas dari dependensi yang hanya dibutuhkan untuk tes, dan CI tidak menjalankannya — modul ini memerlukan sesi pengguna (*user session*) systemd aktif, podman, dan unit-unit Quadlet di host. CI hanya memastikan modul ini tetap ter-build dan lolos `go vet`.
 
 ## Menjalankan Tes
 
@@ -27,7 +27,22 @@ Pengujian membutuhkan tiga unit di `~/.config/containers/systemd/`:
 ### Fixture kompartemen (opsional)
 
 `scenarioCompartmentLive` membutuhkan OS user kedua dengan sudo tanpa
-password, dan akan skip dengan anggun bila tidak ada (lihat versi Inggris
-di atas untuk perintah setup).
+password, dan akan skip dengan anggun bila tidak ada. quadman mengirim
+variabel sesi sebagai argumen `VAR=value` milik sudo sendiri, jadi aturannya
+butuh `SETENV` dan mendaftar CLI yang tepat — tanpa `/usr/bin/env`, yang
+akan mengizinkan perintah apa pun:
+
+```sh
+sudo useradd -m svc-test
+sudo loginctl enable-linger svc-test
+cat <<'SUDO' | sudo tee /etc/sudoers.d/quadman-svc-test >/dev/null
+tesseract ALL=(svc-test) NOPASSWD:SETENV: /usr/bin/systemctl, /usr/bin/journalctl, /usr/bin/loginctl, /usr/bin/podman, /usr/bin/podlet, /usr/bin/cat, /usr/bin/ls, /usr/bin/true, /usr/libexec/podman/podman-system-generator
+SUDO
+sudo chmod 440 /etc/sudoers.d/quadman-svc-test
+sudo -u svc-test mkdir -p /home/svc-test/.config/containers/systemd
+printf '[Container]\nImage=docker.io/library/busybox:latest\nExec=sleep infinity\n' | sudo -u svc-test tee /home/svc-test/.config/containers/systemd/e2e-comp.container >/dev/null
+```
+
+(Ganti `tesseract` dengan username operator.)
 
 Set `QE2E_ONLY=<substr>` untuk menjalankan hanya skenario tambahan yang cocok (alur utama selalu jalan).

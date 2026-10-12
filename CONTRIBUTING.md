@@ -22,8 +22,22 @@ checksums automatically.
 ## House rules
 
 - `make fmt vet test` must stay green before every push (CI enforces it).
-- Keep the security gates green too: `go run golang.org/x/vuln/cmd/govulncheck@latest ./...`
-  and `go run github.com/securego/gosec/v2/cmd/gosec@latest -quiet ./...` (CI runs both).
+- Keep the security gates green too, at the versions CI pins
+  (`.github/workflows/ci.yml`): `go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...`
+  and `go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 -quiet ./...`. Bump
+  them deliberately in their own commit.
+- Tests must not depend on the host: set `TERM`/glyph mode, the runtime dir,
+  and binaries (fakes on `PATH`, `SSHBin`) explicitly, and run
+  `go test -race -shuffle=on ./...` before pushing.
+- Every new state-changing or privileged action declares its capabilities
+  through `m.refuse(...)` (keys) and `m.allowed(...)` (palette) from
+  `internal/ui/policy.go`; never test `m.readonly` or the session kind by
+  hand. Destructive actions confirm with THIS WILL / KEEPS, and data loss
+  needs the name typed (see `DESIGN.md`).
+- Never add package-level mutable state reachable from a session: served
+  sessions run concurrently in one process. Session-bound clients live on
+  the model (`setSession`); process-wide presentation goes through
+  `ui.Configure`, once, before any session starts.
 - Commit prefixes `docs:` / `test:` / `ci:` / `chore:` are excluded from the
   generated changelog (see `.goreleaser.yaml`).
 - New behavior should come with tests; wrappers around CLIs are tested with

@@ -7,6 +7,41 @@ All notable changes to quadman are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- **Served sessions are isolated.** `quadman serve` sessions shared the
+  podman/podlet runner and the UI styles: one client switching
+  compartment redirected every other session's podman calls (secrets,
+  storage, prune) to another user, and concurrent connections raced on
+  the styles. Every session now has its own clients, and presentation is
+  configured once before the first session.
+- A client of `quadman --as <user> serve` could leave the compartment for
+  the operator's own session ("Use Own Session" was always enabled, even
+  readonly) or switch to another configured compartment. Served sessions
+  can no longer switch sessions at all.
+- Password auth is loopback-only even next to `--authorized-keys` (a LAN
+  bind with both used to accept the password from the network), and
+  failed password attempts are throttled per client address.
+- Readonly mode no longer lets `I` arm a bundle install. Key handlers and
+  palette entries now share one capability policy, which also ends the
+  palette/key disagreements for exec and prune.
+- Repeating an action (`A`, `.`) used a bare `y` even for actions first
+  confirmed by typing a name (delete, secret removal, prune) and could
+  replay after a session switch against another host or user. Repeats now
+  ask the original confirmation and are refused across sessions.
+- Removing a volume and `system prune` now need the name (or `prune`)
+  typed, like deleting a unit.
+- Custom commands expanded templates before splitting, so a unit file's
+  value (Image=…) could add arguments; words are now split first and
+  each is expanded on its own. They also run through the session runner
+  instead of always on the local host.
+- Compartment sudo carries the session variables as sudo `VAR=value`
+  arguments, so sudoers no longer has to allow `/usr/bin/env` (which
+  permitted any command); the probe uses the same form.
+- An unusable config.yaml (malformed or unknown keys) starts the TUI
+  readonly and stops `serve`; a corrupt config.json no longer drops the
+  YAML settings (including `readonly: true`).
+
 ### Changed
 
 TUI redesign (DESIGN.md v0.2). The chrome and the unit list:
@@ -110,12 +145,41 @@ Nav-strip keys switch views from any screen.
   (`docs/logo/`); the one-colour version draws that cell hollow. It
   replaces the hexagon logo in the header, and the `### quadman` title
   under it, which the wordmark now carries.
+- `--ssh` behavior: remote commands are quoted for the remote POSIX shell
+  (OpenSSH re-parses the command line); calls share one multiplexed
+  connection (`ssh_multiplex: false` opts out); template instances, bundle
+  install, and prune now work over SSH; `quadman --ssh host list` lists
+  the host. `--ssh` with `--as`, and `serve` with `--ssh`, are rejected.
+- `quadman --as <user>` stops at startup when the compartment cannot be
+  reached (like `list` and `serve`) instead of opening the operator's own
+  session. Root operators may use `--as`; compartments are always user
+  sessions, also when config.yaml sets `system: true`.
+- Discovery walks subdirectories of every search path like the
+  generator; symlinked directories and files are followed.
+- Section and key names are case-sensitive, like systemd and Quadlet.
+- Enable at boot uses `multi-user.target` for system units, adds the key
+  to an existing `[Install]` section, and respects `RequiredBy=`/`UpheldBy=`;
+  disable keeps other `[Install]` keys and refuses (with the path) when a
+  drop-in enables the unit.
+- Generated files go to `/etc/containers/systemd` in system mode, only
+  Quadlet extensions are accepted from podlet's `# FileName=`, and start
+  after writing honors `ServiceName=`.
+- Start/stop/restart wait up to 5 minutes; a job systemd keeps running
+  past that is reported as pending, not failed.
+- The timers screen reads `list-units --plain` names and `show
+  --timestamp=unix` times instead of the localized `list-timers` table.
+- Log export levels match whole words ("interrupt" is no longer an
+  error).
+- CI pins govulncheck and gosec, shuffles the race tests, and builds the
+  e2e module.
 
 ### Added
 
 - UPTIME, from systemd's `ActiveEnterTimestamp` (read with
   `systemctl show --timestamp=unix`).
 - systemd status now carries `Result`, `ExecMainStatus` and `NRestarts`.
+- `NeedDaemonReload` in the status (drives the stale-reload banner), the
+  `ssh_multiplex` setting, `quadman --ssh host list`, and `DESIGN.md`.
 
 ### Fixed
 
@@ -129,6 +193,35 @@ Nav-strip keys switch views from any screen.
   ("6 days" became "days", PASSED became "in ago"); rows are now parsed
   by their structure.
 - podman errors now include podman's own stderr explanation.
+- `podman quadlet list --format` was split by the remote shell over SSH, so
+  discovery fell back to listing every user service (dbus, pipewire, …) as
+  a "container"; the fallback without podman now keeps only units whose
+  `SourcePath=` is a Quadlet file.
+- Linger over SSH queried the local user name on the remote host, and in a
+  compartment the operator's linger; both now use the session's own user.
+- `sudo quadman --as <user>` failed with "--system and --as cannot be
+  combined"; `quadman --ssh host list` silently listed local units.
+- The stale-reload banner was always on in compartments (the operator
+  cannot stat another user's runtime dir); stale detection now uses
+  systemd's `NeedDaemonReload`, correct for local, SSH, and compartment
+  sessions. Validation and secret checks run through the session too.
+- Health, healthcheck, inspect, events, and stats guessed the container as
+  `systemd-<file name>`, missing `ContainerName=` and `ServiceName=`; the
+  `PODMAN_SYSTEMD_UNIT` label (then `ContainerName=`, then `systemd-%N`)
+  now names it everywhere.
+- Enable/disable at boot replaced a symlinked quadlet with a regular file,
+  detaching it from its git checkout; writes now follow the link, fsync,
+  and keep the mode (and owner as root).
+- Poll ticks stacked refreshes on slow sessions; one poll refresh runs at
+  a time, every refresh is bounded, and results from a previous session or
+  out of order are dropped.
+- Deleting a unit passed a path to `podman quadlet rm`, which takes a
+  name; it is now used only when podman reports that exact file.
+- Secrets screen: `Secret = x` (spaces) and drop-in references are found.
+- Two tests depended on `TERM` and on `/run/user/<uid>`; gosec G115 in the
+  journal byte-array decoder.
+- `DESIGN.md`, referenced by the code and this changelog, is now in the
+  repository.
 
 ## [v0.1.0-dev1] - 2026-10-05
 

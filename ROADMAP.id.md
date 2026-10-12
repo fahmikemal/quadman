@@ -78,6 +78,17 @@ quadman dirilis secara terstruktur dalam kelompok fitur (lihat [CONTRIBUTING.id.
 - [x] **Drop-in remote (read-only)**: dienumerasi via session runner untuk sesi SSH, kompartemen, dan serve.
 - [x] **Guard mode**: `--system` dan `--as` ditolak bila digabung (CLI plus palette), karena unit sistem di luar sesi user mana pun.
 
+### Hardening produksi (✅ Telah Dirilis, belum diberi tag)
+
+- [x] **Isolasi sesi**: client podman/podlet per sesi, perpindahan sesi copy-on-write dengan epoch, tampilan tingkat proses diset sekali — sesi serve tidak pernah race atau saling mengarahkan ulang; kompartemen yang di-serve tetap terkunci.
+- [x] **Satu kebijakan kapabilitas** (`internal/ui/policy.go`) untuk tombol dan palette; repeat mempertahankan konfirmasi dan sesinya; konfirmasi ketik untuk setiap kehilangan data (unit, volume, secret, prune).
+- [x] **Eksekusi remote yang benar**: perintah SSH di-quote POSIX, koneksi multiplex, fallback discovery khusus Quadlet, linger untuk user sesi itu sendiri, `--ssh host list`.
+- [x] **Kompartemen tanpa `/usr/bin/env`**: bentuk sudo `VAR=value`, probe meniru panggilan asli, operator root didukung, `--as` fail-fast.
+- [x] **Kesetiaan pada generator**: discovery rekursif, parser case-sensitive, deteksi stale via `NeedDaemonReload`, validasi generator lewat sesi, identitas container berbasis label.
+- [x] **Berkas aman**: penulisan atomik, mengikuti symlink, fsync, mempertahankan mode/owner; toggle boot paham key `[Install]` dan drop-in.
+- [x] **Config dan serve fail-closed**: config.yaml ketat (TUI readonly / serve menolak saat error), password hanya loopback dengan pembatasan percobaan.
+- [x] **Timer tahan-locale**, level log per kata utuh, scanner CI di-pin, `DESIGN.md`.
+
 ### Catatan Ekosistem (Sep 2026)
 
 - [podman-tui](https://github.com/containers/podman-tui) v2.0.0 (6 September 2026) mendukung Podman 6 — dan **tetap tidak memiliki manajemen Quadlet**, membuktikan ceruk quadman tetap esensial.

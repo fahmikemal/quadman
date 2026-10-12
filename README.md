@@ -29,8 +29,8 @@ whole lifecycle in one TUI:
   `*.kube`, `*.volume`, `*.network`, `*.image`, `*.build`, `*.artifact`), across the
   generator's user search path (`$XDG_RUNTIME_DIR/containers/systemd` →
   `~/.config/containers/systemd` → `/etc/containers/systemd/users[/UID]` →
-  `/usr/share/containers/systemd/users[/UID]`), with first-match shadowing like the
-  generator.
+  `/usr/share/containers/systemd/users[/UID]`), including their subdirectories,
+  with first-match shadowing like the generator.
 - Maps each source file to the systemd unit the generator produces
   (`webapp.container` → `webapp.service`, `stack.pod` → `stack-pod.service`,
   `cache.volume` → `cache-volume.service`, …), honoring `ServiceName=` overrides
@@ -46,7 +46,7 @@ whole lifecycle in one TUI:
 - **Follow-mode journals** — live `journalctl -f` tail per unit with
   stick-to-tail scrolling, pause (`f`), live grep filter (`F`), priority filter (`p`), export to `.log`/`.jsonl` (`S`), and OSC52 clipboard copy (`c`).
 - **Command Palette** (`Ctrl+P`) — fuzzy-search and execute all unit lifecycle actions, screens, views, diagnostics, and user custom commands with live context-sensitive validation.
-- **Native Wish SSH Daemon** (`quadman serve`) serves the TUI directly over SSH without installing quadman on the connecting machine: loopback-only by default, `authorized_keys` required for non-loopback binds, with password auth, host key generation, and readonly mode.
+- **Native Wish SSH Daemon** (`quadman serve`) serves the TUI directly over SSH without installing quadman on the connecting machine: loopback-only by default, `authorized_keys` required for non-loopback binds, password auth (loopback-only, throttled), host key generation, readonly mode, and fully isolated sessions.
 - **Dual Rootless / System Mode** (`--system`) — default rootless-first identity, with native rootful system support (`/etc/containers/systemd`, `/run/containers/systemd`) and automatic root detection (`sudo quadman`).
 - `/` fuzzy-filter the unit list as you type.
 - Edit quadlet files in `$EDITOR` from the TUI; get nudged to regenerate
@@ -159,6 +159,7 @@ quadman serve                    # serve TUI over SSH via Wish daemon (default 1
 quadman serve -p 2222 --readonly # serve as a read-only monitoring dashboard over SSH
 quadman --readonly               # TUI with all state-changing actions disabled
 quadman --ssh user@host          # manage a remote rootless host over SSH
+quadman --ssh user@host list     # non-interactive overview of the remote host
 quadman --theme colorblind       # auto, dark, light, or colorblind
 quadman --mouse                  # opt-in click-to-select
 quadman --quadlet-dir ~/quadlets # extra Quadlet source dir (repeatable)
@@ -195,9 +196,9 @@ quadman -version                 # block-art splash on a terminal, one line when
 | `y` / `Y` | copy unit name / image to the clipboard (OSC52, works over SSH) |
 | `[` / `]` | cycle detail tabs: overview / source / status / journal / inspect |
 | `I`   | install a `.quadlets` bundle (`podman quadlet install`) |
-| `g`   | storage: images / volumes / containers with USED BY (`[ ]` tabs, `p` pull, `D` remove, `S` sort) |
+| `g`   | storage: images / volumes / containers with USED BY (`[ ]` tabs, `p` pull, `D` remove — type the volume name for volumes, `S` sort) |
 | `o`   | resource stats: CPU bars, sort with `←/→`, `i` idle containers, live re-sample |
-| `P`   | `podman system prune` (asks first, warns about inactive Quadlet units) |
+| `P`   | `podman system prune` (type `prune` to confirm; warns about inactive Quadlet units) |
 | `T`   | timers: schedule, next/last run, run history (`n` run now, `s`/`x`, `e`/`d`, `l` last run log) |
 | `K`   | secrets: USED BY · AS, missing and unused first (`n` create, `r` rotate, `c` copy value, `D` remove) |
 | `w`   | events timeline (`f` pause, `1`-`6` type, `u` this unit, `s` window, `S` export) |
@@ -213,8 +214,10 @@ quadman -version                 # block-art splash on a terminal, one line when
 ## Config
 
 Optional YAML settings at `~/.config/quadman/config.yaml` (all keys
-optional; a corrupt file is reported in the status line instead of
-silently ignored):
+optional). The file is read strictly and fails closed: a malformed file or
+an unknown key (a typo such as `read_only:`) is reported, the TUI starts
+**readonly** until it is fixed, and `quadman serve` refuses to start —
+quadman never guesses settings that decide who may change what.
 
 ```yaml
 refresh_interval: 5s   # list poll tick (default 2.5s)
@@ -224,6 +227,8 @@ readonly: false        # same as quadman --readonly
 theme: auto            # auto, dark, light, or colorblind
 mouse: false           # same as quadman --mouse (off keeps text selection working)
 dashboard: true        # false starts the list with the tiles collapsed (z toggles)
+system: false          # true: manage system units by default (like --system; never applies to --as)
+ssh_multiplex: true    # --ssh shares one connection (OpenSSH ControlMaster); false opts out
 quadlet_dirs:          # extra Quadlet source dirs (same as --quadlet-dir)
   - ~/quadlets
 serve:
@@ -236,22 +241,28 @@ serve:
 
 custom_commands:
   - name: status
-    key: S
+    key: C
     run: systemctl --user status {{.UnitName}}
   - name: image
-    key: G
+    key: M
     run: podman image inspect {{.Image}}
 ```
 
-Custom keys must avoid the built-in list-mode keys (`s x r e d E u h v t i I D y Y g o P T K w n A R L ? q l X` and friends):
-quadman warns at startup when a custom command is shadowed and the built-in
-always wins.
+Custom keys must avoid the built-in list-mode keys
+(`/ ? A d D e E g h i I l L n o P q r R s S t T K u v w x X y Y z` and space):
+quadman warns at startup when a custom command is shadowed, and the
+built-in always wins. A custom command on one of the table's navigation
+keys (`j k b f g G u d`) works but takes that navigation key over; quadman
+says so at startup too.
 
-Custom commands run without a shell: the `run` string is expanded as a Go
-template (`{{.Name}}`, `{{.UnitName}}`, `{{.Kind}}`, `{{.Image}}`), split
-quote-aware, and executed directly. Their results land in the status line
-and the recent-actions log (`A`) like any built-in action. The editor
-choice from first use still lives in `config.json` next to it.
+Custom commands run without a shell: the `run` string is first split
+quote-aware into words, then each word is expanded as a Go template
+(`{{.Name}}`, `{{.UnitName}}`, `{{.Kind}}`, `{{.Image}}`), so a value from a
+unit file stays inside the word it was written in and can never add
+arguments. They run through the session — on the SSH host or as the
+compartment user, like every built-in action — and their results land in
+the status line and the recent-actions log (`A`). The editor choice from
+first use still lives in `config.json` next to it.
 
 ## SSH mode
 
@@ -262,17 +273,25 @@ quadman --ssh user@host
 Every CLI call (`systemctl`, `journalctl`, `loginctl`, `podman`) runs through
 your own `ssh` binary — keys, agent, `known_hosts`, and `~/.ssh/config` all
 keep working, and nothing new needs configuring. If `ssh user@host true`
-works, quadman works.
+works, quadman works. Calls share one multiplexed connection (OpenSSH
+`ControlMaster` with a private socket, closed when quadman exits), so a
+refresh costs one handshake, not one per command; set `ssh_multiplex:
+false` to opt out. OpenSSH hands the remote login shell a single command
+line, so quadman quotes every word: the remote login shell must be
+POSIX-compatible (sh, dash, bash, zsh, ksh).
 
-Remote mode keeps full read and lifecycle control: list, live state, start /
-stop / restart, journals, storage, stats, events, updates, health, linger, and the
-dependency tree (files are read with `cat` on demand, never synced). Actions
-that edit files on the host (edit, enable/disable at boot, instantiate,
-generate-write, install, delete) are refused with an explanation — manage
-files by running quadman on that host directly. Interactive or destructive
-host actions are also refused remotely: `podman exec` (`X`) needs a local
-TTY and `system prune` (`P`) must run on the host. Drop-ins are enumerated
-remotely (read-only) and merged in the file view.
+Remote mode keeps full read and lifecycle control: list (also `quadman --ssh
+user@host list`), live state, start / stop / restart, template instances,
+journals, storage, stats, events, updates, health, linger (for the remote
+login user), problems (the host's own generator dry-run), the stale-reload
+banner, bundle install (`podman quadlet install` on the host), prune (type
+`prune` to confirm), and the dependency tree (files are read with `cat` on
+demand, never synced). Actions that edit files through quadman itself
+(edit, enable/disable at boot, generate-write, delete) are refused with an
+explanation — run quadman on that host for those. `podman exec` (`X`) is
+refused too: the batch SSH runner carries no interactive terminal. Drop-ins
+are enumerated remotely (read-only) and merged in the file view. `--ssh`
+cannot be combined with `--as` (no nested sudo hops) or with `serve`.
 
 ## Compartments (many OS users, one TUI)
 
@@ -283,16 +302,33 @@ without leaving quadman. `quadman --as svc-web` re-points every CLI call
 systemd user instance, podman storage, and secret store. The top bar shows
 `quadman › rootless › as svc-web`; file edits stay disabled, like SSH mode.
 
-Requirements: `sudo -n -u <user> true` must succeed (NOPASSWD sudoers entry
-or a root operator), and the target needs a runtime dir (`/run/user/<uid>` —
-linger the user or log in once). When either is missing, quadman explains
-why and keeps showing your own session instead of half-switching.
+Requirements: non-interactive sudo to the user must work with the session
+variables quadman passes (`sudo -n -u <user> XDG_RUNTIME_DIR=… HOME=… -- <cmd>`),
+and the target needs a runtime dir (`/run/user/<uid>` — linger the user or
+log in once). A root operator needs nothing else; anyone else needs a
+`NOPASSWD:SETENV` rule for the CLIs quadman runs as that user — no
+`/usr/bin/env`, no shell:
+
+```
+operator ALL=(svc-web) NOPASSWD:SETENV: /usr/bin/systemctl, /usr/bin/journalctl, \
+    /usr/bin/loginctl, /usr/bin/podman, /usr/bin/podlet, /usr/bin/cat, /usr/bin/ls, \
+    /usr/bin/true, /usr/libexec/podman/podman-system-generator
+```
+
+(Adjust paths to your distribution; the generator path enables the
+problems view.) `quadman --as <user>`, `--as <user> list`, and `--as <user>
+serve` stop at startup with the reason when sudo, the user, or the runtime
+dir is missing; switching from the Command Palette keeps your own session
+instead of half-switching.
 
 Configured compartments (`compartments: [svc-web, svc-db]` in config.yaml)
 appear in the Command Palette (`Ctrl+P`) as "Use Compartment ..." actions,
 plus "Use Own Session" to go back. Switching compartments over an SSH
-session is refused (no nested sudo hops), and `--system` cannot be combined
-with `--as` at all (system units live outside any user's session).
+session is refused (no nested sudo hops), served sessions never switch (a
+`quadman --as svc-web serve` client stays on svc-web), and `--system`
+cannot be combined with `--as` at all (system units live outside any user's
+session). Compartments are always user sessions, also for a root operator
+and also when config.yaml sets `system: true`.
 Non-interactive scripts use `quadman --as <user> list`.
 
 ```yaml
@@ -319,9 +355,11 @@ quadman serve -a 0.0.0.0:2222 --authorized-keys ~/.ssh/authorized_keys
 ssh -p 2222 user@host
 ```
 
-- **Authentication Options**: Supports `authorized_keys` file verification or password protection (loopback only). Passwords come from exactly one of `--password`, `--password-file`, `QUADMAN_SERVE_PASSWORD`, or config `password`/`password_file`; prefer the file or env forms so the secret never appears in the process list. With neither configured on loopback, the server still starts but **forces all sessions into readonly mode** and says so loudly, and anonymous write access is never on by default, and open-auth/password-only binds never listen beyond loopback.
+- **Authentication Options**: Supports `authorized_keys` file verification or password protection. Passwords are **loopback-only, even next to keys** — a LAN bind authenticates with keys alone — and failed attempts are throttled per client address (a delay per failure, a lockout after 5 failures within a minute). Passwords come from exactly one of `--password`, `--password-file`, `QUADMAN_SERVE_PASSWORD`, or config `password`/`password_file`; prefer the file or env forms so the secret never appears in the process list. With neither configured on loopback, the server still starts but **forces all sessions into readonly mode** and says so loudly; anonymous write access is never on by default. Loopback is not a user boundary: on a shared host every local account can connect, so prefer keys there.
 - **Readonly Dashboard Mode**: Pass `--readonly` to safely expose quadman as an observability dashboard for teammates without granting permission to start/stop units.
-- **Safe Execution**: Local `$EDITOR` process hijacking is safely disabled in SSH server sessions.
+- **Isolated sessions**: every connection gets its own clients and state; nothing one client does re-targets another. Served sessions never launch an editor or a shell, never write files on the daemon's host (log export), never copy secret values, and never switch compartments.
+- **Theme**: the daemon has no terminal of its own, so `auto` resolves to dark; pick `--theme light` or `colorblind` explicitly.
+- **Config**: `serve` refuses to start when config.yaml is unusable instead of serving guessed defaults.
 
 ## Quadlet locations
 
@@ -329,9 +367,14 @@ quadman scans the generator's rootless search path
 (`$XDG_RUNTIME_DIR/containers/systemd` → `~/.config/containers/systemd` →
 `/etc/containers/systemd/users[/UID]` → `/usr/share/containers/systemd/users[/UID]`),
 plus your own directories from `quadlet_dirs` in config.yaml or repeatable
-`--quadlet-dir` flags (e.g. a git checkout of your stack). Extra dirs are
-listed after the standard path, so same-name files in the standard path keep
-shadowing them — generator semantics stay intact.
+`--quadlet-dir` flags (e.g. a git checkout of your stack). Like the
+generator, every directory is searched recursively (`apps/web/web.container`
+counts; `*.d` drop-in directories and other users' numeric
+`users/<UID>` directories do not), and a symlinked directory or file is
+followed. Extra dirs are listed after the standard path, so same-name files
+in the standard path keep shadowing them — generator semantics stay intact.
+Editing a symlinked unit (enable/disable at boot) replaces the link's target
+in place and keeps the link.
 
 Units that exist only in an extra dir carry a `~` marker: the generator
 cannot see them, so starting one is refused with an explanation until the
