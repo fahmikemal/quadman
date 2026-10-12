@@ -160,6 +160,9 @@ func New() Model {
 	case cfgErr != nil:
 		m.setStatus("config: "+cfgErr.Error(), true)
 	}
+	if nav := customNavOverrides(m.custom); len(nav) > 0 {
+		m.setStatus("custom command(s) take over table navigation keys: "+strings.Join(nav, ", "), false)
+	}
 	if bad := customKeyConflicts(m.custom); len(bad) > 0 {
 		m.setStatus("custom command(s) shadowed by built-in keys (never fire): "+strings.Join(bad, ", "), true)
 	}

@@ -9,6 +9,8 @@ import (
 	"text/template"
 	"time"
 
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/fahmikemal/quadman/internal/config"
@@ -43,19 +45,46 @@ func customDataOf(u quadlet.Unit, images map[string]string) customData {
 	}
 }
 
-// builtinKeys are the single-char list-mode keys owned by quadman itself.
-// A custom command bound to one of them never fires (built-ins dispatch
-// first), so New() warns instead of letting the config rot silently.
-var builtinKeys = map[string]bool{
-	"/": true, "?": true, " ": true,
-	"A": true, "d": true, "D": true,
-	"e": true, "E": true, "g": true, "h": true,
-	"i": true, "I": true, "l": true, "L": true,
-	"n": true, "o": true, "P": true, "q": true,
-	"r": true, "R": true, "s": true, "t": true,
-	"T": true, "K": true, "u": true, "v": true,
-	"w": true, "x": true, "X": true, "y": true, "Y": true,
-	"S": true, "z": true,
+// builtinKeys are the single-char list-mode keys owned by quadman's own
+// handlers. A custom command bound to one of them never fires (built-ins
+// dispatch first), so New() warns instead of letting the config rot
+// silently. TestBuiltinKeysCoverDispatch derives the set from the real
+// dispatch, so it cannot go stale.
+var builtinKeys = func() map[string]bool {
+	keys := map[string]bool{" ": true}
+	for _, k := range strings.Fields("/ ? A d D e E g h i I l L n o P q r R s S t T K u v w x X y Y z") {
+		keys[k] = true
+	}
+	return keys
+}()
+
+// tableKeys are the single-character keys the unit table handles itself
+// (bubbles' default table keymap: j/k, b/f, u/d, g/G). Custom commands
+// dispatch before the table, so a custom command on one of them works but
+// takes that navigation key away; New() says so.
+var tableKeys = func() map[string]bool {
+	km := table.DefaultKeyMap()
+	keys := map[string]bool{}
+	for _, b := range []key.Binding{km.LineUp, km.LineDown, km.PageUp, km.PageDown, km.HalfPageUp, km.HalfPageDown, km.GotoTop, km.GotoBottom} {
+		for _, k := range b.Keys() {
+			if len([]rune(k)) == 1 {
+				keys[k] = true
+			}
+		}
+	}
+	return keys
+}()
+
+// customNavOverrides returns "name (key)" labels for custom commands that
+// take a table navigation key away (they fire; the navigation does not).
+func customNavOverrides(custom []config.CustomCommand) []string {
+	var out []string
+	for _, cc := range custom {
+		if tableKeys[cc.Key] && !builtinKeys[cc.Key] {
+			out = append(out, fmt.Sprintf("%s (%s)", cc.Name, cc.Key))
+		}
+	}
+	return out
 }
 
 // customKeyConflicts returns "name (key)" labels for custom commands whose

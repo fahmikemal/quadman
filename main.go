@@ -130,6 +130,15 @@ func main() {
 		return
 	}
 
+	// A compartment that cannot be reached must stop here, like list and
+	// serve: opening the TUI on the operator's own session instead would
+	// invite actions on the wrong user's units.
+	if *asUser != "" {
+		if _, err := compSetup(*asUser); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+	}
 	opts := ui.Options{
 		SSH: *sshTarget, Compartment: *asUser, Readonly: *readonly, Mouse: *mouse,
 		Theme: *theme, ASCII: *ascii, QuadletDirs: quadletDirs, System: system,
@@ -570,6 +579,7 @@ func serve(args []string, defaultReadonly, defaultMouse bool, defaultTheme strin
 	if openAuth {
 		fmt.Println("WARNING: no --authorized-keys or --password: forcing readonly mode.")
 		fmt.Println("WARNING: non-loopback binds require --authorized-keys; open-auth never listens beyond loopback.")
+		fmt.Println("WARNING: loopback is not a user boundary: on a shared host every local account can connect and read journals and inspect output.")
 	}
 	if server.IsWildcardAddr(finalAddr) && !finalReadonly {
 		fmt.Println("WARNING: listening on all interfaces with write access enabled; prefer -a 127.0.0.1:2222 or --readonly.")
