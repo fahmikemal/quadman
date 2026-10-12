@@ -232,8 +232,15 @@ func DiscoverMode(system bool) ([]Unit, error) {
 func DiscoverDirs(dirs []string) ([]Unit, error) {
 	var units []Unit
 	seen := map[string]bool{}
+	extra := map[string]bool{}
+	for _, d := range ExtraDirList() {
+		extra[filepath.Clean(d)] = true
+	}
 	for _, base := range dirs {
-		walked, err := unitDirs(base)
+		// Extra dirs are often git checkouts: their hidden subtrees
+		// (.git, .cache) hold no quadlets and would cost a full walk on
+		// every refresh. The generator never reads extra dirs anyway.
+		walked, err := unitDirs(base, extra[filepath.Clean(base)])
 		if err != nil {
 			return nil, err
 		}
@@ -289,11 +296,12 @@ func isUnitFile(dir string, e fs.DirEntry) bool {
 // unitDirs expands one search-path entry into the directories the
 // generator loads, in its order: the entry itself, then every
 // subdirectory depth-first in lexical order. Drop-in directories (*.d) are
-// skipped, and so are the numeric per-UID dirs directly below a users/
-// entry (other users' units; the own UID dir is an entry of its own). A
+// skipped, and so are the numeric per-UID dirs directly below a
+// <prefix>/containers/systemd/users entry (other users' units; the own UID
+// dir is an entry of its own). skipHidden also prunes dot-directories. A
 // symlinked entry is followed, but paths keep the configured spelling.
 // A missing or unreadable entry yields no dirs; other errors are returned.
-func unitDirs(base string) ([]string, error) {
+func unitDirs(base string, skipHidden bool) ([]string, error) {
 	root, err := filepath.EvalSymlinks(base)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
@@ -301,7 +309,7 @@ func unitDirs(base string) ([]string, error) {
 		}
 		return nil, fmt.Errorf("read %s: %w", base, err)
 	}
-	usersEntry := filepath.Base(base) == "users"
+	usersEntry := strings.HasSuffix(filepath.Clean(base), filepath.Join("containers", "systemd", "users"))
 	var dirs []string
 	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -314,7 +322,7 @@ func unitDirs(base string) ([]string, error) {
 			return nil
 		}
 		if p != root {
-			if strings.HasSuffix(d.Name(), ".d") {
+			if strings.HasSuffix(d.Name(), ".d") || (skipHidden && strings.HasPrefix(d.Name(), ".")) {
 				return fs.SkipDir
 			}
 			if usersEntry && filepath.Dir(p) == root && isNumeric(d.Name()) {

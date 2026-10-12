@@ -97,7 +97,7 @@ func TestUserDirs(t *testing.T) {
 func TestDiscoverRecursive(t *testing.T) {
 	base := t.TempDir()
 	cfg := filepath.Join(base, "config")
-	users := filepath.Join(base, "users")
+	users := filepath.Join(base, "containers", "systemd", "users")
 	mk := func(rel, content string) {
 		p := filepath.Join(base, rel)
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -112,9 +112,9 @@ func TestDiscoverRecursive(t *testing.T) {
 	mk("config/zz.container", "[Container]\nImage=top\n")
 	mk("config/a/zz.container", "[Container]\nImage=nested\n")       // shadowed by the top-level file
 	mk("config/web.container.d/override.container", "[Container]\n") // inside a drop-in dir: never a unit
-	mk("users/shared/common.container", "[Container]\n")
-	mk("users/1001/other.container", "[Container]\n") // someone else's
-	mk("users/1000/mine.container", "[Container]\n")
+	mk("containers/systemd/users/shared/common.container", "[Container]\n")
+	mk("containers/systemd/users/1001/other.container", "[Container]\n") // someone else's
+	mk("containers/systemd/users/1000/mine.container", "[Container]\n")
 
 	units, err := DiscoverDirs([]string{cfg, users, filepath.Join(users, "1000")})
 	if err != nil {
@@ -138,6 +138,29 @@ func TestDiscoverRecursive(t *testing.T) {
 		if got[name] != p {
 			t.Errorf("%s = %q, want %q", name, got[name], p)
 		}
+	}
+}
+
+func TestDiscoverExtraDirSkipsHidden(t *testing.T) {
+	old := ExtraDirs
+	t.Cleanup(func() { ExtraDirs = old })
+	repo := t.TempDir()
+	ExtraDirs = []string{repo}
+	for _, rel := range []string{"stack/web.container", ".git/objects/x.container"} {
+		p := filepath.Join(repo, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("[Container]\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	units, err := DiscoverDirs([]string{repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(units) != 1 || units[0].Name != "web" {
+		t.Errorf("extra dirs must skip hidden subtrees: %+v", units)
 	}
 }
 
