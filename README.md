@@ -123,17 +123,20 @@ never needs the Podman socket or API.
 
 ## Screenshots
 
-The main list — every Quadlet source, its systemd unit, live state, and image,
-with a `daemon-reload` warning when files changed on disk:
+The main list — dashboard tiles, a *needs attention* block that names the key
+for each problem, then every Quadlet with its live state, uptime, and image
+(problems sort first):
 
 ![quadman unit list](docs/screenshot-list.png)
 
-Selecting a unit streams its journal live (`journalctl -f`) without leaving
-the TUI — pause with `f`, search with `/`:
+Press `l` on a unit to stream its journal live (`journalctl -f`) without
+leaving the TUI — warnings and errors are marked, pause with `f`, search with
+`/`, filter by priority with `p`:
 
 ![quadman journal view](docs/screenshot-logs.png)
 
-Resource usage per container (`podman stats`), one keypress away:
+Resource usage per container (`podman stats`, key `o`) with a CPU history,
+each container linked back to its Quadlet unit:
 
 ![quadman resource stats](docs/screenshot-stats.png)
 
